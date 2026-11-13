@@ -1,0 +1,199 @@
+# The partner chooses what it receives and how (share surfaces §6.4, §6.5,
+# §6.7, §6.8): Stretching switched off in "Categories from …" leaves its
+# calendar at once, with no sync, and comes back when switched on; under
+# "Category alerts too" its own sheet takes an alert of the partner's own,
+# and the Categories page lists it under "From …" with "Alerts on"; the
+# look row changes how a partner's row is drawn; the calendar's filter
+# lists the category in a group of its own.
+# - Stretching's id is minted on the owner's device: its rows are named by
+#   title. In "Categories from …" the title matches the row (`--nth 0`,
+#   which opens the category's sheet) and its show switch ("Show
+#   Stretching on my calendar", `--nth 1`).
+# - The sheets here close with Back: their ✕ carries no id.
+# - "Alerts on" is glued with a no-break space (U+00A0), as a count is to
+#   its noun: the Categories page target below carries one.
+# - Ends with the alerts setting back on "Only alerts I add" and the look
+#   on Outlined, the defaults: 04i's notice counts the alerts armed on
+#   what leaves, and the category alert added here rings at 9:00 on the
+#   day, armed only before then.
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 tap id:sharing-theirs-categories
+-d emulator-5558 wait id:shared-categories-sheet
+-d emulator-5558 expect "Stretching" "From qa1@example.com"
+-d emulator-5558 tap "Stretching" --nth 1
+-d emulator-5558 shot category-hidden
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-categories-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Core circuit" --absent "Hip openers" --timeout 15
+-d emulator-5558 shot hidden-gone
+# On again, still with no sync: the event is back.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 tap id:sharing-theirs-categories
+-d emulator-5558 wait id:shared-categories-sheet
+-d emulator-5558 tap "Stretching" --nth 1
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-categories-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Hip openers" "From qa1@example.com" --timeout 15
+# "Category alerts too", then an alert of the partner's own in the
+# category's sheet.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-alerts --in id:sharing-page-list
+-d emulator-5558 tap id:sharing-alerts
+-d emulator-5558 wait id:sharing-alerts-category
+-d emulator-5558 tap id:sharing-alerts-category
+-d emulator-5558 wait id:sharing-alerts-category --gone
+-d emulator-5558 expect id:sharing-alerts "Category alerts too" --timeout 10
+-d emulator-5558 tap id:sharing-theirs-categories
+-d emulator-5558 wait id:shared-categories-sheet
+-d emulator-5558 tap "Stretching" --nth 0
+-d emulator-5558 wait id:shared-category-sheet
+-d emulator-5558 expect "From qa1@example.com" id:shared-category-sheet-show
+-d emulator-5558 tap id:shared-category-add-alert
+-d emulator-5558 wait id:alert-sheet-save
+-d emulator-5558 tap id:alert-sheet-save
+-d emulator-5558 wait id:alert-sheet-save --gone
+-d emulator-5558 wait id:shared-category-alert-0
+-d emulator-5558 shot category-alert
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-category-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-categories-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+# The Categories page: Stretching under "From …", with its alert.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:calendar-more
+-d emulator-5558 wait id:calendar-settings-open
+-d emulator-5558 tap id:calendar-settings-open
+-d emulator-5558 wait id:calendar-add-event --gone
+-d emulator-5558 tap id:calendar-categories-open
+-d emulator-5558 wait id:category-add
+-d emulator-5558 scroll-to id:category-section-partner-header
+-d emulator-5558 expect id:category-section-partner-header "From qa1@example.com" "Stretching" "Alerts on"
+-d emulator-5558 shot categories-from-partner
+-d emulator-5558 key back
+-d emulator-5558 wait id:calendar-categories-open
+-d emulator-5558 key back
+-d emulator-5558 wait id:calendar-add-event
+# The calendar's filter: Stretching in a group of its own, after the
+# partner's own categories.
+-d emulator-5558 tap id:calendar-filter-open
+-d emulator-5558 wait id:filter-categories
+-d emulator-5558 tap id:filter-categories
+-d emulator-5558 wait id:category-pick-done
+-d emulator-5558 scroll-to "Stretching"
+-d emulator-5558 expect --ordered id:category-pick-create "From qa1@example.com" "Stretching"
+-d emulator-5558 shot filter-group
+# The picker opened while the Filters sheet was still sliding in, and
+# that sheet then reported its ✕ low: fixed in the app (it reads its
+# geometry again once uncovered). The settle is a margin, not the cure.
+-d emulator-5558 tap id:category-pick-close --settle 1000
+-d emulator-5558 wait id:category-pick-close --gone
+-d emulator-5558 tap id:filter-close
+-d emulator-5558 wait id:filter-sheet --gone
+-d emulator-5558 wait id:calendar-add-event
+# The look: Avatar, then Outlined again, each seen on the day panel.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-look-events-avatar --in id:sharing-page-list
+-d emulator-5558 tap id:sharing-look-events-avatar
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Hip openers" --timeout 15
+-d emulator-5558 shot look-avatar
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-look-events-outlined --in id:sharing-page-list
+-d emulator-5558 tap id:sharing-look-events-outlined
+-d emulator-5558 scroll-to id:sharing-alerts --in id:sharing-page-list
+-d emulator-5558 tap id:sharing-alerts
+-d emulator-5558 wait id:sharing-alerts-own
+-d emulator-5558 tap id:sharing-alerts-own
+-d emulator-5558 wait id:sharing-alerts-own --gone
+-d emulator-5558 expect id:sharing-alerts "Only alerts I add" --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Hip openers" --timeout 15
+-d emulator-5558 shot look-outlined
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

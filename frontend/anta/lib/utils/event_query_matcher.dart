@@ -1,3 +1,4 @@
+import '../constants/calendar_categories.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../models/calendar_event.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
@@ -98,8 +99,7 @@ class EventQueryMatcher {
   /// per (event, day) — **4.1**. Only an event carrying per-day text, or a
   /// query carrying a date term, pays anything per day.
   _EventQueryMatch? _resolve(CalendarEvent event) {
-    final base =
-        query.maskOf(event.title) | (_categoryMasks[event.categoryId] ?? 0);
+    final base = query.maskOf(event.title) | _categoryMaskOf(event);
     // Everything the title and the category already answer for is settled;
     // nothing below is folded for what they already closed, so a title hit
     // still costs neither a label nor a description fold.
@@ -147,6 +147,17 @@ class EventQueryMatcher {
       varies: varies,
       always: !query.hasDateClauses && (settledSatisfies || !varies),
     );
+  }
+
+  /// The label bits of the category [event] draws under: its stored id's
+  /// when the caller labelled it, else its drawn one's
+  /// ([CalendarCategories.drawnIdOf]) — a partner's event drawn as Other is
+  /// found by Other's name, as a filter reaches it by Other's row.
+  int _categoryMaskOf(CalendarEvent event) {
+    if (_categoryMasks.isEmpty) return 0;
+    return _categoryMasks[event.categoryId] ??
+        _categoryMasks[CalendarCategories.drawnIdOf(event.categoryId)] ??
+        0;
   }
 
   /// Counts description folds performed by the matcher — the work **4.1**

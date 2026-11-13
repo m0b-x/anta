@@ -35,6 +35,12 @@ enum SyncInvalidation {
   /// page names those rows, so a reload of what the pages carried would
   /// leave "shared" on every one of them.
   shareMarks,
+
+  /// The partner's categories hidden on this phone lost one the partner no
+  /// longer shares (the shared reader's prune): an event of theirs that the
+  /// event cache left out by it may show again, and no page names it, so the
+  /// calendar reload reads the events whole rather than patching by id.
+  unhidden,
 }
 
 /// How one synced table crosses the wire: the codec between its row and a

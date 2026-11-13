@@ -25,6 +25,7 @@ import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/date_range.dart';
 import '../models/day_bar.dart';
@@ -270,6 +271,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   AppLocalizations? _l10n;
   Map<String, String> _categoryLabels = const {};
   int? _categoryRevision;
+  List<CalendarCategory>? _categoryPartnerShown;
 
   /// Rebuilt whenever an input of the resolvers changes; null until both the
   /// settings and the event list have arrived. Query-free (T3): the query is
@@ -767,15 +769,24 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   /// Localized category labels for the search, re-resolved when the catalog
-  /// or the locale moves.
+  /// or the locale moves. A partner's shown categories join, a hidden one
+  /// never: hiding bumps no revision, so the shown list's identity is
+  /// compared too.
   bool _refreshCategoryLabels() {
     final l10n = _l10n;
     if (l10n == null) return false;
     final revision = CalendarCategories.revision;
-    if (_categoryRevision == revision) return false;
+    final partner = CalendarCategories.partnerShown;
+    if (_categoryRevision == revision &&
+        identical(_categoryPartnerShown, partner)) {
+      return false;
+    }
     _categoryRevision = revision;
+    _categoryPartnerShown = partner;
     _categoryLabels = {
       for (final category in CalendarCategories.visiblePlus(_categoryIds))
+        category.id: CalendarCategories.labelOf(category, l10n),
+      for (final category in partner)
         category.id: CalendarCategories.labelOf(category, l10n),
     };
     return true;

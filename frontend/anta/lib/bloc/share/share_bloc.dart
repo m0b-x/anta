@@ -128,6 +128,14 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
   /// write cannot draw a later, still unwritten one back for a frame.
   final List<ShareLoaded Function(ShareLoaded state)> _pending = [];
 
+  /// What the last reads that answered returned — never the state on screen,
+  /// which carries [_pending]: a read that fails after a write that failed
+  /// falls back to these, so a value never stored is not drawn as if it
+  /// were once its write has given up.
+  ShareOverview? _readOverview;
+  ShareLook _readLook = const ShareLook();
+  ShareAlerts _readAlerts = ShareAlerts.own;
+
   /// A receiver's setting: shown at once ([shows]), written, then the state
   /// read back from what is stored — so a write that failed shows the value
   /// that stands. No outcome: nothing here has a snackbar or an undo.
@@ -255,32 +263,29 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     ShareOverview overview;
     try {
       overview = await service.overview(withCounts: _opened);
+      // A read a newer load overtook is not the last one read.
+      if (load == _loads) _readOverview = overview;
     } catch (e, st) {
-      // The page keeps what it showed; the next change reads again. With
-      // nothing shown yet, "None" would be a claim the read never made.
+      // The page keeps what was last read; the next change reads again.
+      // With nothing read yet, "None" would be a claim the read never made.
       debugPrint('[ShareBloc] overview not read: $e\n$st');
-      final current = state;
-      if (current is ShareLoaded) {
-        overview = current.overview;
+      final last = _readOverview;
+      if (last != null) {
+        overview = last;
       } else {
         if (load == _loads) emit(const ShareLoadFailed());
         return;
       }
     }
     final availability = service.availability;
-    var look = const ShareLook();
-    var alerts = ShareAlerts.own;
-    final shown = state;
-    if (shown is ShareLoaded) {
-      look = shown.look;
-      alerts = shown.alerts;
-    }
     // Only while paired: Sync & sharing loads this for an account that
     // never paired too, and it must read nothing more for it.
     if (availability is! ShareNotPaired) {
       try {
-        look = await service.looks();
-        alerts = await service.alerts();
+        final look = await service.looks();
+        if (load == _loads) _readLook = look;
+        final alerts = await service.alerts();
+        if (load == _loads) _readAlerts = alerts;
       } catch (e, st) {
         debugPrint('[ShareBloc] settings not read: $e\n$st');
       }
@@ -289,8 +294,8 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     var next = ShareLoaded(
       availability: availability,
       overview: overview,
-      look: look,
-      alerts: alerts,
+      look: _readLook,
+      alerts: _readAlerts,
       outcome: _outcome,
     );
     for (final shows in _pending) {

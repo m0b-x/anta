@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants/calendar_categories.dart';
 import '../constants/event_presence.dart';
 import '../services/note_money_ledger_service.dart';
 import 'calendar_event.dart';
@@ -55,6 +56,9 @@ class CalendarGridFilters extends Equatable {
   /// Ids of categories hidden from the grid. Empty means "show everything".
   /// A denylist rather than an allowlist so a newly created category is
   /// visible by default and a deleted one leaves a harmless stale id behind.
+  /// An event is matched by the category it draws under
+  /// ([CalendarCategories.drawnIdOf]), never its stored id: an event drawn
+  /// as Other is denied by the Other row, and a stale id hides nothing.
   final Set<String> hiddenCategoryIds;
 
   /// Priorities to include. **Empty means every priority** — the filter is
@@ -220,7 +224,12 @@ class CalendarGridFilters extends Equatable {
     if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
       return false;
     }
-    if (hiddenCategoryIds.contains(event.categoryId)) return false;
+    if (hiddenCategoryIds.isNotEmpty &&
+        hiddenCategoryIds.contains(
+          CalendarCategories.drawnIdOf(event.categoryId),
+        )) {
+      return false;
+    }
     if (linkedNotesOnly || moneyOnly) {
       final noteId = event.noteId;
       if (noteId == null) return false;

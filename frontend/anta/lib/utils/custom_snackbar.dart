@@ -14,11 +14,22 @@ class CustomSnackbar {
   static const Duration confirmActionDuration =
       AppConstants.snackbarActionMaxDuration;
 
+  /// Until when the bar with an action this helper last raised stands, its
+  /// transitions counted; null once [hide] took it down. A bar nobody asked
+  /// for — a share notice — waits this out rather than take down an Undo.
+  static DateTime? get actionBarUntil => _actionBarUntil;
+  static DateTime? _actionBarUntil;
+
+  /// A test's tree goes away with its bar still standing on the wall clock.
+  @visibleForTesting
+  static void forgetActionBar() => _actionBarUntil = null;
+
   static void show(
     BuildContext context,
     String message, {
     Duration? duration,
     bool withToolbarOffset = false,
+    bool overSheet = false,
   }) {
     _showSnackBar(
       context,
@@ -26,6 +37,7 @@ class CustomSnackbar {
       duration: duration ?? AppConstants.snackbarDuration,
       withToolbarOffset: withToolbarOffset,
       showCloseIcon: true,
+      overSheet: overSheet,
     );
   }
 
@@ -94,12 +106,11 @@ class CustomSnackbar {
         onAction: onAction,
         // A sheet's context may be gone by the time the action is tapped,
         // and the overlay's bar needs none to come down.
-        dismiss: overSheet
-            ? OverlaySnackbar.hide
-            : () {
-                OverlaySnackbar.hide();
-                messenger?.hideCurrentSnackBar();
-              },
+        dismiss: () {
+          _actionBarUntil = null;
+          OverlaySnackbar.hide();
+          if (!overSheet) messenger?.hideCurrentSnackBar();
+        },
       ),
       duration: capped,
       withToolbarOffset: withToolbarOffset,
@@ -107,11 +118,15 @@ class CustomSnackbar {
       verticalPadding: SnackbarMetrics.actionBarVerticalPadding,
       overSheet: overSheet,
     );
+    _actionBarUntil = DateTime.now().add(
+      capped + AppConstants.snackbarTransitions,
+    );
   }
 
   /// Takes down whatever bar is up, on either road: the overlay one a
   /// non-resizing page raised, and the Scaffold's.
   static void hide(BuildContext context) {
+    _actionBarUntil = null;
     OverlaySnackbar.hide();
     ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
   }

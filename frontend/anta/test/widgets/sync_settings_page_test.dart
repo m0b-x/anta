@@ -24,6 +24,7 @@ import 'package:anta/models/sync_binding.dart';
 import 'package:anta/pages/sharing_page.dart';
 import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/models/app_user.dart';
+import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
@@ -594,6 +595,43 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('asked while it is up, paired, it opens the Sharing page '
+        'once', (tester) async {
+      addTearDown(() => AppNavigator.sharingRequested.value = false);
+      await boot(user: userA, paired: true);
+      await pumpPage(tester);
+      expect(find.byType(SharingPage), findsNothing);
+
+      AppNavigator.sharingRequested.value = true;
+      await settle(tester);
+      expect(find.byType(SharingPage), findsOneWidget);
+      expect(AppNavigator.sharingRequested.value, isFalse);
+
+      Navigator.of(tester.element(find.byType(SharingPage))).pop();
+      await settle(tester);
+      final paired = pairingBloc!.state as PairingPaired;
+      pairingBloc!.show(PairingPaired(partner: paired.partner));
+      await settle(tester);
+      expect(find.byType(SharingPage), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('asked while it is up, not paired, it opens nothing and '
+        'builds no share bloc', (tester) async {
+      addTearDown(() => AppNavigator.sharingRequested.value = false);
+      await boot(user: userA);
+      await pumpPage(tester);
+
+      AppNavigator.sharingRequested.value = true;
+      await settle(tester);
+      expect(find.byType(SharingPage), findsNothing);
+      expect(AppNavigator.sharingRequested.value, isFalse);
+      expect(shareBlocs, 0);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('paired, without the ask it stays on Sync & sharing', (
       tester,
     ) async {
@@ -882,7 +920,11 @@ void main() {
         Navigator.of(tester.element(find.byType(SharingPage))).pop();
         await settle(tester);
         expect(find.byType(SharingPage), findsNothing);
-        expect(confirm(), findsNothing, reason: 'the dropped tap stays dropped');
+        expect(
+          confirm(),
+          findsNothing,
+          reason: 'the dropped tap stays dropped',
+        );
 
         await tester.tap(stop());
         await settle(tester, rounds: 4);

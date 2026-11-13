@@ -278,6 +278,38 @@ void main() {
       expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
     });
 
+    /// "Every offered category" is read after the picker returns: a category
+    /// created inside it is offered by then, and leaving it un-ticked is a
+    /// narrowing, never "all" (RD3 F6).
+    testWidgets('a category created inside the picker and left un-ticked '
+        'keeps the allowlist explicit', (tester) async {
+      final robot = OverviewOptionsRobot(tester);
+      await robot.show(onChanged: writes.add, onCategoriesChanged: picks.add);
+
+      await robot.openCategories();
+      // What Create category does through the facade; a toggle back and
+      // forth rebuilds the list.
+      CalendarCategories.updateCache([
+        ...CalendarCategories.all,
+        const CalendarCategory(
+          id: 'c4',
+          name: 'Cat4',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 4,
+          isBuiltIn: false,
+        ),
+      ]);
+      await robot.togglePickerRow('c0');
+      await robot.togglePickerRow('c0');
+      expect(robot.pickerRowTicked('c4'), isFalse);
+      await robot.pickerDone();
+
+      expect(picks, [
+        {'c0', 'c1', 'c2', 'c3'},
+      ]);
+    });
+
     testWidgets('a pick that turns All into two names and "+N more" takes '
         'the value\'s second line, never an ellipsis, under the semantics '
         'refresh (D33)', (tester) async {

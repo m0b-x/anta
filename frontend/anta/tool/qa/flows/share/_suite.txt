@@ -1,10 +1,14 @@
 # The two-guest suite for `qa pass share -d emulator-5556`: two accounts on
 # two fleet guests, paired, and what one shares reaching the other — the
 # device proof of the sharing foundations (docs/cloud-sharing-foundations.md
-# F4, the multi-user roadmap's R10). No surface shares anything yet, so the
-# owner's side sets and clears a share through the QA seam (`qa share`),
-# and everything else is the app's own UI: sign-in, bind, the pairing sheet,
-# the calendar and the browser on the partner's guest, the unpair dialog.
+# F4, the multi-user roadmap's R10) and of the share surfaces
+# (docs/cloud-share-surfaces-roadmap.md). The older flows set and clear a
+# share through the QA seam (`qa share`); 04g–04i give, receive and stop
+# through the app's own surfaces — the category editor's and the event
+# editor's switches, the Categories page's ⋮, the Sharing page and its
+# sheets, the bar that says what arrived — and use no seam. Everything else
+# is the app's own UI too: sign-in, bind, the pairing sheet, the calendar
+# and the browser on the partner's guest, the unpair dialog.
 # - Two guests: the pass's own, `anta_qa_1` on emulator-5556, is the owner
 #   of what is shared (account qa1, the fixture's rows); `anta_qa_2` on
 #   emulator-5558 is the partner (account qa2, an empty database), driven

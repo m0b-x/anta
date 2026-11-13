@@ -62,6 +62,13 @@ class CalendarEventService {
   bool _mayHoldPartner = false;
   bool _mayHoldMarked = false;
 
+  /// The cache was read with one of the partner's categories hidden, so an
+  /// id it does not hold may be a partner's event left out by it
+  /// ([_ensureOwn]). The set the rows were read by, not the catalogue's: a
+  /// shared built-in hidden alone is in no list of the partner's
+  /// categories. Set by a whole read, raised by a patch.
+  bool _hidesPartner = false;
+
   void _noteShares(CalendarEvent event) {
     if (event.fromPartner) _mayHoldPartner = true;
     if (event.markedShared) _mayHoldMarked = true;
@@ -374,6 +381,7 @@ class CalendarEventService {
           // mapping below takes them up again for what it holds.
           _mayHoldPartner = false;
           _mayHoldMarked = false;
+          _hidesPartner = sharing.hidden.isNotEmpty;
           _cache = List.unmodifiable([
             for (final row in rows)
               if (_shown(row, sharing)) _rowToEvent(row, sharing.partner),
@@ -432,9 +440,11 @@ class CalendarEventService {
     final cache = _cache;
     final loads = _loadsStarted;
     final Map<String, CalendarEvent?> merged;
+    final bool hides;
     try {
       final rows = await _dao.getByIdsIncludingDeleted(ids.toList());
       final sharing = await _sharingOf(rows);
+      hides = sharing.hidden.isNotEmpty;
       merged = {
         for (final row in rows)
           row.id: row.isDeleted || !_shown(row, sharing)
@@ -447,6 +457,7 @@ class CalendarEventService {
     }
     if (!identical(cache, _cache) || loads != _loadsStarted) return _load();
     _cache = List.unmodifiable(_patched(cache, ids, merged));
+    if (hides) _hidesPartner = true;
     return true;
   }
 
@@ -528,7 +539,8 @@ class CalendarEventService {
   /// account shares with this one ([CalendarEventDao.upsert]), with nothing
   /// written and the cache as it was.
   Future<void> upsert(CalendarEvent event) async {
-    _ensureOwn(event.id, fromPartner: event.fromPartner);
+    final asking = _ensureOwn(event.id, fromPartner: event.fromPartner);
+    if (asking != null) await asking;
     var normalized = _normalized(event);
     final cached = _cache.where((e) => e.id == normalized.id).firstOrNull;
     final now = DateTime.now();
@@ -556,8 +568,22 @@ class CalendarEventService {
   /// change that the next load takes back, and a caller with no way to tell
   /// it from a save. Read from the cache, so a database that never read a
   /// shared row pays no statement for it.
-  void _ensureOwn(String id, {bool fromPartner = false}) {
-    if (fromPartner || _cache.any((e) => e.id == id && e.fromPartner)) {
+  ///
+  /// The cache leaves out a partner's event in a category hidden here, so
+  /// while it was read with one hidden ([_hidesPartner]) an id it does not
+  /// hold is asked of the shared rows — the one keyed read returned, which
+  /// the caller awaits. Null, and no await, otherwise.
+  Future<void>? _ensureOwn(String id, {bool fromPartner = false}) {
+    final cached = _cache.where((e) => e.id == id).firstOrNull;
+    if (fromPartner || (cached?.fromPartner ?? false)) {
+      throw SharedRowException('calendar_events', id);
+    }
+    if (cached != null || !_hidesPartner) return null;
+    return _ensureNotShared(id);
+  }
+
+  Future<void> _ensureNotShared(String id) async {
+    if (await _db.sharedRowDao.isShared('calendar_events', id)) {
       throw SharedRowException('calendar_events', id);
     }
   }
@@ -650,7 +676,8 @@ class CalendarEventService {
       alerts.every((alert) => alert.categoryId == null),
       'restoreCascade was handed an inherited alert',
     );
-    _ensureOwn(event.id, fromPartner: event.fromPartner);
+    final asking = _ensureOwn(event.id, fromPartner: event.fromPartner);
+    if (asking != null) await asking;
     final normalized = _normalized(event);
     await _dao.restoreEventCascade(
       _eventToCompanion(normalized, updatedAt: DateTime.now()),
@@ -708,7 +735,8 @@ class CalendarEventService {
   /// The tombstones are one DAO call (**v43**) so the whole delete shares one
   /// merge order, which only the DAO can give it.
   Future<void> deleteById(String id) async {
-    _ensureOwn(id);
+    final asking = _ensureOwn(id);
+    if (asking != null) await asking;
     await _db.transaction(() async {
       await _dao.tombstoneEventCascade(id);
       await _db.alertRegistrationDao.deleteForEvent(id);

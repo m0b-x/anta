@@ -1,0 +1,113 @@
+# The owner stops sharing everything (share surfaces §6.2 item 5, §6.8,
+# §6.14): the partner first adds an alert of its own to "Lifting session"
+# from its read sheet — 10 min before the next Monday or Thursday at
+# 18:00, so it is armed — then the owner taps "Stop sharing everything"
+# and confirms. After a sync on each side nothing of the owner's is left
+# on the partner's calendar, the partner's entries read "None", and the
+# partner is told its alert is off.
+# - The read sheet is reached as 04g reached the editor: Upcoming filtered
+#   to recurring events, the Cardio card's day list, then the day panel's
+#   row by the event's seeded id. The filter is put back after.
+# - The confirm is the app-wide `sheet-confirm`: the dialog has no id of
+#   its own.
+# - Leaves the pair standing with nothing shared, as 05 expects.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-events
+-d emulator-5558 wait id:agenda-filter-events-recurring
+-d emulator-5558 tap id:agenda-filter-events-recurring
+-d emulator-5558 wait id:agenda-filter-events-recurring --gone
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 wait id:agenda-card-days-category-cardio --timeout 15
+-d emulator-5558 tap id:agenda-card-days-category-cardio
+-d emulator-5558 wait id:day-list-close
+-d emulator-5558 tap "Lifting session" --nth 0
+-d emulator-5558 wait id:day-list-close --gone
+-d emulator-5558 tap id:panel-mode-day
+-d emulator-5558 wait id:event-row-qa-event-weekly-lift --timeout 10
+-d emulator-5558 tap id:event-row-qa-event-weekly-lift
+-d emulator-5558 wait id:shared-event-sheet
+-d emulator-5558 tap id:shared-event-add-alert
+-d emulator-5558 wait id:alert-sheet-save
+-d emulator-5558 expect id:alert-when "10 min before"
+-d emulator-5558 tap id:alert-sheet-save
+-d emulator-5558 wait id:alert-sheet-save --gone
+-d emulator-5558 wait id:event-alert-remove-0
+-d emulator-5558 shot own-alert
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-event-sheet --gone
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-events
+-d emulator-5558 wait id:agenda-filter-events-all
+-d emulator-5558 tap id:agenda-filter-events-all
+-d emulator-5558 wait id:agenda-filter-events-all --gone
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+# The owner stops everything, from the Sharing page.
+scroll-to id:sharing-paired --in id:sharing-list
+tap id:sharing-paired
+wait id:sharing-page
+scroll-to id:sharing-stop-all --in id:sharing-page-list
+tap id:sharing-stop-all
+wait id:sheet-confirm
+expect "Stop sharing everything with qa2@example.com?"
+tap id:sheet-confirm --settle 2000
+wait id:sheet-confirm --gone
+text id:sharing-mine-categories --match "None"
+text id:sharing-mine-events --match "None"
+shot stopped-everything
+key back
+wait id:sharing-page --gone
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The partner: told its alert is off; nothing of the owner's is left.
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect "no longer shares Lifting session. Your alert is off." --timeout 60
+-d emulator-5558 shot alert-off
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired --settle 2000
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 text id:sharing-theirs-categories --match "None"
+-d emulator-5558 text id:sharing-theirs-events --match "None"
+-d emulator-5558 shot theirs-none
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Core circuit" --absent "Hip openers" --absent "Lifting session" --absent "From qa1@example.com" --timeout 15
+-d emulator-5558 shot nothing-left
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

@@ -46,6 +46,16 @@ class PartnerSharedCategory extends Equatable {
     required this.eventCount,
   });
 
+  /// This row with [shown] replaced: [ShareOverview.withPartnerShown] copies
+  /// through here, so a field added to the row is carried where it is
+  /// declared rather than at every copy.
+  PartnerSharedCategory copyWith({bool? shown}) => PartnerSharedCategory(
+    category: category,
+    joinsMine: joinsMine,
+    shown: shown ?? this.shown,
+    eventCount: eventCount,
+  );
+
   @override
   List<Object?> get props => [category, joinsMine, shown, eventCount];
 }
@@ -148,14 +158,7 @@ class ShareOverview extends Equatable {
     events: events,
     partnerCategories: [
       for (final shared in partnerCategories)
-        shared.category.id == id
-            ? PartnerSharedCategory(
-                category: shared.category,
-                joinsMine: shared.joinsMine,
-                shown: shown,
-                eventCount: shared.eventCount,
-              )
-            : shared,
+        shared.category.id == id ? shared.copyWith(shown: shown) : shared,
     ],
     partnerEvents: partnerEvents,
     readAt: readAt,

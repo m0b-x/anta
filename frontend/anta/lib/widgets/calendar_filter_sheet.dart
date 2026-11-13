@@ -87,15 +87,20 @@ class CalendarFilterSheet extends StatefulWidget {
           top: Radius.circular(FormMetrics.sheetRadius),
         ),
       ),
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
-        ),
-        child: CalendarFilterSheet(
-          initialFilters: filters,
-          sandbox: sandbox,
-          partnerLook: partnerLook,
+      // A sub-sheet opened while this one is still sliding in, or while its
+      // presets are still loading, covers it before it has settled.
+      builder: (context) => FormSheetSemanticsRefresh(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                FormMetrics.sheetHeightFactor,
+          ),
+          child: CalendarFilterSheet(
+            initialFilters: filters,
+            sandbox: sandbox,
+            partnerLook: partnerLook,
+          ),
         ),
       ),
     );

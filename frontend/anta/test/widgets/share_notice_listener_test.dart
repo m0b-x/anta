@@ -28,6 +28,7 @@ import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
+import 'package:anta/utils/custom_snackbar.dart';
 import 'package:anta/utils/share_copy.dart';
 import 'package:anta/widgets/share_notice_listener.dart';
 
@@ -57,6 +58,13 @@ void main() {
 
   late FakeShareService share;
   var opens = 0;
+
+  /// Whether an alert is in front, as `main.dart` answers the listener.
+  var alerting = false;
+
+  /// How often the catalogue was asked for, and what it puts in the cache.
+  var catalogueLoads = 0;
+  var catalogue = const <CalendarCategory>[];
 
   /// What the app's builder handed the listener, to show it draws nothing
   /// of its own.
@@ -89,11 +97,19 @@ void main() {
     fromPartner: true,
   );
 
+  const dinner = (id: 'e-dinner', title: 'Dinner');
+  const run = (id: 'e-run', title: 'Run');
+  const lunch = (id: 'e-lunch', title: 'Lunch');
+
   setUp(() {
     share = FakeShareService(availability: pairedWith('Ana'));
     opens = 0;
+    alerting = false;
+    catalogueLoads = 0;
+    catalogue = const [gym, shifts, choir];
     shellChild = null;
-    CalendarCategories.updateCache(const [gym, shifts, choir]);
+    CalendarCategories.updateCache(catalogue);
+    CustomSnackbar.forgetActionBar();
   });
 
   tearDown(() => CalendarCategories.updateCache(const []));
@@ -111,7 +127,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         navigatorKey: AppNavigator.navigatorKey,
-        navigatorObservers: [AppNavigator.routeObserver],
+        navigatorObservers: [
+          AppNavigator.routeObserver,
+          ShareNoticeListener.routes,
+        ],
         theme: dark ? AppTheme.dark() : AppTheme.light(),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -125,6 +144,12 @@ void main() {
               opens++;
               return share;
             },
+            loadCategories: () async {
+              catalogueLoads++;
+              CalendarCategories.updateCache(catalogue);
+              return null;
+            },
+            alertInFront: () => alerting,
             child: shellChild = child!,
           ),
         ),
@@ -184,31 +209,46 @@ void main() {
       ),
       (
         'a category wins over events beside it',
-        const ShareArrived(categoryIds: ['c-shifts'], eventTitles: ['Dinner']),
+        const ShareArrived(categoryIds: ['c-shifts'], events: [dinner]),
         en.shareNewFromPartner('Ana', 'Shifts'),
         true,
       ),
       (
         'one event',
-        const ShareArrived(eventTitles: ['Dinner']),
+        const ShareArrived(events: [dinner]),
         en.shareNewFromPartner('Ana', 'Dinner'),
         true,
       ),
       (
         'several events',
-        const ShareArrived(eventTitles: ['Dinner', 'Run', 'Lunch']),
+        const ShareArrived(events: [dinner, run, lunch]),
         en.shareNewFromPartner('Ana', en.shareSummaryEvents(3)),
         true,
       ),
       (
+        'two events of one title, counted as two',
+        const ShareArrived(events: [run, (id: 'e-run-2', title: 'Run')]),
+        en.shareNewFromPartner('Ana', en.shareSummaryEvents(2)),
+        true,
+      ),
+      (
         'one event left with my alert',
-        const ShareLeftWithAlert(['Dinner']),
+        const ShareLeftWithAlert([dinner]),
         'Ana no longer shares Dinner. Your alert is off.',
         false,
       ),
       (
         'several events left with my alerts',
-        const ShareLeftWithAlert(['Dinner', 'Run']),
+        const ShareLeftWithAlert([dinner, run]),
+        en.shareGoneWithAlerts(2, 'Ana'),
+        false,
+      ),
+      (
+        'two events of one title left with my alerts, counted as two',
+        const ShareLeftWithAlert([
+          (id: 'e-gym-1', title: 'Gym'),
+          (id: 'e-gym-2', title: 'Gym'),
+        ]),
         en.shareGoneWithAlerts(2, 'Ana'),
         false,
       ),
@@ -253,7 +293,7 @@ void main() {
       expect(find.text('Your partner shares Shifts with you'), findsOneWidget);
       // Said in full, the bar for the leave reads the same way.
       await waitOutBar(tester);
-      await say(tester, const ShareLeftWithAlert(['Dinner']));
+      await say(tester, const ShareLeftWithAlert([dinner]));
       expect(
         find.text('Your partner no longer shares Dinner. Your alert is off.'),
         findsOneWidget,
@@ -279,7 +319,10 @@ void main() {
         expect(find.text(l10n.shareView), findsOneWidget);
 
         await waitOutBar(tester);
-        await say(tester, const ShareLeftWithAlert(['Abendessen']));
+        await say(
+          tester,
+          const ShareLeftWithAlert([(id: 'e-dinner', title: 'Abendessen')]),
+        );
         expect(
           find.text(l10n.shareGoneWithAlert('Ana', 'Abendessen')),
           findsOneWidget,
@@ -296,7 +339,9 @@ void main() {
         await pumpApp(tester, locale: const Locale('ro'));
         await say(
           tester,
-          ShareLeftWithAlert([for (var i = 0; i < count; i++) 'E$i']),
+          ShareLeftWithAlert([
+            for (var i = 0; i < count; i++) (id: 'e$i', title: 'E$i'),
+          ]),
         );
 
         final words = ro.shareGoneWithAlerts(count, 'Ana');
@@ -315,7 +360,10 @@ void main() {
     testWidgets('de: the stand-in is the German word', (tester) async {
       share = FakeShareService(availability: pairedWith('  '));
       await pumpApp(tester, locale: const Locale('de'));
-      await say(tester, const ShareArrived(eventTitles: ['Abendessen']));
+      await say(
+        tester,
+        const ShareArrived(events: [(id: 'e-dinner', title: 'Abendessen')]),
+      );
 
       expect(
         find.text(
@@ -340,6 +388,7 @@ void main() {
 
       expect(bar(), findsNothing);
       expect(opens, 0);
+      expect(catalogueLoads, 0);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -373,8 +422,8 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
 
-      await say(tester, const ShareArrived(eventTitles: ['Dinner']));
-      await say(tester, const ShareArrived(eventTitles: ['Dinner', 'Run']));
+      await say(tester, const ShareArrived(events: [dinner]));
+      await say(tester, const ShareArrived(events: [dinner, run]));
       expect(bar(), findsNothing);
       expect(opens, 0);
 
@@ -387,6 +436,42 @@ void main() {
       await settleBar(tester);
       expect(
         find.text(en.shareNewFromPartner('Ana', en.shareSummaryEvents(2))),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('held events merge by id: a later notice for one renames it, '
+        'and two of one title stay two', (tester) async {
+      await pumpApp(tester);
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await say(tester, const ShareArrived(events: [dinner]));
+      await say(
+        tester,
+        const ShareArrived(events: [(id: 'e-dinner', title: 'Supper')]),
+      );
+      await say(
+        tester,
+        const ShareLeftWithAlert([(id: 'e-gym-1', title: 'Gym')]),
+      );
+      await say(
+        tester,
+        const ShareLeftWithAlert([(id: 'e-gym-2', title: 'Gym')]),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settleBar(tester);
+      expect(find.text(en.shareGoneWithAlerts(2, 'Ana')), findsOneWidget);
+
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(
+        find.text(en.shareNewFromPartner('Ana', 'Supper')),
         findsOneWidget,
       );
 
@@ -420,9 +505,9 @@ void main() {
         ),
       );
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      await say(tester, const ShareArrived(eventTitles: ['Run']));
-      await say(tester, const ShareLeftWithAlert(['Dinner']));
-      await say(tester, const ShareLeftWithAlert(['Dinner']));
+      await say(tester, const ShareArrived(events: [run]));
+      await say(tester, const ShareLeftWithAlert([dinner]));
+      await say(tester, const ShareLeftWithAlert([dinner]));
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await settleBar(tester);
@@ -458,7 +543,7 @@ void main() {
       final arrived = find.text(en.shareNewFromPartner('Ana', 'Shifts'));
       expect(arrived, findsOneWidget);
 
-      await say(tester, const ShareLeftWithAlert(['Dinner']));
+      await say(tester, const ShareLeftWithAlert([dinner]));
       final left = find.text(en.shareGoneWithAlert('Ana', 'Dinner'));
       expect(arrived, findsOneWidget);
       expect(left, findsNothing);
@@ -467,6 +552,170 @@ void main() {
       await tester.pump(barTurn - settled * 2);
       await settleBar(tester);
       expect(left, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a bar with an action that is up is waited out, never taken '
+        'down', (tester) async {
+      await pumpApp(tester);
+      CustomSnackbar.showWithAction(
+        tester.element(find.byType(Scaffold)),
+        message: 'Event deleted',
+        actionLabel: 'Undo',
+        onAction: () {},
+      );
+      await settleBar(tester);
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      final undo = find.text('Event deleted');
+      final arrived = find.text(en.shareNewFromPartner('Ana', 'Shifts'));
+      expect(undo, findsOneWidget);
+      expect(arrived, findsNothing);
+
+      await tester.pump(
+        AppConstants.snackbarActionDefaultDuration +
+            AppConstants.snackbarTransitions,
+      );
+      await settleBar(tester);
+      expect(undo, findsNothing);
+      expect(arrived, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('while an alert is in front it waits, and is said once the '
+        'alert has gone', (tester) async {
+      await pumpApp(tester);
+      alerting = true;
+      unawaited(
+        AppNavigator.navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('ringing')),
+          ),
+        ),
+      );
+      await settleBar(tester);
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      final arrived = find.text(en.shareNewFromPartner('Ana', 'Shifts'));
+      expect(arrived, findsNothing);
+      await tester.pump(barTurn);
+      expect(arrived, findsNothing);
+
+      alerting = false;
+      AppNavigator.navigatorKey.currentState!.pop();
+      await settleBar(tester);
+      expect(find.text('ringing'), findsNothing);
+      expect(arrived, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('held under one database, it is dropped unsaid under '
+        'another', (tester) async {
+      await pumpApp(tester);
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await say(tester, const ShareArrived(events: [dinner]));
+      await say(tester, const ShareLeftWithAlert([run]));
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settleBar(tester);
+      expect(bar(), findsNothing);
+
+      // What arrives under the database now open is said as ever.
+      await say(tester, const ShareArrived(events: [lunch]));
+      expect(find.text(en.shareNewFromPartner('Ana', 'Lunch')), findsOne);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a built-in category is worded from the loaded catalogue, '
+        'never as "Other"', (tester) async {
+      CalendarCategories.updateCache(const []);
+      await pumpApp(tester);
+      await say(tester, const ShareArrived(categoryIds: ['gym']));
+
+      final label = CalendarCategories.builtInLabel(
+        CalendarEventCategory.gym,
+        en,
+      );
+      expect(find.text(en.shareNewFromPartner('Ana', label)), findsOneWidget);
+      expect(catalogueLoads, 1);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('over a sheet, under a dialog', () {
+    final arrived = find.text(en.shareNewFromPartner('Ana', 'Shifts'));
+
+    Future<void> openSheet(WidgetTester tester, {bool guarded = false}) async {
+      unawaited(
+        showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          isScrollControlled: true,
+          builder: (_) => PopScope(
+            canPop: !guarded,
+            child: const SizedBox(height: 600, child: Text('sheet')),
+          ),
+        ),
+      );
+      await settleBar(tester);
+    }
+
+    testWidgets('over a sheet the bar is seen, and its View can be tapped', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await openSheet(tester);
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+
+      expect(find.text('sheet'), findsOneWidget);
+      expect(arrived.hitTestable(), findsOneWidget);
+      expect(view().hitTestable(), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('over a sheet that may hold a draft it waits, and is said '
+        'when the sheet has gone', (tester) async {
+      await pumpApp(tester);
+      await openSheet(tester, guarded: true);
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      expect(arrived, findsNothing);
+      await tester.pump(barTurn);
+      expect(arrived, findsNothing);
+
+      AppNavigator.navigatorKey.currentState!.pop();
+      await settleBar(tester);
+      expect(find.text('sheet'), findsNothing);
+      expect(arrived.hitTestable(), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('under a dialog it waits, and is said when the dialog has '
+        'gone', (tester) async {
+      await pumpApp(tester);
+      unawaited(
+        showDialog<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      );
+      await settleBar(tester);
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      expect(arrived, findsNothing);
+
+      AppNavigator.navigatorKey.currentState!.pop();
+      await settleBar(tester);
+      expect(find.text('dialog'), findsNothing);
+      expect(arrived.hitTestable(), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -502,7 +751,10 @@ void main() {
         size: const Size(360, 780),
       );
       const title = 'Jahreshauptversammlung des Sportvereins Musterstadt';
-      await say(tester, const ShareArrived(eventTitles: [title]));
+      await say(
+        tester,
+        const ShareArrived(events: [(id: 'e-meeting', title: title)]),
+      );
       expect(
         find.text(de.shareNewFromPartner('Maximilian-Alexander', title)),
         findsOneWidget,
@@ -511,7 +763,10 @@ void main() {
       expect(tester.takeException(), isNull);
 
       await waitOutBar(tester);
-      await say(tester, const ShareLeftWithAlert([title]));
+      await say(
+        tester,
+        const ShareLeftWithAlert([(id: 'e-meeting', title: title)]),
+      );
       expect(
         find.text(de.shareGoneWithAlert('Maximilian-Alexander', title)),
         findsOneWidget,
@@ -602,9 +857,13 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('with Sync & sharing in front, it only takes the bar down', (
-      tester,
-    ) async {
+    /// How many [type] pages the navigator holds, those under the top one
+    /// counted.
+    int pagesOf(Type type) =>
+        find.byType(type, skipOffstage: false).evaluate().length;
+
+    testWidgets('with Sync & sharing in front, it opens its Sharing page '
+        'over it', (tester) async {
       await pumpApp(tester);
       unawaited(
         AppNavigator.toSyncSettings(AppNavigator.navigatorKey.currentContext!),
@@ -616,9 +875,183 @@ void main() {
       await tester.tap(view());
       await settle(tester);
 
-      expect(find.byType(SyncSettingsPage, skipOffstage: false), findsOne);
-      expect(find.byType(SharingPage), findsNothing);
+      expect(pagesOf(SyncSettingsPage), 1);
+      expect(find.byType(SharingPage), findsOneWidget);
       expect(bar(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('with the Sharing page in front, it only takes the bar '
+        'down', (tester) async {
+      await pumpApp(tester);
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      await tester.tap(view());
+      await settle(tester);
+      expect(find.byType(SharingPage), findsOneWidget);
+
+      // The first bar's turn runs out before the next is said.
+      await tester.pump(barTurn);
+      await say(tester, const ShareArrived(categoryIds: ['c-choir']));
+      await tester.tap(view());
+      await settle(tester);
+
+      expect(pagesOf(SyncSettingsPage), 1);
+      expect(pagesOf(SharingPage), 1);
+      expect(find.byType(SharingPage), findsOneWidget);
+      expect(bar(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('with Sync & sharing under another page, it goes back to it '
+        'and opens its Sharing page', (tester) async {
+      await pumpApp(tester);
+      unawaited(
+        AppNavigator.toSyncSettings(AppNavigator.navigatorKey.currentContext!),
+      );
+      await settle(tester);
+      unawaited(
+        AppNavigator.navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('other page')),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      await tester.tap(view());
+      await settle(tester);
+
+      expect(pagesOf(SyncSettingsPage), 1);
+      expect(find.byType(SharingPage), findsOneWidget);
+      expect(find.text('other page', skipOffstage: false), findsNothing);
+
+      Navigator.of(tester.element(find.byType(SharingPage))).pop();
+      await settle(tester);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharingPaired),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a sheet that may hold a draft under Sync & sharing in front '
+        'stays: the Sharing page opens over them', (tester) async {
+      await pumpApp(tester);
+      unawaited(
+        showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const PopScope(canPop: false, child: Text('draft')),
+        ),
+      );
+      await settle(tester);
+      unawaited(
+        AppNavigator.toSyncSettings(AppNavigator.navigatorKey.currentContext!),
+      );
+      await settle(tester);
+      expect(find.byType(SyncSettingsPage), findsOneWidget);
+
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      await tester.tap(view());
+      await settle(tester);
+
+      expect(find.byType(SharingPage), findsOneWidget);
+      expect(pagesOf(SyncSettingsPage), 1);
+      expect(find.text('draft', skipOffstage: false), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('with no Sync & sharing page to go back to, a draft under '
+        'the page in front stays and Sync & sharing opens over it', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      unawaited(
+        showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const PopScope(canPop: false, child: Text('draft')),
+        ),
+      );
+      await settle(tester);
+      unawaited(
+        AppNavigator.navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('other page')),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      await tester.tap(view());
+      await settle(tester);
+
+      expect(find.byType(SharingPage), findsOneWidget);
+      expect(pagesOf(SyncSettingsPage), 1);
+      expect(find.text('draft', skipOffstage: false), findsOneWidget);
+      expect(find.text('other page', skipOffstage: false), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a sheet that may hold a draft, above the Sync & sharing page '
+        'View would go back to, is never closed on its way: it only takes '
+        'the bar down', (tester) async {
+      await pumpApp(tester);
+      unawaited(
+        AppNavigator.toSyncSettings(AppNavigator.navigatorKey.currentContext!),
+      );
+      await settle(tester);
+      unawaited(
+        showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const PopScope(canPop: false, child: Text('draft')),
+        ),
+      );
+      await settle(tester);
+      unawaited(
+        AppNavigator.navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('other page')),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      await tester.tap(view());
+      await settle(tester);
+
+      expect(find.text('draft', skipOffstage: false), findsOneWidget);
+      expect(find.text('other page'), findsOneWidget);
+      expect(find.byType(SharingPage, skipOffstage: false), findsNothing);
+      expect(bar(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('over a sheet, it closes the sheet on its way', (tester) async {
+      await pumpApp(tester);
+      unawaited(
+        showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          isScrollControlled: true,
+          builder: (_) => const SizedBox(height: 600, child: Text('sheet')),
+        ),
+      );
+      await settle(tester);
+
+      await say(tester, const ShareArrived(categoryIds: ['c-shifts']));
+      await tester.tap(view());
+      await settle(tester);
+
+      expect(find.text('sheet', skipOffstage: false), findsNothing);
+      expect(pagesOf(SyncSettingsPage), 1);
+      expect(find.byType(SharingPage), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

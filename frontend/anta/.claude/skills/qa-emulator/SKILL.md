@@ -45,7 +45,7 @@ $q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
 $q pass settings -d emulator-5556      # the settings suite: a fresh basic.json seed before each flow, no prelude (each starts on the folder root)
 $q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no): ≈ 4.5 min
 $q pass sync -d emulator-5556          # the Sync section on a syncing database: the cloud-define build + a freshly started emulator suite (references/sync-pass.md): ≈ 45 s
-$q pass share -d emulator-5556         # two accounts on two guests (anta_qa_1 + anta_qa_2 booted, the same cloud-define build on both, a freshly started emulator suite — restarted, never reset, between passes): pair, share an event, a folder and a category, follow, un-share, end the pair — 13 flows (references/share-pass.md): ≈ 4.5 min
+$q pass share -d emulator-5556         # two accounts on two guests (anta_qa_1 + anta_qa_2 booted, the same cloud-define build on both, a freshly started emulator suite — restarted, never reset, between passes): pair, share an event, a folder and a category, follow, un-share, then give, receive and stop through the share surfaces, end the pair — 16 flows (references/share-pass.md): ≈ 5.6 min
 $q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
 $q pass --history calendar             # per flow over the newest twenty reports: runs, reds, recoveries, a flaky mark
@@ -124,7 +124,7 @@ Flags, an example and the real output of each: `references/verbs.md`. Every acti
 - `tap`, `longpress`, `scroll-to [--in T] [--up] [--max N]`, `type [--enter] [--replace]`, `key`, `swipe`, `drag [--hold ms]`, `clear`.
 - `flows <dir>[/<flow>] [--keep-going] [--prelude]` — the old runner without reseed or report (the prelude runs for a directory and for the first flow).
 - `steps`, `reload`, `restart`, `perf`, `set k=v…` (text-scale, locale, theme, and `account=<sub>:<email>` — who the next emulator sign-in is), `log`, `errors [--clear]`, `build-exe`, `wake`, `unphone`.
-- `share event|folder|category "<name>" [--off]` — shares a row of the QA database with the signed-in account's partner through the call a share switch will make (no surface has one yet; a category by the name the calendar shows, a built-in's in the app's language); `text <target> --match <regex> --capture <name>` keeps a node's text for later steps, which write it as `{{var:<name>}}`; in a flow file a step may lead with `-d <serial>` and runs on that guest (`references/share-pass.md`).
+- `share event|folder|category "<name>" [--off]` — shares a row of the QA database with the signed-in account's partner through the call the share switches make (the older flows' seam — flows 04g–04i use the surfaces themselves; a category by the name the calendar shows, a built-in's in the app's language); `text <target> --match <regex> --capture <name>` keeps a node's text for later steps, which write it as `{{var:<name>}}`; in a flow file a step may lead with `-d <serial>` and runs on that guest (`references/share-pass.md`).
 
 ## Never
 

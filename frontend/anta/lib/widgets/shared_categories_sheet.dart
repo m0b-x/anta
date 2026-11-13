@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/share/share_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -107,9 +108,14 @@ class SharedCategoriesSheet extends StatelessWidget {
           top: Radius.circular(FormMetrics.sheetRadius),
         ),
       ),
-      builder: (_) => FractionallySizedBox(
-        heightFactor: FormMetrics.sheetHeightFactor,
-        child: SharedCategoriesSheet(bloc: bloc, partner: partner),
+      // A category's own sheet covers this one, and may do so while it is
+      // still sliding in: its rows are then read again once that sheet has
+      // gone.
+      builder: (_) => FormSheetSemanticsRefresh(
+        child: FractionallySizedBox(
+          heightFactor: FormMetrics.sheetHeightFactor,
+          child: SharedCategoriesSheet(bloc: bloc, partner: partner),
+        ),
       ),
     );
   }
@@ -214,7 +220,10 @@ class SharedCategoriesSheet extends StatelessWidget {
         key: ValueKey(id),
         leading: avatar,
         label: label,
-        caption: '$count · ${l10n.shareJoinsYours(label)}',
+        caption: [
+          count,
+          l10n.shareJoinsYours(label),
+        ].join(AppConstants.captionSeparator),
         captionMaxLines: FormMetrics.receivedCaptionMaxLines,
         value: entry.shown,
         onTap: null,

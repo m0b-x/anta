@@ -18,9 +18,14 @@ abstract final class ShareCopy {
 
   /// [text] with its first letter in upper case, for a string that begins
   /// with `{name}`: the stand-in then starts the sentence as a name would.
-  /// A name is left as its owner wrote it in every other position.
+  /// A name is left as its owner wrote it in every other position — and an
+  /// address in this one too: an account with no profile name publishes
+  /// its e-mail address, which no sentence capitalises.
   static String sentence(String text) {
     if (text.isEmpty) return text;
+    final end = text.indexOf(' ');
+    final first = end < 0 ? text : text.substring(0, end);
+    if (first.contains('@')) return text;
     return text[0].toUpperCase() + text.substring(1);
   }
 }

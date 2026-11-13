@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/daos/shared_row_dao.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -1346,6 +1347,98 @@ void main() {
       expect(cachedIds(), {'m2', 't3'});
     });
 
+    test('a prune of the shared read that lands during a switch\'s write '
+        'neither writes over it nor is written over', () async {
+      final share = await seedPartner();
+      await settings.setShareHiddenCategories({'cardio'});
+      // The reader's prune — cardio no longer shared — from outside the
+      // switch's write, starting as that write reads the set.
+      final outside = Zone.current;
+      Future<void>? pruned;
+      counter.onStatement = (sql, args) {
+        if (pruned == null &&
+            sql.startsWith('SELECT') &&
+            args.contains(SettingsKeys.shareHiddenCategories)) {
+          pruned = outside.run(() async {
+            final now = await SettingsService.shareHiddenCategoriesOf(db);
+            await SettingsService.setShareHiddenCategoriesOf(
+              db,
+              Set.of(now)..remove('cardio'),
+            );
+          });
+        }
+        return null;
+      };
+
+      await share.setCategoryShown('p1', false);
+      counter.onStatement = null;
+      await pruned;
+
+      expect(pruned, isNotNull);
+      expect(await settings.getShareHiddenCategories(), {'p1'});
+    });
+
+    test('a write the database switched under publishes nothing into the '
+        'caches that now answer for another one', () async {
+      final share = await seedPartner();
+      // What the other database's catalogue publishes once it has loaded:
+      // a category of the same id, nothing hidden.
+      final catalogue = CalendarCategories.all;
+      var switched = false;
+      counter.onStatement = (sql, args) {
+        if (!switched &&
+            !sql.startsWith('SELECT') &&
+            args.contains(SettingsKeys.shareHiddenCategories)) {
+          switched = true;
+          DatabaseLifecycle.notifyDatabaseSwitching();
+          CalendarCategories.updateCache(catalogue);
+          CalendarCategories.updatePartnerHidden(const {});
+        }
+        return null;
+      };
+
+      await share.setCategoryShown('p1', false);
+      counter.onStatement = null;
+
+      expect(switched, isTrue);
+      expect(
+        await SettingsService.shareHiddenCategoriesOf(db),
+        {'p1'},
+        reason: 'stored in the database it wrote',
+      );
+      expect(CalendarCategories.partnerShown.map((c) => c.id), ['p1']);
+      expect(reconciles, 0);
+    });
+
+    test('a hidden event of theirs is refused like any of theirs, though '
+        'the cache no longer holds it — a built-in\'s too', () async {
+      final share = await seedPartner();
+      await share.setHiddenCategories({'p1', 'cardio'});
+      expect(cachedIds(), {'m2', 't3'});
+
+      for (final id in ['t1', 't2']) {
+        await expectLater(
+          events.deleteById(id),
+          throwsA(isA<SharedRowException>()),
+          reason: id,
+        );
+        await expectLater(
+          events.upsert(
+            CalendarEvent(
+              id: id,
+              title: 'Mine now',
+              categoryId: 'general',
+              startDate: day,
+            ),
+          ),
+          throwsA(isA<SharedRowException>()),
+          reason: id,
+        );
+        expect(await stored(id), isTrue);
+      }
+      expect(cachedIds(), {'m2', 't3'});
+    });
+
     group('what a load costs', () {
       int hiddenReads() => [
         for (final statement in counter.captured)
@@ -1386,6 +1479,60 @@ void main() {
         counter.reset();
         await categories.reload();
         expect(hiddenReads(), 0);
+      });
+
+      /// What `SharedRowDao.isShared` asks of the events.
+      int sharedAsks() =>
+          counter.matching('SELECT EXISTS(SELECT 1 FROM calendar_events').length;
+
+      Future<void> writeAndDeleteUncached() async {
+        await events.upsert(
+          CalendarEvent(
+            id: 'n1',
+            title: 'n1',
+            categoryId: 'general',
+            startDate: day,
+          ),
+        );
+        await events.deleteById('n1');
+        await events.deleteById('never-held');
+      }
+
+      test('an event the cache does not hold costs the guard no statement '
+          'while nothing is hidden: an account that never paired', () async {
+        await open();
+        await event('mine');
+        counter.reset();
+
+        await writeAndDeleteUncached();
+
+        expect(sharedAsks(), 0);
+      });
+
+      test('nor one that did, nothing hidden — or hidden and shown again',
+          () async {
+        final share = await seedPartner();
+        counter.reset();
+        await writeAndDeleteUncached();
+        expect(sharedAsks(), 0);
+
+        await share.setCategoryShown('p1', false);
+        await share.setCategoryShown('p1', true);
+        counter.reset();
+        await writeAndDeleteUncached();
+        expect(sharedAsks(), 0);
+      });
+
+      test('while one is hidden, one keyed read per id the cache does not '
+          'hold', () async {
+        final share = await seedPartner();
+        await share.setCategoryShown('p1', false);
+        counter.reset();
+
+        await events.deleteById('never-held');
+        await events.deleteById('m2');
+
+        expect(sharedAsks(), 1);
       });
     });
   });

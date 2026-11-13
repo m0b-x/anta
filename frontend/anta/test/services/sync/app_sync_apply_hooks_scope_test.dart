@@ -199,6 +199,36 @@ void main() {
     expect(calls, ['reconcile']);
   });
 
+  test('a run whose shared read took a category out of the hidden set reads '
+      'the events whole, not only the ids its pages named', () async {
+    final now = DateTime.now();
+    await db.calendarEventDao.upsert(
+      CalendarEventsCompanion.insert(
+        id: 'pulled',
+        title: 'Pulled',
+        category: 'gym',
+        startDate: DateTime.utc(2026, 11, 1),
+        ruleKind: 'oneTime',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    counter.reset();
+
+    await hooks.beforePage('calendar_events');
+    await hooks.afterPage('calendar_events', [applied('pulled')]);
+    await hooks.afterRun({
+      SyncInvalidation.calendar,
+      SyncInvalidation.alerts,
+      SyncInvalidation.unhidden,
+    });
+
+    final reads = selectsOn('calendar_events');
+    expect(reads, hasLength(1));
+    expect(reads.single, isNot(contains(' IN ')));
+    expect([for (final e in events.events) e.id], ['pulled', 'gym']);
+  });
+
   test('a pull whose tables were never heard reloads every service, as '
       'before', () async {
     counter.reset();

@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/models/agenda_day_list.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/fasting_schedule.dart';
@@ -791,6 +793,88 @@ void main() {
       );
 
       expect(summaries.map((s) => s.categoryId), ['gym']);
+    });
+  });
+
+  /// Case R9: a partner's event shared on its own from a category of theirs
+  /// that is not shared keeps an id this phone cannot resolve and draws as
+  /// Other; the filters and the cards decide by what it draws under
+  /// (RD3 F1). An event of mine on an unknown id keeps the report's
+  /// allowlist rule (D32): matched by its stored id.
+  group('the category an event draws under', () {
+    final day = DateTime.utc(2026, 8, 11);
+    CalendarEvent at(String id, String categoryId, {bool partner = false}) =>
+        CalendarEvent(
+          id: id,
+          title: id,
+          categoryId: categoryId,
+          startDate: day,
+          fromPartner: partner,
+        );
+    final r9 = at('r9', 'p-unshared', partner: true);
+
+    setUp(() {
+      CalendarCategories.updateCache(const [
+        CalendarCategory(
+          id: 'gym',
+          name: 'Gym',
+          colorValue: 0xFF43A047,
+          iconKey: 'fitness_center',
+          sortOrder: 0,
+          isBuiltIn: true,
+        ),
+        CalendarCategory(
+          id: 'other',
+          name: 'Other',
+          colorValue: 0xFF757575,
+          iconKey: 'event',
+          sortOrder: 1,
+          isBuiltIn: true,
+        ),
+      ]);
+    });
+
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    test('allowing Other lists an event drawn as Other; denying Other '
+        'drops it', () {
+      expect(
+        EventAgenda.passesEventFilters(r9, categoryIds: {'other'}),
+        isTrue,
+      );
+      expect(EventAgenda.passesEventFilters(r9, categoryIds: {'gym'}), isFalse);
+      expect(
+        EventAgenda.passesEventFilters(r9, hiddenCategoryIds: {'other'}),
+        isFalse,
+      );
+      expect(
+        EventAgenda.passesEventFilters(r9, hiddenCategoryIds: {'p-unshared'}),
+        isTrue,
+      );
+    });
+
+    test('an event of mine on an unknown id meets the allowlist by its '
+        'stored id (D32) and the denylist by what it draws under', () {
+      final lost = at('lost', 'gone');
+      expect(
+        EventAgenda.passesEventFilters(lost, categoryIds: {'other'}),
+        isFalse,
+      );
+      expect(
+        EventAgenda.passesEventFilters(lost, hiddenCategoryIds: {'other'}),
+        isFalse,
+      );
+    });
+
+    test('everything drawn as Other is one Other card', () {
+      final summaries = EventAgenda.categorySummariesOf([
+        EventOccurrence(event: at('mine', 'other'), day: day),
+        EventOccurrence(event: r9, day: day),
+        EventOccurrence(event: at('g', 'gym'), day: day),
+      ]);
+
+      expect(summaries.map((s) => s.categoryId), ['other', 'gym']);
+      expect(summaries.first.eventCount, 2);
     });
   });
 

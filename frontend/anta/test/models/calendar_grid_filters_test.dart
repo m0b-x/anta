@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -45,6 +47,102 @@ void main() {
 
   bool allows(CalendarGridFilters filters, CalendarEvent e) =>
       filters.allows(e, todayUtc: today);
+
+  /// A partner's event shared on its own from a category of theirs that is
+  /// not shared keeps that category's id, which this phone cannot resolve,
+  /// and draws as Other (case R9); the denylist decides by what it draws
+  /// under, so the Other row reaches it (RD3 F1, F2).
+  group('the category an event draws under', () {
+    const other = CalendarCategory(
+      id: 'other',
+      name: 'Other',
+      colorValue: 0xFF757575,
+      iconKey: 'event',
+      sortOrder: 1,
+      isBuiltIn: true,
+    );
+    const shifts = CalendarCategory(
+      id: 'p-x',
+      name: 'Shifts',
+      colorValue: 0xFF8E24AA,
+      iconKey: 'work',
+      sortOrder: 0,
+      isBuiltIn: false,
+      fromPartner: true,
+    );
+    const gym = CalendarCategory(
+      id: 'gym',
+      name: 'Gym',
+      colorValue: 0xFF43A047,
+      iconKey: 'fitness_center',
+      sortOrder: 0,
+      isBuiltIn: true,
+    );
+    CalendarEvent partnerEvent(String categoryId) => CalendarEvent(
+      id: 'pe',
+      title: 'Lunch',
+      categoryId: categoryId,
+      startDate: DateTime.utc(2026, 1, 1),
+      fromPartner: true,
+    );
+
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    test('denying every listed row denies an event drawn as Other', () {
+      CalendarCategories.updateCache(const [gym, other, shifts]);
+      const filters = CalendarGridFilters(
+        hiddenCategoryIds: {'gym', 'other', 'p-x'},
+      );
+
+      expect(allows(filters, partnerEvent('p-unshared')), isFalse);
+      expect(
+        allows(
+          const CalendarGridFilters(hiddenCategoryIds: {'gym'}),
+          partnerEvent('p-unshared'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a denial of a category since un-shared hides nothing of its '
+        'event still shared singly', () {
+      CalendarCategories.updateCache(const [gym, other, shifts]);
+      const filters = CalendarGridFilters(hiddenCategoryIds: {'p-x'});
+      expect(allows(filters, partnerEvent('p-x')), isFalse);
+
+      CalendarCategories.updateCache(const [gym, other]);
+
+      expect(allows(filters, partnerEvent('p-x')), isTrue);
+    });
+
+    test('a known id is matched as stored, and an empty catalogue keeps the '
+        'stored id', () {
+      CalendarCategories.updateCache(const [gym, other]);
+      expect(
+        allows(
+          const CalendarGridFilters(hiddenCategoryIds: {'other'}),
+          event(categoryId: 'gym'),
+        ),
+        isTrue,
+      );
+
+      CalendarCategories.updateCache(const []);
+      expect(
+        allows(
+          const CalendarGridFilters(hiddenCategoryIds: {'other'}),
+          event(categoryId: 'lost'),
+        ),
+        isTrue,
+      );
+      expect(
+        allows(
+          const CalendarGridFilters(hiddenCategoryIds: {'lost'}),
+          event(categoryId: 'lost'),
+        ),
+        isFalse,
+      );
+    });
+  });
 
   group('the filter off', () {
     test('is the default, and counts nothing', () {

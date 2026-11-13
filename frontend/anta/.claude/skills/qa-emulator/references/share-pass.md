@@ -9,14 +9,15 @@ guests, against the local Firebase emulator suite — no real account, no
 real project. It is the device proof of the sharing foundations
 (`docs/cloud-sharing-foundations.md` F4), the multi-user roadmap's R10,
 and of the share surfaces' slice B, "a category can be shared"
-(`docs/cloud-share-surfaces-roadmap.md` §7.6), with slice A's read sheet.
+(`docs/cloud-share-surfaces-roadmap.md` §7.6), with slice A's read sheet,
+and of the surfaces that give, receive and stop (04g–04i, no seam).
 
 ```bash
 tool\firebase\emulators.cmd                                   # a host shell of its own, left running: Auth 9099, Firestore 8080
 ./tool/qa/qa fleet boot 1 && ./tool/qa/qa fleet boot 2        # anta_qa_1 (emulator-5556) and anta_qa_2 (emulator-5558), one at a time
 ./tool/qa/qa build --define ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define ANTA_QA_ACCOUNT=qa1:qa1@example.com
 ./tool/qa/qa fleet install                                    # the same APK on both
-./tool/qa/qa pass share -d emulator-5556                      # 13 flows on one seed: ≈ 4.5 min
+./tool/qa/qa pass share -d emulator-5556                      # 16 flows on one seed: ≈ 5.6 min
 ./tool/qa/qa fleet stop anta_qa_1 && ./tool/qa/qa fleet stop anta_qa_2
 ```
 
@@ -50,6 +51,9 @@ a step that names it.
 | `04d_category_unshared` | `share category "Power" --off`: every partner row leaves the day panel and the Upcoming list; the copy stays, no longer the partner's |
 | `04e_shared_builtin` | the owner makes "Treadmill run" in its default Gym and shares Gym: the partner's read sheet names the partner's own Gym; Gym private again and the event leaves |
 | `04f_category_deleted` | Power shared again and seen; the owner deletes it from the Categories page, moving its two events to Cardio (`category-delete-target`, `category-pick-cardio`): they leave the partner's calendar |
+| `04g_share_from_surfaces` | no seam: the owner makes Stretching shared from its editor's switch (`category-editor-share`), shares Gym from its row's ⋮ (`category-menu-gym`, `category-menu-share`), makes "Hip openers" in Stretching (its `event-share` reads "On for everything in Stretching", disabled) and shares "Lifting session" from its editor's switch; the Sharing page reads "Gym, Stretching" and "1 event"; the tick sheet (`share-categories-sheet`) takes Gym back ("No longer shared: Gym"); the Single events sheet's ✕ (`share-event-unshare-qa-event-weekly-lift`) stops the event and Undo (`snackbar-undo`) brings it back. The partner, after its sync: "… shares Stretching with you", whose View (`share-notice-view`) opens the Sharing page — Stretching and "1 event" under what it is shared — and its day panel draws "Hip openers" as "From qa1@example.com" |
+| `04h_receiver_chooses` | the partner switches Stretching off in "Categories from …" (`shared-categories-sheet`): "Hip openers" leaves its day panel with no sync, and comes back when switched on; under "Category alerts too" (`sharing-alerts-category`) the category's sheet (`shared-category-sheet`) takes an alert (`shared-category-add-alert` → `shared-category-alert-0`); the Categories page lists Stretching under `category-section-partner-header` with "Alerts on"; the calendar filter's picker lists it after `category-pick-create` under "From …"; the look row's Avatar and Outlined each shot on the day panel; ends on "Only alerts I add" and Outlined |
+| `04i_stop_everything` | the partner adds "10 min before" to "Lifting session" from its read sheet (`shared-event-add-alert`); the owner's "Stop sharing everything" (`sharing-stop-all`, then `sheet-confirm`) leaves both "You share" entries "None"; after a sync each side the partner reads "… no longer shares Lifting session. Your alert is off.", its "shares with you" entries read "None", and its day panel and grid hold nothing of the owner's |
 | `05_pair_ended` | the event shared again and seen; the owner unpairs on the Sharing page its Pairing row opens (`sharing-paired`, then `sharing-unpair` and `sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone |
 | `06_delete_account` | the partner deletes its account (`sharing-delete-account`, `sharing-delete-account-confirm`): the deletion's row ends as "Account deleted" (never "Finish deleting account"), the page is signed out; the owner's side is still bound, up to date and ready to pair; the partner's guest is relaunched fresh at the end — the first device pass of the roadmap's D2 |
 
@@ -58,10 +62,13 @@ freshly started suite: the first six flows 6/6 in 117.6 s and in 120.6 s,
 then with the seventh 7/7 in 160.6 s (the deletion itself ≈ 39 s, most of
 it the run that empties the account's space). With slice B's six flows,
 13/13 twice in a row on the same day, each on a freshly started suite and
-both guests freshly booted: 268.2 s and 267.9 s.
+both guests freshly booted: 268.2 s and 267.9 s. With 04g–04i, 16/16
+twice in a row on 2026-11-13, on the build of the share surfaces, each
+on a freshly started suite: 350.3 s and 349.5 s.
 
-**The seams.** No surface shares anything yet, so two harness verbs stand
-where a switch will:
+**The seams.** The flows up to 04f and 05 share through two harness
+verbs, which stood where the switches now are (04g–04i use the switches
+and no seam):
 
 - `qa share event|folder "<name>" [--off]` — the agent's `share` op calls
   `CalendarEventService.setShared` / `FolderStorageService.setFolderShared`
@@ -166,6 +173,41 @@ the pair ended); anything on the real project.
   Settings hub — and every flow after 01 expects one Back (the drawer's
   account row): `--only 00_pair --only 04a_share_category` reds at 04a's
   second step by construction.
+- `expect` splits its targets at commas: `expect "Gym, Stretching"` checks
+  "Gym" and " Stretching" apart, and `--absent "Gym, Stretching"` fails
+  on either word. A comma-joined value (the Sharing page's category names)
+  is read with `text <target> --match "Gym, Stretching"`, which keeps it
+  whole; a grid cell's marker label ("Lifting session, From …") is
+  checked word by word.
+- On the calendar's Upcoming list a third card's "Show every day"
+  (`agenda-card-days-category-*`) lies under the Add event button, and
+  a tap there opens the editor. 04g and 04i reach "Lifting session"'s
+  Cardio card by filtering the list to recurring events first
+  (`agenda-filter-events-recurring`), then put the filter back.
+- A row of a category card's day list carries no id; a tap on it selects
+  its day, and the day panel's row then carries the event's id
+  (`event-row-qa-event-weekly-lift`). The partner's Single events list
+  opens nothing.
+- The Sharing page's sheets — the Single events lists, "Categories from
+  …", a received category's sheet, the read sheet — have a ✕ with no id;
+  the flows close them with `key back`.
+- "Stop sharing everything" confirms through the app-wide `sheet-confirm`.
+- The bar that says what arrived (`share-notice-view`) leaves after a few
+  seconds: the flow taps View straight after its wait.
+- A category made on the device has a minted id: 04g–04h name Stretching
+  and "Hip openers" by title, and in "Categories from …" the title
+  matches the row (`--nth 0`, which opens its sheet) and the show switch
+  ("Show Stretching on my calendar", `--nth 1`).
+- The page's captions and the notices begin with the partner's name; an
+  e-mail address standing in for one is left as it is written
+  (`ShareCopy.sentence`). The flows match the words after the name.
+- A row tapped while its sheet is still sliding in opens a sub-sheet over
+  a sheet that has not settled. Until 2026-11-13 the parent then kept the
+  geometry of mid-slide and reported its ✕ some 70 dp low, so
+  `tap id:filter-close` missed it (04h, two reds in six runs). Fixed in
+  the app — the filter sheets and the share lists refresh their geometry
+  once uncovered (`FormSheetSemanticsRefresh`). The tell in a pass log: a
+  row whose bounds differ between its `wait` and the `tap` after it.
 - **Building in a worktree on C: with the pub cache on D:**, `qa build`
   fails in `:<plugin>:compileDebugKotlin` with "Could not close
   incremental caches … different roots". Build with

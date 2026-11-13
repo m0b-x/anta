@@ -165,20 +165,29 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   /// is a real narrowing. A partner's id that has since left the list stays
   /// in the set as a deleted category's does — it matches no event and no
   /// row names it.
+  ///
+  /// "Every offered row" is read again after the picker returns, never from
+  /// before it opened: a category created inside the picker is offered now,
+  /// and an answer that leaves it un-ticked must not collapse to "all". The
+  /// partner's are the ones the picker was handed, as in the grid's sheet.
   Future<void> _pickCategories() async {
     if (_pickerOpen) return;
     _pickerOpen = true;
     try {
       final partner = CalendarCategories.partnerShown;
-      final offered = {for (final category in _offered) category.id};
+      Set<String> offered() => {
+        for (final category in CalendarCategories.visiblePlus(_categoryIds))
+          category.id,
+        for (final category in partner) category.id,
+      };
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: _categoryIds.isEmpty ? offered : _categoryIds,
+        selected: _categoryIds.isEmpty ? offered() : _categoryIds,
         partner: partner,
         partnerLook: widget.partnerLook,
       );
       if (picked == null || !mounted) return;
-      final next = picked.containsAll(offered) ? const <String>{} : picked;
+      final next = picked.containsAll(offered()) ? const <String>{} : picked;
       if (setEquals(next, _categoryIds)) return;
       setState(() => _categoryIds = next);
       widget.onCategoriesChanged(next);

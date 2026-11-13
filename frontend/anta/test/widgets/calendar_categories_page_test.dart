@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/app_colors.dart';
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
@@ -23,6 +24,7 @@ import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/calendar_category.dart';
@@ -43,9 +45,11 @@ import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_menu_item.dart' show FormMenuItemRow;
-import 'package:anta/widgets/form_rows.dart' show FormTrailingButton;
+import 'package:anta/widgets/form_rows.dart'
+    show FormActionRow, FormTrailingButton;
 import 'package:anta/widgets/settings_reorder.dart';
 import 'package:anta/widgets/settings_search_field.dart';
+import 'package:anta/widgets/shared_category_sheet.dart';
 import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
@@ -2274,6 +2278,52 @@ void main() {
       await letSnackbarGo(tester);
     });
 
+    // Closing review 1: an Undo belongs to the database it was offered in.
+    testWidgets('an Undo tapped after a database switch writes nothing and '
+        'says nothing', (tester) async {
+      final share = paired();
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      share.nextChange = ShareChange(
+        sharedCategories: [CalendarCategories.byId('gym')!],
+      );
+      await pickRowItem(tester, 'gym', SemanticsIds.categoryMenuShare);
+      expect(find.text(l10n.shareStarted('Gym', 'Maria')), findsOneWidget);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      await tester.tap(find.text(l10n.undo));
+      await tester.pumpAndSettle();
+
+      expect(share.undone, isEmpty);
+      expect(find.text(l10n.shareChangeFailed), findsNothing);
+      expect(find.text(l10n.categoryChangeFailed), findsNothing);
+      await letSnackbarGo(tester);
+    });
+
+    // Closing review 11b: a share write fails in the Sharing page's words.
+    for (final (what, error) in [
+      ('a write that fails', StateError('the write failed')),
+      ('a write refused', const ShareRefused(ShareNotSyncing(maria))),
+    ]) {
+      testWidgets('$what says so in sharing\'s words', (tester) async {
+        await pumpPage(tester, share: _FailingShareService(error));
+        final l10n = l10nOf(tester);
+
+        await pickRowItem(tester, 'gym', SemanticsIds.categoryMenuShare);
+
+        expect(
+          find.text(
+            error is ShareRefused
+                ? l10n.shareNeedsSync
+                : l10n.shareChangeFailed,
+          ),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.categoryChangeFailed), findsNothing);
+        await letSnackbarGo(tester);
+      });
+    }
+
     testWidgets('a shared category\'s item reads "Shared with" with the ✓, '
         'and stops sharing with how many stay', (tester) async {
       final share = paired();
@@ -2695,39 +2745,49 @@ void main() {
       });
     }
 
-    for (final look in [ShareEventLook.outlined, ShareEventLook.plain]) {
-      testWidgets('from 1.6 the bare glyph, contrast-corrected under '
-          'Outlined only: ${look.name}, dark', (tester) async {
-        final ids = await addTheirs(tester, {'Night shift': 3});
-        await pumpPage(
-          tester,
-          width: 360,
-          height: 3000,
-          textScale: 2.0,
-          dark: true,
-          share: paired(look: look),
-        );
+    // Design review 4: the bare glyph has no fill or ring to carry it in
+    // any look, so each takes the ring's contrast rule (2.11:1 in dark
+    // under Avatar and Like mine before).
+    for (final look in ShareEventLook.values) {
+      for (final dark in [false, true]) {
+        testWidgets('from 1.6 the bare glyph is contrast-corrected in every '
+            'look: ${look.name}, ${dark ? 'dark' : 'light'}', (tester) async {
+          final ids = await addTheirs(tester, {'Night shift': 3});
+          await pumpPage(
+            tester,
+            width: 360,
+            height: 3000,
+            textScale: 2.0,
+            dark: dark,
+            share: paired(look: look),
+          );
 
-        final shell = shellOfTheirs(ids['Night shift']!);
-        expect(
-          find.descendant(of: shell, matching: find.byType(EventAvatar)),
-          findsNothing,
-        );
-        final glyph = tester.widget<Icon>(
-          find.descendant(of: shell, matching: find.byType(Icon)),
-        );
-        const raw = Color(0xFF3949AB);
-        final ground = Theme.of(
-          tester.element(find.byType(CalendarCategoriesPage)),
-        ).colorScheme.rowGroup;
-        expect(glyph.size, RowMetrics.glyphSize);
-        if (look == ShareEventLook.outlined) {
+          final shell = shellOfTheirs(ids['Night shift']!);
+          expect(
+            find.descendant(of: shell, matching: find.byType(EventAvatar)),
+            findsNothing,
+          );
+          final glyph = tester.widget<Icon>(
+            find.descendant(of: shell, matching: find.byType(Icon)),
+          );
+          const raw = Color(0xFF3949AB);
+          final ground = Theme.of(
+            tester.element(find.byType(CalendarCategoriesPage)),
+          ).colorScheme.rowGroup;
+          expect(glyph.size, RowMetrics.glyphSize);
           expect(glyph.color, MarkerContrast.atLeast(raw, ground));
-          expect(glyph.color, isNot(raw), reason: 'indigo on the dark group');
-        } else {
-          expect(glyph.color, raw);
-        }
-      });
+          expect(
+            MarkerContrast.contrastRatio(
+              glyph.color!.computeLuminance(),
+              ground.computeLuminance(),
+            ),
+            greaterThanOrEqualTo(3.0),
+          );
+          if (dark) {
+            expect(glyph.color, isNot(raw), reason: 'indigo on the dark group');
+          }
+        });
+      }
     }
 
     for (final setting in ShareAlerts.values) {
@@ -2888,6 +2948,161 @@ void main() {
       expect(share.heard, isFalse, reason: 'the page and its bloc let go');
     });
 
+    // Review RD2 1: a bloc per sheet, never one kept from an earlier tap.
+    testWidgets('each sheet reads afresh: the alerts setting changed '
+        'elsewhere since the last one is the one the next shows', (
+      tester,
+    ) async {
+      final ids = await addTheirs(tester, {'Night shift': 3});
+      final share = paired();
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      final night = ids['Night shift']!;
+      FormActionRow addAlert() => tester.widget<FormActionRow>(
+        find.byWidgetPredicate(
+          (w) =>
+              w is FormActionRow &&
+              w.identifier == SemanticsIds.sharedCategoryAddAlert,
+        ),
+      );
+
+      await tester.tap(rowOf(night));
+      await tester.pumpAndSettle();
+      expect(addAlert().onTap, isNull, reason: 'Only alerts of mine ring');
+      await tester.tap(find.byTooltip(l10n.close));
+      await tester.pumpAndSettle();
+
+      // Changed on the Sharing page, through the editor's Sync & sharing:
+      // nothing tells this page.
+      share.shareAlerts = ShareAlerts.category;
+      await tester.tap(rowOf(night));
+      await tester.pumpAndSettle();
+      expect(addAlert().onTap, isNotNull, reason: 'Category alerts too');
+      await tester.tap(find.byTooltip(l10n.close));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('with no sheet open nothing is followed for one: a change '
+        'heard reads no overview', (tester) async {
+      final ids = await addTheirs(tester, {'Night shift': 3});
+      final share = paired();
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+
+      await tester.tap(rowOf(ids['Night shift']!));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip(l10n.close));
+      await tester.pumpAndSettle();
+      final read = share.overviews;
+
+      CalendarEventService.notifyExternalChange(cacheCurrent: true);
+      await tester.pumpAndSettle();
+      expect(share.overviews, read);
+    });
+
+    // Review RD2 8: the guard holds until the sheet has closed.
+    testWidgets('a second tap while the sheet is up opens nothing', (
+      tester,
+    ) async {
+      final ids = await addTheirs(tester, {'Night shift': 3});
+      await pumpPage(tester, share: paired());
+      final night = ids['Night shift']!;
+      final row = tester.widget<InkWell>(
+        find.descendant(of: rowOf(night), matching: find.byType(InkWell)),
+      );
+
+      await tester.tap(rowOf(night));
+      await tester.pumpAndSettle();
+      expect(find.byType(SharedCategorySheet), findsOneWidget);
+      // The row under the sheet's barrier, reached as a frame's second tap
+      // would reach it.
+      row.onTap!();
+      await tester.pumpAndSettle();
+      expect(find.byType(SharedCategorySheet), findsOneWidget);
+    });
+
+    testWidgets('left while the tap waits on the load: nothing throws and '
+        'nothing is left listening', (tester) async {
+      final ids = await addTheirs(tester, {'Night shift': 3});
+      final share = paired()..overviewHold = Completer<void>();
+      await pumpPage(tester, share: share);
+      final night = ids['Night shift']!;
+
+      await tester.tap(rowOf(night));
+      await tester.pump();
+      await tester.tap(rowOf(night));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      share.overviewHold!.complete();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(share.overviews, 1, reason: 'the second tap built nothing');
+      expect(share.heard, isFalse);
+    });
+
+    // Review RD2 7.
+    testWidgets('with a partner row the looks and the alerts setting are '
+        'read together', (tester) async {
+      await addTheirs(tester, {'Night shift': 3});
+      final share = _CountingShareService(
+        const ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+      );
+      await pumpPage(tester, share: share);
+
+      expect(share.alertReads, 1);
+      expect(
+        share.alertReadsWhenLooksAnswered,
+        1,
+        reason: 'the alerts setting was asked before the looks answered',
+      );
+    });
+
+    testWidgets('with none the alerts setting is not read; the first row '
+        'to arrive reads it, and its caption says "Alerts on"', (tester) async {
+      final share = _CountingShareService(
+        const ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+      )..shareAlerts = ShareAlerts.category;
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      expect(share.alertReads, 0);
+
+      final night = (await addTheirs(tester, {
+        'Night shift': 3,
+      }))['Night shift']!;
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          night: [CategoryAlert(id: 'a1', categoryId: night)],
+        },
+      );
+      CalendarEventService.notifyExternalChange(eventsMerged: true);
+      await pumpUntil(tester, () => rowOf(night).evaluate().isNotEmpty);
+
+      expect(share.alertReads, 1);
+      expect(
+        labelOf(tester, night),
+        'Night shift\n${caption(l10n, [l10n.categoryEventCount(3), l10n.categoryCaptionAlertsOn])}',
+      );
+    });
+
+    // Review RD2 9.
+    testWidgets('the search field counts the partner\'s rows with mine', (
+      tester,
+    ) async {
+      final mine = service.categories.length;
+      expect(mine, lessThanOrEqualTo(AppConstants.listSearchThreshold));
+      await addTheirs(tester, {
+        for (var i = 0; i <= AppConstants.listSearchThreshold - mine; i++)
+          'Theirs $i': 1,
+      });
+      await pumpPage(tester, share: paired());
+
+      expect(find.byType(SettingsSearchField), findsOneWidget);
+    });
+
     for (final dark in [false, true]) {
       testWidgets('tap targets, labelled taps and contrast with the section, '
           '${dark ? 'dark' : 'light'}', (tester) async {
@@ -2983,9 +3198,13 @@ class _ReceivingShareService extends FakeShareService {
     CalendarEventService.notifyExternalChange(cacheCurrent: true);
   }
 
+  /// When set, every [overview] waits on it, as a slow load does.
+  Completer<void>? overviewHold;
+
   @override
   Future<ShareOverview> overview({bool withCounts = false}) async {
     await super.overview(withCounts: withCounts);
+    await overviewHold?.future;
     return ShareOverview(
       partnerCategories: [
         for (final category in CalendarCategories.partner)
@@ -2998,6 +3217,46 @@ class _ReceivingShareService extends FakeShareService {
       ],
     );
   }
+}
+
+/// [_ReceivingShareService] counting its alerts-setting reads, and how many
+/// had been asked by the time the looks answered — one turn of the timer
+/// queue after they were asked, so a read started together has begun.
+class _CountingShareService extends _ReceivingShareService {
+  _CountingShareService(super.audience);
+
+  int alertReads = 0;
+  int? alertReadsWhenLooksAnswered;
+
+  @override
+  Future<ShareAlerts> alerts() {
+    alertReads++;
+    return super.alerts();
+  }
+
+  @override
+  Future<ShareLook> looks() async {
+    final look = await super.looks();
+    await Future<void>.delayed(Duration.zero);
+    alertReadsWhenLooksAnswered ??= alertReads;
+    return look;
+  }
+}
+
+/// A share write that throws [error], the way to the page's failure words.
+class _FailingShareService extends FakeShareService {
+  _FailingShareService(this.error)
+    : super(
+        availability: const ShareReady(
+          ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+        ),
+      );
+
+  final Object error;
+
+  @override
+  Future<ShareChange> setCategoryShared(String id, bool on) async =>
+      throw error;
 }
 
 /// Android's text-contrast guideline with the section headers taken out by

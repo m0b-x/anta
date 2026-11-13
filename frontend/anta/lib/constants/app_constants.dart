@@ -172,5 +172,11 @@ class AppConstants {
   /// entries — short, fixed lists stay free of search chrome.
   static const int listSearchThreshold = 12;
 
+  /// Joins a category row's caption segments: the space before the dot is
+  /// a no-break one, so a wrapped line never starts with the dot — German
+  /// and Romanian at 2.0 wrap there. The Categories page and the received
+  /// categories sheet both read it.
+  static const String captionSeparator = ' · ';
+
   AppConstants._();
 }

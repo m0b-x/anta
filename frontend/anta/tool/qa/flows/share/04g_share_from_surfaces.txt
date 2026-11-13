@@ -1,0 +1,187 @@
+# The owner gives through the app itself, no seam (share surfaces §6.2,
+# §6.3, §6.5, §6.6, §6.14): a new category, Stretching, shared from its
+# editor's switch as it is made; Gym from its row's ⋮ on the Categories
+# page; the seeded "Lifting session" from its editor's switch. The Sharing
+# page names them; the tick sheet takes Gym back and Done says so; the
+# Single events sheet stops the event with its ✕ and Undo brings it back.
+# The partner, after its sync, is told what arrived, its View opens the
+# Sharing page, and its calendar draws the owner's events as the owner's.
+# - Stretching is made on the device, so its id is minted: its rows are
+#   named by title (`_labels.txt`), and its events by "Hip openers", an
+#   event made in it today, all day (the editor's defaults).
+# - "Lifting session" recurs on Mondays and Thursdays, so it is reached
+#   through the Upcoming list: filtered to recurring events its Cardio card
+#   stands alone at the top (unfiltered, a third card's "Show every day"
+#   lies under the Add event button); a row of the card's day list selects
+#   its day, and the day panel's row carries the event's seeded id. The
+#   filter is put back after.
+# - The Single events sheet's ✕ and the tick sheet's Cancel are the only
+#   closes without an id there: the sheet is closed with Back.
+# - A count is glued to its noun with a no-break space (U+00A0): the
+#   "1 event" targets below carry one.
+# - Runs after 04f (the pair holds, nothing is shared, both guests rest on
+#   Sync & sharing, one back from the root); 04h and 04i build on what it
+#   leaves shared: Stretching and "Lifting session".
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap id:calendar-categories-open
+wait id:category-add
+# A new category, shared from its editor as it is made.
+tap id:category-add
+wait id:category-editor-name
+type "Stretching"
+scroll-to id:category-editor-share --in id:category-editor-form
+expect id:category-editor-share "Share with qa2@example.com" "Only you see these events"
+tap id:category-editor-share
+expect id:category-editor-share "New events are shared"
+tap id:category-editor-save
+wait id:category-editor-save --gone
+expect "Sharing Stretching with qa2@example.com" --timeout 10
+# Gym, shared from its row's ⋮.
+tap id:category-menu-gym
+wait id:category-menu-share
+expect id:category-menu-share "Share with qa2@example.com"
+tap id:category-menu-share
+wait id:category-menu-share --gone
+expect "Sharing Gym with qa2@example.com" --timeout 10
+expect id:category-row-gym "Shared with qa2@example.com"
+shot categories-shared
+key back
+wait id:calendar-categories-open
+key back
+wait id:calendar-add-event
+# An event made in Stretching is shared through it: its own switch says so
+# and cannot be moved.
+tap id:panel-mode-day --settle 1000
+tap id:calendar-add-event
+wait id:event-title
+type "Hip openers"
+tap id:event-category
+wait id:category-pick-gym
+scroll-to "Stretching"
+tap "Stretching"
+wait id:event-save
+expect id:event-category "Stretching"
+scroll-to id:event-share --in id:event-form
+expect id:event-share "On for everything in Stretching"
+tap id:event-save
+wait id:calendar-add-event
+expect "Hip openers" --timeout 10
+# "Lifting session", in Cardio (private), shared from its editor's switch.
+tap id:panel-mode-upcoming
+wait id:agenda-filter-open
+tap id:agenda-filter-open
+wait id:agenda-filter-sheet
+tap id:agenda-filter-events
+wait id:agenda-filter-events-recurring
+tap id:agenda-filter-events-recurring
+wait id:agenda-filter-events-recurring --gone
+tap id:agenda-filter-apply
+wait id:agenda-filter-sheet --gone
+wait id:agenda-card-days-category-cardio --timeout 15
+tap id:agenda-card-days-category-cardio
+wait id:day-list-close
+tap "Lifting session" --nth 0
+wait id:day-list-close --gone
+tap id:panel-mode-day
+wait id:event-row-qa-event-weekly-lift --timeout 10
+tap id:event-row-qa-event-weekly-lift
+wait id:event-detail-edit
+tap id:event-detail-edit
+wait id:event-title
+scroll-to id:event-share --in id:event-form
+expect id:event-share "Only you see this event"
+tap id:event-share
+expect id:event-share "qa2@example.com sees it, read-only"
+tap id:event-save
+wait id:event-detail-close
+expect "Sharing Lifting session with qa2@example.com" --timeout 10
+tap id:event-detail-close
+wait id:event-detail-close --gone
+tap id:panel-mode-upcoming
+wait id:agenda-filter-open
+tap id:agenda-filter-open
+wait id:agenda-filter-sheet
+tap id:agenda-filter-events
+wait id:agenda-filter-events-all
+tap id:agenda-filter-events-all
+wait id:agenda-filter-events-all --gone
+tap id:agenda-filter-apply
+wait id:agenda-filter-sheet --gone
+wait id:calendar-add-event
+# The Sharing page lists what is shared; the tick sheet takes Gym back.
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+scroll-to id:sharing-paired --in id:sharing-list
+tap id:sharing-paired
+wait id:sharing-page
+expect id:sharing-mine-categories id:sharing-mine-events "1 event" --timeout 10
+text id:sharing-mine-categories --match "Gym, Stretching"
+shot sharing-page-mine
+# The sheet is still sliding in when its rows first appear: the open holds.
+tap id:sharing-mine-categories --settle 1000
+wait id:share-categories-sheet
+wait id:category-pick-gym
+tap id:category-pick-gym
+tap id:category-pick-done
+wait id:share-categories-sheet --gone
+expect "No longer shared: Gym" --timeout 10
+text id:sharing-mine-categories --match "Stretching"
+# The Single events sheet: the ✕ stops the event, Undo brings it back.
+tap id:sharing-mine-events
+wait id:share-events-sheet
+tap id:share-event-unshare-qa-event-weekly-lift
+wait id:snackbar-undo
+expect "No longer shared: Lifting session"
+tap id:snackbar-undo
+wait id:share-event-unshare-qa-event-weekly-lift --timeout 10
+shot event-back
+key back
+wait id:share-events-sheet --gone
+expect id:sharing-mine-events "1 event" --timeout 10
+key back
+wait id:sharing-page --gone
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The partner: told what arrived, and View opens the Sharing page.
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 wait id:share-notice-view --timeout 60
+-d emulator-5558 expect "shares Stretching with you"
+-d emulator-5558 shot share-notice
+-d emulator-5558 tap id:share-notice-view
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 expect id:sharing-theirs-categories "Stretching" id:sharing-theirs-events "1 event" --timeout 15
+-d emulator-5558 shot sharing-page-theirs
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+# Gym was taken back before the sync: its "Treadmill run" never arrives.
+-d emulator-5558 expect "Hip openers" "From qa1@example.com" "Lifting session" --absent "Treadmill run" --timeout 30
+-d emulator-5558 shot partner-calendar
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

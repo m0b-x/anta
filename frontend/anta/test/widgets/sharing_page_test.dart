@@ -77,6 +77,20 @@ class _UnreadableShareService extends FakeShareService {
       throw StateError('the read failed');
 }
 
+/// A first read that waits on [overviewHold]: the page before it loads.
+class _HeldShareService extends FakeShareService {
+  _HeldShareService({super.availability});
+
+  final Completer<void> overviewHold = Completer<void>();
+
+  @override
+  Future<ShareOverview> overview({bool withCounts = false}) async {
+    final overview = await super.overview(withCounts: withCounts);
+    await overviewHold.future;
+    return overview;
+  }
+}
+
 /// Flutter's 4.5:1 text-contrast guideline but for the nodes of [reasons]:
 /// their few short words at 13 px give the sampler more anti-aliasing step
 /// pixels than core ones (2.16:1 measured, light, on a token far above
@@ -1569,6 +1583,39 @@ void main() {
       expect(log.popped, ['page']);
       expect(find.text('host'), findsOneWidget);
       expect(find.byType(BottomSheet), findsNothing);
+
+      await close(tester);
+    });
+
+    // Review RD2 5: a tap before the first read would write from the
+    // shipped value.
+    testWidgets('before the first load the look row and the mark switch '
+        'stand in place and take no tap', (tester) async {
+      final held = _HeldShareService(availability: const ShareReady(maria));
+      await boot(service: held, overview: sharing);
+      await open(tester);
+      final ids = [
+        SemanticsIds.sharingLookEvents,
+        SemanticsIds.sharingMarkMine,
+      ];
+      final before = [for (final id in ids) tester.getRect(byId(id))];
+
+      await tester.tap(
+        byId(SemanticsIds.sharingLookEventsChoice('plain')),
+        warnIfMissed: false,
+      );
+      await tester.tap(byId(SemanticsIds.sharingMarkMine), warnIfMissed: false);
+      await settle(tester, rounds: 4);
+      expect(held.look, ShareEventLook.outlined);
+      expect(held.mine, isTrue);
+
+      held.overviewHold.complete();
+      await settle(tester);
+      expect([for (final id in ids) tester.getRect(byId(id))], before);
+
+      await tester.tap(byId(SemanticsIds.sharingLookEventsChoice('plain')));
+      await settle(tester, rounds: 4);
+      expect(held.look, ShareEventLook.plain);
 
       await close(tester);
     });

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/daos/shared_row_dao.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
@@ -21,6 +22,7 @@ import 'package:anta/services/event_template_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/settings_service.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -252,6 +254,27 @@ void main() {
       expect(mine, isNot(theirs));
       expect(theirs.copyWith(name: 'Y').fromPartner, isTrue);
     });
+  });
+
+  test('a choice of what shows that cannot be read hides nothing, and the '
+      'catalogue it sits beside is published whole', () async {
+    await insertCategory('mine');
+    await partnersCategories(['theirs']);
+    await SettingsService.setShareHiddenCategoriesOf(db, {'theirs'});
+    await service.reload();
+    expect(CalendarCategories.partnerShown, isEmpty);
+    final before = CalendarCategories.all.length;
+
+    counter.onStatement = (sql, args) =>
+        args.contains(SettingsKeys.shareHiddenCategories)
+        ? Future<void>.error(StateError('settings read failed'))
+        : null;
+    await service.reload();
+    counter.onStatement = null;
+
+    expect(CalendarCategories.all, hasLength(before));
+    expect(CalendarCategories.byId('mine'), isNotNull);
+    expect(CalendarCategories.partnerShown.map((c) => c.id), ['theirs']);
   });
 
   group('what a load costs', () {

@@ -23,6 +23,32 @@ class _UnreadableShare extends FakeShareService {
   }
 }
 
+/// Every read the bloc makes after a write — the overview, the looks, the
+/// alert setting — throws while [failReads].
+class _ReadBackFails extends FakeShareService {
+  _ReadBackFails({super.availability});
+
+  bool failReads = false;
+
+  @override
+  Future<ShareOverview> overview({bool withCounts = false}) async {
+    if (failReads) throw StateError('overview read failed');
+    return super.overview(withCounts: withCounts);
+  }
+
+  @override
+  Future<ShareLook> looks() async {
+    if (failReads) throw StateError('looks read failed');
+    return super.looks();
+  }
+
+  @override
+  Future<ShareAlerts> alerts() async {
+    if (failReads) throw StateError('alerts read failed');
+    return super.alerts();
+  }
+}
+
 /// The Sharing page's bloc: it loads the overview, follows the service's
 /// availability and the calendar's changes, and routes the page's intents —
 /// every rule stays the service's.
@@ -538,6 +564,48 @@ void main() {
         expect(shownOf(await settled(), 'shifts'), isTrue);
       },
     );
+
+    group('a write that fails, and whose read-back fails too', () {
+      late _ReadBackFails failing;
+      late ShareBloc reading;
+
+      setUp(() async {
+        failing = _ReadBackFails(availability: const ShareReady(audience))
+          ..shareOverview = stored()
+          ..shareAlerts = ShareAlerts.category;
+        reading = ShareBloc(
+          service: () async => failing,
+          calendarChanges: calendar.stream,
+        );
+        reading.add(const ShareOpened());
+        await pumpEventQueue();
+        failing
+          ..settingsFailure = StateError('disk')
+          ..failReads = true;
+      });
+
+      tearDown(() => reading.close());
+
+      test('draws the switch back to what was last read, not to what the '
+          'tap showed', () async {
+        reading.add(const ShareCategoryShownSet('shifts', shown: false));
+        await pumpEventQueue();
+
+        expect(failing.hidden, isEmpty, reason: 'nothing was stored');
+        expect(shownOf(reading.state as ShareLoaded, 'shifts'), isTrue);
+      });
+
+      test('the look and the alert setting fall back the same way', () async {
+        reading
+          ..add(const ShareEventLookSet(ShareEventLook.avatar))
+          ..add(const ShareAlertsSet(ShareAlerts.off));
+        await pumpEventQueue();
+
+        final state = reading.state as ShareLoaded;
+        expect(state.look.eventLook, ShareEventLook.outlined);
+        expect(state.alerts, ShareAlerts.category);
+      });
+    });
 
     test('the read after an earlier write keeps a later switch whose own '
         'write is still on its way', () async {

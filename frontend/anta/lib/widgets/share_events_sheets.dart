@@ -392,9 +392,13 @@ Future<void> _showFiller(BuildContext context, Widget sheet) {
         top: Radius.circular(FormMetrics.sheetRadius),
       ),
     ),
-    builder: (_) => FractionallySizedBox(
-      heightFactor: FormMetrics.sheetHeightFactor,
-      child: sheet,
+    // A row opens its event above the list, and may do so while the list is
+    // still sliding in: its nodes are read again once that sheet has gone.
+    builder: (_) => FormSheetSemanticsRefresh(
+      child: FractionallySizedBox(
+        heightFactor: FormMetrics.sheetHeightFactor,
+        child: sheet,
+      ),
     ),
   );
 }

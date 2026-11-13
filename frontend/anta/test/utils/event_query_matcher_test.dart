@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/utils/event_agenda.dart';
@@ -91,6 +93,39 @@ void main() {
     expect(m.mayMatch(gym), isFalse);
     expect(
       matcher('health', categoryLabels: const {}).mayMatch(dentist),
+      isFalse,
+    );
+  });
+
+  /// Case R9: a partner's event on a category this phone cannot resolve
+  /// draws as Other, so Other's name finds it, as the Other row filters it
+  /// (RD3 F1).
+  test('an event on an unknown id is found by the name it draws under', () {
+    CalendarCategories.updateCache(const [
+      CalendarCategory(
+        id: 'other',
+        name: 'Other',
+        colorValue: 0xFF757575,
+        iconKey: 'event',
+        sortOrder: 0,
+        isBuiltIn: false,
+      ),
+    ]);
+    addTearDown(() => CalendarCategories.updateCache(const []));
+    final r9 = CalendarEvent(
+      id: 'r9',
+      title: 'Lunch',
+      categoryId: 'p-unshared',
+      startDate: day,
+      fromPartner: true,
+    );
+
+    expect(
+      matcher('other', categoryLabels: const {'other': 'Other'}).mayMatch(r9),
+      isTrue,
+    );
+    expect(
+      matcher('gym', categoryLabels: const {'gym': 'Gym'}).mayMatch(r9),
       isFalse,
     );
   });

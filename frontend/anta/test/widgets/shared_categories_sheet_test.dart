@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/share/share_bloc.dart';
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -21,6 +22,7 @@ import 'package:anta/widgets/shared_category_sheet.dart';
 import '../goldens/support/golden_fonts.dart';
 import '../support/fake_share_service.dart';
 import 'support/layout_errors.dart';
+import 'support/semantics_geometry.dart';
 
 /// The received-categories sheet (share surfaces §6.4, the slice D spec §2):
 /// the rows and their order, a switch that writes through the bloc and moves
@@ -119,6 +121,7 @@ void main() {
     bool dark = false,
     String name = 'Maria',
     Size surface = const Size(360, 780),
+    bool settled = true,
   }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = surface;
@@ -161,6 +164,7 @@ void main() {
       ),
     );
     await tester.tap(find.text('open'));
+    if (!settled) return;
     await tester.pumpAndSettle();
   }
 
@@ -258,7 +262,7 @@ void main() {
     );
     expect(
       tester.widget<FormPickerSwitchRow>(rowOf('Gym')).caption,
-      '9 events · joins your Gym',
+      '9 events · joins your Gym',
     );
     expect(find.byType(FormSearchRow), findsNothing);
   });
@@ -334,7 +338,7 @@ void main() {
         )
         .getSemanticsData();
     expect(node.label, contains('Gym'));
-    expect(node.label, contains('9 events · joins your Gym'));
+    expect(node.label, contains('9 events · joins your Gym'));
     expect(node.flagsCollection.isToggled, Tristate.isTrue);
 
     await tester.tap(find.text('Gym'));
@@ -435,6 +439,47 @@ void main() {
     expect(find.byType(SharedCategoriesSheet), findsNothing);
   });
 
+  /// The category's sheet opened while this one is still sliding in: this
+  /// one reaches its place under that sheet's barrier, which blocks its
+  /// semantics, and a row that only moved kept its old transform — a tap
+  /// by id (and TalkBack) then aimed below it. The two filter sheets
+  /// showed it on the device (2026-11-13).
+  testWidgets('a row is reported where it is painted after its sheet opened '
+      'while this one was still sliding in', (tester) async {
+    final handle = tester.ensureSemantics();
+    await open(tester, settled: false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    final row = find.bySemanticsIdentifier(
+      SemanticsIds.sharedCategoryRow('p-night'),
+    );
+    final sliding = tester.getRect(row);
+    await tester.tapAt(tester.getCenter(row));
+    await tester.pumpAndSettle();
+    expect(find.byType(SharedCategorySheet), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SharedCategorySheet),
+        matching: find.byTooltip('Close'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(find.byType(SharedCategorySheet), findsNothing);
+    final painted = tester.getRect(row);
+    expect(
+      painted.top,
+      lessThan(sliding.top),
+      reason: 'the sheet was still on its way up when the row was tapped',
+    );
+    expect(semanticsGlobalRect(tester.getSemantics(row), tester.view), painted);
+    handle.dispose();
+  });
+
   group('measured at 360 × 780 (spec §2)', () {
     for (final dark in [false, true]) {
       for (final (scale, height) in const [
@@ -472,9 +517,9 @@ void main() {
 
   group('large text and long names', () {
     for (final (locale, joins) in const [
-      (Locale('en'), '9 events · joins your Gym'),
-      (Locale('de'), '9 Ereignisse · in deiner Kategorie Training'),
-      (Locale('ro'), '9 evenimente · intră în categoria ta Sală'),
+      (Locale('en'), '9 events · joins your Gym'),
+      (Locale('de'), '9 Ereignisse · in deiner Kategorie Training'),
+      (Locale('ro'), '9 evenimente · intră în categoria ta Sală'),
     ]) {
       testWidgets('${locale.languageCode} at 2.0 overflows nothing and cuts '
           'no built-in caption', (tester) async {
@@ -528,6 +573,24 @@ void main() {
         expect(whole.didExceedMaxLines, isFalse);
       });
     }
+  });
+
+  // Review RD2 4: the Categories page's separator, whose space before the
+  // dot is a no-break one.
+  testWidgets('a built-in\'s caption joins its parts as the Categories page '
+      'does', (tester) async {
+    await open(tester);
+
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    final caption = tester.widget<FormPickerSwitchRow>(rowOf('Gym')).caption;
+    expect(
+      caption,
+      [
+        l10n.categoryEventCount(9),
+        l10n.shareJoinsYours('Gym'),
+      ].join(AppConstants.captionSeparator),
+    );
+    expect(caption, isNot(contains(' ·')));
   });
 
   group('accessibility guidelines', () {

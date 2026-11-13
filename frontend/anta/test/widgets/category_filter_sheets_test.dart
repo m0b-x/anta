@@ -24,6 +24,7 @@ import 'package:anta/widgets/filter_preset_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/semantics_geometry.dart';
 
 /// `CategoryPickerSheet.pickMulti` is semantics-free — a set in, a set out —
 /// so the two filter sheets are what decide what the set *means*. The agenda
@@ -828,6 +829,64 @@ void main() {
       expect(applied.value, missedOnly);
     });
 
+    /// The picker opened while the sheet is still sliding in: the sheet
+    /// reaches its place under the picker's barrier, which blocks its
+    /// semantics, and a node that only moved kept its old transform — the
+    /// ✕ reported below where it was painted, so a tap by id (and TalkBack)
+    /// missed it. Two of six device runs of the share suite, 2026-11-13.
+    testWidgets('the ✕ is reported where it is painted after a picker that '
+        'opened while the sheet was still sliding in', (tester) async {
+      seed(3);
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(800, 1400);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => CalendarFilterSheet.show(
+                  context,
+                  filters: CalendarGridFilters.none,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pump();
+      // Most of the way up, the Categories row already under a finger.
+      await tester.pump(const Duration(milliseconds: 150));
+      final close = id(SemanticsIds.filterClose);
+      final sliding = tester.getRect(close);
+      await tester.tapAt(tester.getCenter(id(SemanticsIds.filterCategories)));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryPickerSheet), findsOneWidget);
+
+      await tester.tap(id(SemanticsIds.categoryPickClose));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(find.byType(CategoryPickerSheet), findsNothing);
+      final painted = tester.getRect(close);
+      expect(
+        painted.top,
+        lessThan(sliding.top),
+        reason: 'the sheet was still on its way up when the picker opened',
+      );
+      expect(
+        semanticsGlobalRect(tester.getSemantics(close), tester.view),
+        painted,
+      );
+    });
+
     group('a partner\'s categories (share surfaces §6.10)', () {
       final today = DateTime.utc(2027, 1, 1);
 
@@ -1185,6 +1244,62 @@ void main() {
       }
     });
 
+    /// The Filters sheet's twin opens the same picker the same way, so it
+    /// had the same stale geometry (see the calendar filter sheet's test).
+    testWidgets('the ✕ is reported where it is painted after a picker that '
+        'opened while the sheet was still sliding in', (tester) async {
+      seed(3);
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(800, 1400);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => AgendaFiltersSheet.show(
+                  context,
+                  filters: const UpcomingAgendaFilters(),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      final close = find.bySemanticsIdentifier(SemanticsIds.agendaFilterClose);
+      final sliding = tester.getRect(close);
+      await tester.tapAt(tester.getCenter(categoriesRow()));
+      await tester.pumpAndSettle();
+      expect(find.byType(CategoryPickerSheet), findsOneWidget);
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+      );
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(find.byType(CategoryPickerSheet), findsNothing);
+      final painted = tester.getRect(close);
+      expect(
+        painted.top,
+        lessThan(sliding.top),
+        reason: 'the sheet was still on its way up when the picker opened',
+      );
+      expect(
+        semanticsGlobalRect(tester.getSemantics(close), tester.view),
+        painted,
+      );
+    });
+
     /// An explicit allowlist reads its names; the picker's Select all is the
     /// way back to "All" — covering the offered set collapses to the empty
     /// allowlist rather than freezing today's catalog into a list.
@@ -1351,6 +1466,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(applied?.categoryIds, isEmpty);
+    });
+
+    /// "Everything on offer" is read after the picker returns, as the grid's
+    /// sheet reads its catalog: a category created inside the picker is on
+    /// offer by then, and leaving it un-ticked is a narrowing (RD3 F6).
+    testWidgets('a category created inside the picker and left un-ticked '
+        'keeps the allowlist explicit', (tester) async {
+      seed(3);
+      UpcomingAgendaFilters? applied;
+      await pumpHost(tester, (context) async {
+        applied = await AgendaFiltersSheet.show(
+          context,
+          filters: const UpcomingAgendaFilters(),
+        );
+      });
+
+      await openPicker(tester);
+      // What Create category does through the facade; a toggle back and
+      // forth rebuilds the list.
+      CalendarCategories.updateCache([
+        ...CalendarCategories.all,
+        const CalendarCategory(
+          id: 'c3',
+          name: 'Cat3',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 3,
+          isBuiltIn: false,
+        ),
+      ]);
+      await tester.tap(pickerRow('Cat0'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerRow('Cat0'));
+      await tester.pumpAndSettle();
+      expect(pickerRow('Cat3'), findsOneWidget);
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+
+      expect(categoriesValue(tester), 'Cat0, Cat1 +1 more');
+
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(applied?.categoryIds, {'c0', 'c1', 'c2'});
     });
 
     testWidgets('unchecking rows narrows to the explicit remainder', (

@@ -15,6 +15,7 @@ import '../constants/semantics_ids.dart';
 import '../constants/sync_limits.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
+import '../services/app_navigator.dart';
 import '../services/pairing_service.dart';
 import '../services/sync/sync_cadence.dart';
 import '../utils/auth_error.dart';
@@ -146,12 +147,15 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// would open a second dialog.
   bool _stopAsking = false;
 
-  /// Whether [_SyncSettingsView.openSharing] was acted on: the Sharing page
-  /// opens once, and coming back from it must not open it again.
-  bool _sharingOpened = false;
+  /// Whether the Sharing page is still to be opened, for
+  /// [_SyncSettingsView.openSharing] or a View that asked this live page
+  /// ([AppNavigator.sharingRequested]): once the pair is known, and once —
+  /// coming back from it must not open it again.
+  late bool _sharingWanted = widget.openSharing;
 
   @override
   void dispose() {
+    AppNavigator.sharingRequested.removeListener(_serveSharingRequest);
     _searchController.dispose();
     super.dispose();
   }
@@ -190,11 +194,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           listeners: [
             BlocListener<PairingBloc, PairingState>(
               listenWhen: (previous, current) =>
-                  widget.openSharing &&
-                  !_sharingOpened &&
-                  current is PairingPaired,
+                  _sharingWanted && current is PairingPaired,
               listener: (context, state) {
-                _sharingOpened = true;
+                _sharingWanted = false;
                 unawaited(_openSharing(context));
               },
             ),
@@ -660,6 +662,23 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   void initState() {
     super.initState();
     _rememberHeld(context.read<SyncBloc>().state);
+    AppNavigator.sharingRequested.addListener(_serveSharingRequest);
+  }
+
+  /// A View that asked this page, already up, for its Sharing page: taken
+  /// by the page the navigator went back to, cleared before it is acted on,
+  /// and opened by [_SyncSettingsView.openSharing]'s rule — paired, once.
+  void _serveSharingRequest() {
+    if (!mounted || !AppNavigator.sharingRequested.value) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !AppNavigator.servesSharingRequest(route)) return;
+    AppNavigator.sharingRequested.value = false;
+    if (_sharingWanted) return;
+    if (context.read<PairingBloc>().state is PairingPaired) {
+      unawaited(_openSharing(context));
+    } else {
+      _sharingWanted = true;
+    }
   }
 
   /// Adds [state]'s held-back rows to [_heldSeen], or forgets them all
@@ -2190,11 +2209,13 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   }
 
   /// The Sharing page writes through a bloc of its own, so the summary is
-  /// read again as it closes.
+  /// read again as it closes. Named, so a share notice's View can tell it
+  /// is already up.
   Future<void> _openSharing(BuildContext context) async {
     final share = context.read<ShareBloc>();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppNavigator.sharingRouteName),
         builder: (_) => SharingPage(
           pairingBloc: context.read<PairingBloc>(),
           onOpenEvents: (context) => MySharedEventsSheet.show(

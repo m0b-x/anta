@@ -592,7 +592,10 @@ void main() {
 
         expect(calls, ['armed e1,e2,e3', 'calendar', 'reconcile', 'notice']);
         expect(notices, [
-          const ShareLeftWithAlert(['Night shift', 'Lunch']),
+          const ShareLeftWithAlert([
+            (id: 'e1', title: 'Night shift'),
+            (id: 'e3', title: 'Lunch'),
+          ]),
         ]);
       });
 
@@ -663,7 +666,7 @@ void main() {
 
         expect(calls, ['calendar', 'reconcile', 'categories', 'notice']);
         expect(notices, [
-          const ShareArrived(eventTitles: ['Event e1']),
+          const ShareArrived(events: [(id: 'e1', title: 'Event e1')]),
         ]);
       });
 
@@ -678,7 +681,10 @@ void main() {
         );
 
         expect(notices, [
-          const ShareArrived(categoryIds: ['climb'], eventTitles: ['Event e2']),
+          const ShareArrived(
+            categoryIds: ['climb'],
+            events: [(id: 'e2', title: 'Event e2')],
+          ),
         ]);
       });
 
@@ -727,8 +733,11 @@ void main() {
       );
 
       expect(notices, [
-        const ShareLeftWithAlert(['Old shift']),
-        const ShareArrived(categoryIds: ['climb'], eventTitles: ['Event e1']),
+        const ShareLeftWithAlert([(id: 'old', title: 'Old shift')]),
+        const ShareArrived(
+          categoryIds: ['climb'],
+          events: [(id: 'e1', title: 'Event e1')],
+        ),
       ]);
     });
 

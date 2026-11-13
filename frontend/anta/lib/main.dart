@@ -804,8 +804,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  bool _isAlertInFront() {
-    if (_alertNavigationSeen) return true;
+  bool _isAlertInFront() => _alertNavigationSeen || _isAlertPending();
+
+  /// An alert ringing, or a tap on one still to be routed to its page —
+  /// [_isAlertInFront] without the launch's sticky flag, so what waits on
+  /// it (a share notice) is said once the alert has gone.
+  bool _isAlertPending() {
     if (!PendingNavigationQueue.instance.isEmpty) return true;
     try {
       return getIt<AlertGateway>().ringingIds.isNotEmpty;
@@ -841,6 +845,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             navigatorObservers: [
               AppNavigator.routeObserver,
               _navigationHistoryObserver,
+              ShareNoticeListener.routes,
             ],
             title: 'ANTA',
             debugShowCheckedModeBanner: false,
@@ -868,6 +873,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
               child: LockScreenCurtain(
                 child: AppSystemBars(
                   child: ShareNoticeListener(
+                    alertInFront: _isAlertPending,
                     child: QaMode.enabled ? QaTextScale(child: child!) : child!,
                   ),
                 ),

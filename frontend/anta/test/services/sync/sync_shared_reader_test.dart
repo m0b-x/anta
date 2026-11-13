@@ -14,6 +14,7 @@ import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/share_partner_source.dart';
 import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
@@ -1175,11 +1176,17 @@ void main() {
       test('stays hidden while it is shared, read after read', () async {
         await pair.syncBoth();
         await hide({'climb'});
+        partner().hooks.runs.clear();
 
         await pair.syncBoth();
         await pair.syncBoth();
 
         expect(await hidden(), {'climb'});
+        expect(
+          partner().hooks.runs.expand((run) => run),
+          isNot(contains(SyncInvalidation.unhidden)),
+          reason: 'a read that pruned nothing patches as before',
+        );
       });
 
       test('made private, it leaves the hidden set with its share — the '
@@ -1195,6 +1202,11 @@ void main() {
 
         expect(await hidden(), {'gym'});
         expect(partner().hooks.runs.last, contains(SyncInvalidation.calendar));
+        expect(
+          partner().hooks.runs.last,
+          contains(SyncInvalidation.unhidden),
+          reason: 'an event shared singly in climb is read back whole',
+        );
 
         await owner().db.calendarCategoryDao.setSharedPair(
           'climb',
@@ -1239,6 +1251,104 @@ void main() {
         await partner().sync();
 
         expect(await hidden(), isEmpty);
+      });
+
+      test('another pair made, with another account, empties it too',
+          () async {
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        await hide({'climb', 'gym'});
+
+        pair.gateway.pair('pair-3', partnerUid, 'u3');
+        pair.partners.pairs[partnerUid] = SharePartner(
+          pairId: 'pair-3',
+          partnerUid: 'u3',
+        );
+        await partner().sync();
+
+        expect(await partner().db.sharedRowDao.owner(), 'u3');
+        expect(await hidden(), isEmpty);
+      });
+
+      test('an unbind takes it with the shared rows: a new pair\'s built-in '
+          'does not start hidden', () async {
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        expect(await partner().db.sharedRowDao.sharedBuiltIns(), {'gym'});
+        await hide({'gym'});
+
+        // What the unbind does to the shared rows, in its own transaction.
+        final removed = await partner().db.sharedRowDao.removeAll();
+        expect(await hidden(), isEmpty);
+        expect(removed.isEmpty, isFalse, reason: 'the screens reload by it');
+
+        pair.end();
+        pair.join(pairId: 'pair-2');
+        await owner().db.calendarCategoryDao.setSharedPair('gym', 'pair-2');
+        await pair.syncBoth();
+        await pair.syncBoth();
+
+        expect(await partner().db.sharedRowDao.sharedBuiltIns(), {'gym'});
+        expect(await hidden(), isEmpty);
+      });
+
+      test('a switch flipped while the read prunes holds: the two '
+          'read-modify-writes do not interleave', () async {
+        await category(owner(), 'run');
+        await owner().db.calendarCategoryDao.setSharedPair('run', sharePairId);
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        final db = partner().db;
+        await hide({'climb', 'gym'});
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+
+        // A writer outside the prune's transaction — the Sharing page's
+        // "hide run" — starting between the prune's read and its write.
+        final outside = Zone.current;
+        Future<void>? flipped;
+        partner().statements.onStatement = (sql, args) {
+          if (flipped == null &&
+              sql.contains('WHERE owner_id = ? AND is_deleted = 0')) {
+            flipped = outside.run(() async {
+              final now = await SettingsService.shareHiddenCategoriesOf(db);
+              await SettingsService.setShareHiddenCategoriesOf(db, {
+                ...now,
+                'run',
+              });
+            });
+          }
+          return null;
+        };
+        await pair.syncBoth();
+        partner().statements.onStatement = null;
+        await flipped;
+
+        expect(flipped, isNotNull);
+        expect(await hidden(), {'gym', 'run'});
+      });
+
+      test('a prune that fails is not a failed read: the set stays as it '
+          'stood, and the read is stamped as the read went', () async {
+        await pair.syncBoth();
+        await hide({'climb'});
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+        partner().statements.onStatement = (sql, args) =>
+            args.contains(SettingsKeys.shareHiddenCategories)
+            ? Future<void>.error(StateError('settings unreadable'))
+            : null;
+        final dao = partner().db.syncDao;
+        await dao.deleteValue(SyncDao.keySharedReadOkAt);
+
+        await pair.syncBoth();
+        partner().statements.onStatement = null;
+
+        expect(await hidden(), {'climb'});
+        expect(await dao.getValue(SyncDao.keySharedReadFailedAt), isNull);
+        expect(await dao.getValue(SyncDao.keySharedReadOkAt), isNotNull);
+        expect(await categoryOn(partner(), 'climb'), isNull);
       });
 
       test('a read with nothing hidden reads the setting once and nothing '
@@ -1471,10 +1581,7 @@ void main() {
           await CategoryService.forTesting(partner().db);
 
           expect(CalendarCategories.resolve('climb').fromPartner, isFalse);
-          expect(
-            CalendarCategories.all.where((c) => c.fromPartner),
-            isEmpty,
-          );
+          expect(CalendarCategories.all.where((c) => c.fromPartner), isEmpty);
           CategoryService.reset();
         });
 
@@ -1682,13 +1789,19 @@ void main() {
         );
       });
 
-      test('a page with nothing stored forgets nothing, at no statement', () async {
-        partner().statements.reset();
+      test(
+        'a page with nothing stored forgets nothing, at no statement',
+        () async {
+          partner().statements.reset();
 
-        await partner().db.sharedRowDao.noteStored('calendar_events', const []);
+          await partner().db.sharedRowDao.noteStored(
+            'calendar_events',
+            const [],
+          );
 
-        expect(partner().statements.count, 0);
-      });
+          expect(partner().statements.count, 0);
+        },
+      );
 
       test('a templates page of the account\'s own costs three lookups: the '
           'shared account, asked twice, and one read of whether a shared '
@@ -1721,8 +1834,9 @@ void main() {
             deviceId: 'C',
           ),
         );
-        final row = (await owner().db.eventTemplateDao
-            .getByIdsIncludingDeleted(['tpl'])).single;
+        final row = (await owner().db.eventTemplateDao.getByIdsIncludingDeleted(
+          ['tpl'],
+        )).single;
         pair.gateway.plant(
           pair.partnerSpace,
           await const CalendarEventTemplatesBinding().encode(
@@ -2690,6 +2804,83 @@ void main() {
       expect(await syncBoth(), [
         const SharedReadChanges(left: [(id: 'e1', title: 'Event e1')]),
       ]);
+    });
+
+    test('paired again with the same partner: an event shared again in the '
+        'read that forgot the old pair has arrived, not left; one not '
+        'shared again has left', () async {
+      await eventIn('e1', 'general');
+      await eventIn('e2', 'general');
+      await shareEvent('e1');
+      await shareEvent('e2');
+      await syncBoth();
+
+      pair.end();
+      pair.join(pairId: 'pair-2');
+      // The owner's own read clears its marks of the old pair first.
+      await owner().sync();
+      await owner().db.calendarEventDao.setSharedPair('e1', 'pair-2');
+
+      expect(await syncBoth(), [
+        const SharedReadChanges(
+          events: [(id: 'e1', title: 'Event e1', category: 'general')],
+          left: [(id: 'e2', title: 'Event e2')],
+        ),
+      ]);
+      expect((await eventOn(partner(), 'e1'))!.isDeleted, isFalse);
+    });
+
+    test('paired again with the same partner: a category shared again has '
+        'arrived with its events, none of them left', () async {
+      await category('climb');
+      await eventIn('e1', 'climb');
+      await shareCategory('climb');
+      await syncBoth();
+
+      pair.end();
+      pair.join(pairId: 'pair-2');
+      await owner().sync();
+      await owner().db.calendarCategoryDao.setSharedPair('climb', 'pair-2');
+
+      expect(await syncBoth(), [
+        const SharedReadChanges(
+          categoryIds: ['climb'],
+          events: [(id: 'e1', title: 'Event e1', category: 'climb')],
+        ),
+      ]);
+    });
+
+    test('under the same pair, an event a read saw deleted and then stored '
+        'again from the start has neither left nor arrived', () async {
+      await eventIn('e1', 'general');
+      await eventIn('e2', 'general');
+      await shareEvent('e1');
+      await shareEvent('e2');
+      await syncBoth();
+
+      // The read meets e1's tombstone from its cursor; e2 made private makes
+      // the server count fewer, so it reads again from the start — by when
+      // the owner has put e1 back.
+      await owner().db.calendarEventDao.tombstoneEventCascade('e1');
+      await owner().db.calendarEventDao.setSharedPair('e2', null);
+      await owner().sync();
+      var restored = false;
+      pair.gateway.onSharedPage = (table) async {
+        if (table != 'calendar_events' || restored) return;
+        restored = true;
+        await owner().db.calendarEventDao.upsert(
+          CalendarEventsCompanion(id: const Value('e1'), updatedAt: Value(day)),
+        );
+        await owner().sync();
+      };
+      partner().hooks.clear();
+      await partner().sync();
+
+      expect(restored, isTrue);
+      expect(partner().hooks.shared, [
+        const SharedReadChanges(left: [(id: 'e2', title: 'Event e2')]),
+      ]);
+      expect((await eventOn(partner(), 'e1'))!.isDeleted, isFalse);
     });
 
     test('costs: a read with nothing new reads no title and no built-in; a '

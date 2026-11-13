@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
+import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
@@ -12,6 +15,7 @@ import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
@@ -19,7 +23,9 @@ import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/alert_scheduler.dart';
+import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
@@ -28,6 +34,7 @@ import 'package:anta/widgets/shared_category_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import '../services/permission_support.dart';
 import '../support/fake_share_service.dart';
 import 'support/alert_sheet_robot.dart';
 import 'support/layout_errors.dart';
@@ -118,6 +125,7 @@ void main() {
     double scale = 1.0,
     bool dark = false,
     String name = 'Maria',
+    CalendarBloc? calendar,
   }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(360, 780);
@@ -131,34 +139,37 @@ void main() {
     await tester.runAsync(
       () => bloc.stream.firstWhere((state) => state is ShareLoaded),
     );
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
-        themeMode: dark ? ThemeMode.dark : ThemeMode.light,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: locale,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: child!,
-        ),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => SharedCategorySheet.show(
-                context,
-                bloc: bloc,
-                categoryId: id,
-                partner: PartnerLook(name: name),
-              ),
-              child: const Text('open'),
+    final app = MaterialApp(
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: locale,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => SharedCategorySheet.show(
+              context,
+              bloc: bloc,
+              categoryId: id,
+              partner: PartnerLook(name: name),
             ),
+            child: const Text('open'),
           ),
         ),
       ),
+    );
+    await tester.pumpWidget(
+      calendar == null
+          ? app
+          : BlocProvider<CalendarBloc>.value(value: calendar, child: app),
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -503,6 +514,75 @@ void main() {
     });
   });
 
+  // Review RD2 2: what the follow-ups need is taken before the write waits.
+  group('a write that ends after the sheet has closed', () {
+    late CalendarBloc calendar;
+    late _RecordingObserver observer;
+    late BlocObserver previousObserver;
+
+    setUp(() async {
+      previousObserver = Bloc.observer;
+      observer = _RecordingObserver();
+      Bloc.observer = observer;
+      calendar = CalendarBloc(
+        service: Completer<CalendarEventService>().future,
+        alertReconciler: (_, _) async {},
+        alertWriter: (_, _, {knownIds}) async {},
+      );
+      // Asked once already: the check then only says whether the alert can
+      // ring, with no prompt in the way.
+      await (await SettingsService.getInstance()).setAlertNotificationsAsked(
+        true,
+      );
+      final permissions = permissionServiceOver(
+        FakePermissionGateway(
+          statuses: {
+            AppPermission.notifications: PermissionStatus.granted,
+            AppPermission.exactAlarms: PermissionStatus.denied,
+            AppPermission.fullScreenIntent: PermissionStatus.granted,
+            AppPermission.batteryOptimization: PermissionStatus.granted,
+          },
+        ),
+      );
+      GetIt.I.registerSingleton<PermissionService>(permissions);
+      addTearDown(() async {
+        await GetIt.I.unregister<PermissionService>();
+        await permissions.dispose();
+      });
+    });
+
+    tearDown(() async {
+      await calendar.close();
+      Bloc.observer = previousObserver;
+    });
+
+    testWidgets('still tells the calendar and checks the permission', (
+      tester,
+    ) async {
+      await open(tester, calendar: calendar);
+      // The write waits in the database while the sheet closes.
+      writes.hold = Completer<void>();
+
+      await tap(tester, addAlert);
+      await AlertSheetRobot(tester).save();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(sheet, findsNothing);
+      writes.release();
+      for (var i = 0; i < 5; i++) {
+        await settle(tester);
+      }
+
+      expect(stored(), hasLength(1));
+      expect(observer.events.whereType<CategoryAlertsChanged>(), hasLength(1));
+      expect(
+        find.text("This can't ring until a permission is turned on"),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 10));
+    });
+  });
+
   group('it follows the bloc', () {
     testWidgets('when the category leaves the overview the sheet closes, '
         'silently', (tester) async {
@@ -603,6 +683,16 @@ void main() {
       });
     }
   });
+}
+
+class _RecordingObserver extends BlocObserver {
+  final List<Object?> events = [];
+
+  @override
+  void onEvent(Bloc<dynamic, dynamic> bloc, Object? event) {
+    super.onEvent(bloc, event);
+    events.add(event);
+  }
 }
 
 /// Fails every alert-row write while [fail] is set, so a write can fail

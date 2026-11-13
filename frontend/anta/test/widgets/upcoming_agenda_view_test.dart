@@ -1534,6 +1534,60 @@ void main() {
       expect(find.widgetWithText(InputChip, 'Categories (1)'), findsOneWidget);
     });
 
+    /// A partner's shown category is searched by its name like one of mine,
+    /// and offered as a correction; a hidden one is neither (RD3 F4).
+    testWidgets('a search by a partner\'s category name finds its events', (
+      tester,
+    ) async {
+      const every = UpcomingAgendaFilters(
+        rangeDays: 30,
+        eventDisplay: AgendaEventDisplay.everyOccurrence,
+      );
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: every.copyWith(query: 'wards'),
+        events: [daily, wardRound],
+        partnerLook: maria,
+      );
+      expect(header(tester), contains('1 entry'));
+      expect(find.text('Ward round'), findsOneWidget);
+    });
+
+    testWidgets('a partner\'s shown category name is offered as a '
+        'correction', (tester) async {
+      const every = UpcomingAgendaFilters(
+        rangeDays: 30,
+        eventDisplay: AgendaEventDisplay.everyOccurrence,
+      );
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: every.copyWith(query: 'wrds'),
+        events: [daily],
+        partnerLook: maria,
+      );
+      expect(find.widgetWithText(ActionChip, 'Wards'), findsOneWidget);
+    });
+
+    testWidgets('a partner\'s hidden category is never searched by name nor '
+        'suggested', (tester) async {
+      CalendarCategories.updatePartnerHidden(const {'p-wards'});
+      addTearDown(() => CalendarCategories.updatePartnerHidden(const {}));
+      const every = UpcomingAgendaFilters(
+        rangeDays: 30,
+        eventDisplay: AgendaEventDisplay.everyOccurrence,
+      );
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: every.copyWith(query: 'wrds'),
+        events: [daily],
+        partnerLook: maria,
+      );
+      expect(find.widgetWithText(ActionChip, 'Wards'), findsNothing);
+    });
+
     testWidgets('a partner\'s timed event reads its time on the card\'s '
         'drill-down: its list, and its year\'s tile opened to the day', (
       tester,

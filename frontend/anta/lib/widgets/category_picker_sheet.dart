@@ -84,8 +84,11 @@ class CategoryPickerSheet extends StatefulWidget {
   final List<CalendarCategory> partner;
 
   /// How the partner's rows draw their avatars and whose name heads their
-  /// group — the look the page hands its event rows.
-  final PartnerLook partnerLook;
+  /// group — the look the page hands its event rows. Handed, it also signs
+  /// my own shared categories by its rule ([EventAvatar.ofRow]); null — the
+  /// Sharing page's tick sheet, whose tick is the share state, and every
+  /// caller outside the filters — signs nothing of mine.
+  final PartnerLook? partnerLook;
 
   const CategoryPickerSheet({
     super.key,
@@ -98,7 +101,7 @@ class CategoryPickerSheet extends StatefulWidget {
     this.counts,
     this.tickCreated = true,
     this.partner = const [],
-    this.partnerLook = const PartnerLook(),
+    this.partnerLook,
   });
 
   /// Picks one category. Returns its id, or `null` when dismissed.
@@ -146,7 +149,7 @@ class CategoryPickerSheet extends StatefulWidget {
     String? identifier,
     bool tickCreated = true,
     List<CalendarCategory> partner = const [],
-    PartnerLook partnerLook = const PartnerLook(),
+    PartnerLook? partnerLook,
   }) {
     return _show(
       context,
@@ -175,7 +178,7 @@ class CategoryPickerSheet extends StatefulWidget {
     String? identifier,
     bool tickCreated = true,
     List<CalendarCategory> partner = const [],
-    PartnerLook partnerLook = const PartnerLook(),
+    PartnerLook? partnerLook,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<String>>(
@@ -330,12 +333,30 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
   /// the group's "From {name}" already says whose every row is, and a
   /// screen reader would otherwise hear it once per row (spec decision dk).
   Widget _partnerAvatar(CalendarCategory category) {
-    final look = widget.partnerLook;
+    final look = widget.partnerLook ?? const PartnerLook();
     return EventAvatar(
       icon: CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
       color: category.color,
       outlined: look.outlined,
       badge: look.avatar ? EventAvatarBadge.partner(look.partner) : null,
+    );
+  }
+
+  /// A row of mine wears what my shared events wear (share surfaces §6.7):
+  /// the sign and "Shared with {name}" for a category I share, by the
+  /// handed look's rule; with no look handed, the avatar every row had.
+  Widget _mineAvatar(CalendarCategory category, AppLocalizations l10n) {
+    final icon = CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded;
+    final look = widget.partnerLook;
+    if (look == null || !category.sharedByMe) {
+      return EventAvatar(icon: icon, color: category.color);
+    }
+    return EventAvatar.ofRow(
+      icon: icon,
+      color: category.color,
+      partner: null,
+      mine: look,
+      l10n: l10n,
     );
   }
 
@@ -388,11 +409,12 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     final showSearch =
         _isFiltering ||
         categories.length + partner.length > AppConstants.listSearchThreshold;
-    // Nothing matched: the typed text is almost certainly the name the user
-    // wants, so the one row left offers to create it rather than to start
-    // over. A partner's row that matched means the name exists already.
+    // None of mine matched: the typed text is almost certainly the name the
+    // user wants, so the Create row offers it rather than to start over. A
+    // partner's match withholds nothing — my own category may carry that
+    // name, as the editor's duplicate check allows.
     final typed = _searchController.text.trim();
-    final createTyped = onScreen.isEmpty && typed.isNotEmpty;
+    final createTyped = rows.isEmpty && typed.isNotEmpty;
     // The larger of the keyboard inset and the system's bottom inset pads the
     // scroll view, never the whole body — the clearance rule every calendar
     // sheet follows (`sheet_bottom_clearance_test.dart`).
@@ -485,12 +507,7 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                     ],
                     for (final category in rows)
                       FormCheckRow(
-                        leading: EventAvatar(
-                          icon:
-                              CalendarIcons.forKey(category.iconKey) ??
-                              Icons.event_rounded,
-                          color: category.color,
-                        ),
+                        leading: _mineAvatar(category, l10n),
                         label: CalendarCategories.labelOf(category, l10n),
                         // A hidden category only reaches this list by already
                         // being selected; say so, or it reads as an ordinary
@@ -517,7 +534,7 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                 if (partnerRows.isNotEmpty) ...[
                   FormSectionLabel(
                     text: l10n.shareFromPartner(
-                      ShareCopy.partnerName(l10n, widget.partnerLook.name),
+                      ShareCopy.partnerName(l10n, widget.partnerLook?.name),
                     ),
                   ),
                   FormRowGroup(

@@ -8,6 +8,11 @@ sealed class ShareNotice extends Equatable {
   const ShareNotice();
 }
 
+/// A partner's event a notice names: by its id as well as its title, since
+/// two events may share a title and each is one event to the person — the
+/// surface counts and merges notices by [id], and words them by [title].
+typedef ShareNoticeEvent = ({String id, String title});
+
 /// Something this phone had not held arrived: a category the partner began
 /// to share, or an event shared one by one.
 final class ShareArrived extends ShareNotice {
@@ -16,29 +21,26 @@ final class ShareArrived extends ShareNotice {
   /// built-in's being this person's own.
   final List<String> categoryIds;
 
-  /// The titles of the events newly shared one by one: never an event that
-  /// came with one of [categoryIds], or with a category already shared.
-  final List<String> eventTitles;
+  /// The events newly shared one by one: never an event that came with one
+  /// of [categoryIds], or with a category already shared.
+  final List<ShareNoticeEvent> events;
 
-  const ShareArrived({
-    this.categoryIds = const [],
-    this.eventTitles = const [],
-  });
+  const ShareArrived({this.categoryIds = const [], this.events = const []});
 
-  bool get isEmpty => categoryIds.isEmpty && eventTitles.isEmpty;
+  bool get isEmpty => categoryIds.isEmpty && events.isEmpty;
 
   @override
-  List<Object?> get props => [categoryIds, eventTitles];
+  List<Object?> get props => [categoryIds, events];
 }
 
 /// The partner's events that left this phone — un-shared, deleted, their
 /// category un-shared, the pair ended — while an alert of this person's was
 /// armed on them: the alert is off now, and the person is told (D23).
 final class ShareLeftWithAlert extends ShareNotice {
-  final List<String> eventTitles;
+  final List<ShareNoticeEvent> events;
 
-  const ShareLeftWithAlert(this.eventTitles);
+  const ShareLeftWithAlert(this.events);
 
   @override
-  List<Object?> get props => [eventTitles];
+  List<Object?> get props => [events];
 }

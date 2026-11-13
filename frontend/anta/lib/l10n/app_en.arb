@@ -13923,7 +13923,7 @@
     }
   },
   "appGuideSharingTheirsTitle": "What your partner shares",
-  "appGuideSharingTheirsBody": "Their events are drawn apart from yours and open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how shared events look. Reports, goals and attendance count only your own events.",
+  "appGuideSharingTheirsBody": "Their events open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how their events are told apart from yours. Reports, goals and attendance count only your own events.",
   "@appGuideSharingTheirsBody": {
     "description": "Body of the app guide's row about what the partner shares with this person",
     "placeholders": {
@@ -14055,9 +14055,9 @@
   "@shareNeedsSyncReceive": {
     "description": "Line in the partner's section while this database does not sync"
   },
-  "shareCheckFailed": "Could not check. Will try again.",
+  "shareCheckFailed": "Could not check",
   "@shareCheckFailed": {
-    "description": "Status in the partner's section after the last read of what the partner shares failed"
+    "description": "Status at the end of the partner's section header after the last read of what the partner shares failed; kept short, the header's title shares its line"
   },
   "shareMaybeStale": "May be out of date",
   "@shareMaybeStale": {

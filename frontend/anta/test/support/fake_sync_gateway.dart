@@ -90,6 +90,10 @@ class FakeSyncGateway implements SyncGateway {
   /// test can land a rebind between the page's read and its transaction.
   Future<void> Function(String table)? onPullPage;
 
+  /// Run inside [sharedPage] once the page is read and before it returns,
+  /// so a test can land an owner's change in the middle of a shared read.
+  Future<void> Function(String table)? onSharedPage;
+
   /// Every page asked for, as `<table>:<limit>` with the limit the gateway
   /// applied — so a test reads the page sizes a run asked for.
   final List<String> pullTakes = [];
@@ -585,6 +589,7 @@ class FakeSyncGateway implements SyncGateway {
     final behind = rereads && last != null && last.compareTo(cursor) <= 0;
     bool readable(_Arrival arrival) =>
         !unreadable.contains((table, arrival.envelope.rowKey));
+    await onSharedPage?.call(table);
     return SyncPullPage(
       envelopes: [
         for (final doc in page)

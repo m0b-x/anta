@@ -11180,7 +11180,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String appGuideSharingTheirsBody(String sharingPage) {
-    return 'Seine Ereignisse werden anders gezeichnet als deine und öffnen ein Blatt zum Lesen, nicht zum Bearbeiten. Auf „$sharingPage“ wählst du, welche seiner Kategorien in deinem Kalender erscheinen und wie geteilte Ereignisse aussehen. Berichte, Ziele und Anwesenheit zählen nur deine eigenen Ereignisse.';
+    return 'Seine Ereignisse öffnen ein Blatt zum Lesen, nicht zum Bearbeiten. Auf „$sharingPage“ wählst du, welche seiner Kategorien in deinem Kalender erscheinen und woran du seine Ereignisse von deinen unterscheidest. Berichte, Ziele und Anwesenheit zählen nur deine eigenen Ereignisse.';
   }
 
   @override
@@ -11288,7 +11288,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get shareNeedsSyncReceive => 'Zum Empfangen Sync einschalten';
 
   @override
-  String get shareCheckFailed => 'Prüfen fehlgeschlagen. Neuer Versuch folgt.';
+  String get shareCheckFailed => 'Konnte nicht prüfen';
 
   @override
   String get shareMaybeStale => 'Möglicherweise nicht aktuell';

@@ -11095,7 +11095,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String appGuideSharingTheirsBody(String sharingPage) {
-    return 'Their events are drawn apart from yours and open a sheet you can read, not edit. On “$sharingPage” you choose which of their categories show on your calendar and how shared events look. Reports, goals and attendance count only your own events.';
+    return 'Their events open a sheet you can read, not edit. On “$sharingPage” you choose which of their categories show on your calendar and how their events are told apart from yours. Reports, goals and attendance count only your own events.';
   }
 
   @override
@@ -11202,7 +11202,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get shareNeedsSyncReceive => 'Turn on sync to receive';
 
   @override
-  String get shareCheckFailed => 'Could not check. Will try again.';
+  String get shareCheckFailed => 'Could not check';
 
   @override
   String get shareMaybeStale => 'May be out of date';

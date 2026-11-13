@@ -167,7 +167,9 @@ class SharedReadChanges extends Equatable {
 
   /// The partner's live events this read removed or saw deleted: no longer
   /// shared, deleted by the partner, their category no longer shared, or
-  /// the whole share forgotten with its pair.
+  /// the whole share forgotten with its pair. One the same read stored
+  /// again never left — a pair made anew shares it again, so it is among
+  /// [events].
   final List<SharedEventLeave> left;
 
   const SharedReadChanges({

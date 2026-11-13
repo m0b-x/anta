@@ -16725,7 +16725,7 @@ abstract class AppLocalizations {
   /// Body of the app guide's row about what the partner shares with this person
   ///
   /// In en, this message translates to:
-  /// **'Their events are drawn apart from yours and open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how shared events look. Reports, goals and attendance count only your own events.'**
+  /// **'Their events open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how their events are told apart from yours. Reports, goals and attendance count only your own events.'**
   String appGuideSharingTheirsBody(String sharingPage);
 
   /// No description provided for @appGuideSharingAlertsTitle.
@@ -16888,10 +16888,10 @@ abstract class AppLocalizations {
   /// **'Turn on sync to receive'**
   String get shareNeedsSyncReceive;
 
-  /// Status in the partner's section after the last read of what the partner shares failed
+  /// Status at the end of the partner's section header after the last read of what the partner shares failed; kept short, the header's title shares its line
   ///
   /// In en, this message translates to:
-  /// **'Could not check. Will try again.'**
+  /// **'Could not check'**
   String get shareCheckFailed;
 
   /// Line in the partner's section when nothing was read for seven days or more

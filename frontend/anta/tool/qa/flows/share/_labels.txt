@@ -11,3 +11,11 @@ Week 1
 Mobility drills
 Core circuit
 Treadmill run
+# basic.json's recurring event: a row of the day list an Upcoming card
+# opens, which carries no id (04g, 04i).
+Lifting session
+# The category the owner makes in its editor (04g) and the event it makes
+# in it: their ids are minted on the device, so their rows — the pickers',
+# the received-categories sheet's — are named by title.
+Stretching
+Hip openers

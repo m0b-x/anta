@@ -113,6 +113,36 @@ void main() {
     expect(overview.withPartnerShown('gone', false), overview);
   });
 
+  group('PartnerSharedCategory.copyWith — the copy withPartnerShown makes',
+      () {
+    const row = PartnerSharedCategory(
+      category: shifts,
+      joinsMine: true,
+      shown: true,
+      eventCount: 18,
+    );
+
+    test('the row here sets every field, and has as many as copyWith '
+        'carries — a field added to the row is added here', () {
+      expect(row.props, hasLength(4));
+      expect(row.props, everyElement(isNotNull));
+    });
+
+    test('with nothing given it is the row whole', () {
+      expect(row.copyWith(), row);
+    });
+
+    test('shown changes that field alone, and back gives the row whole', () {
+      final hidden = row.copyWith(shown: false);
+
+      expect(hidden.shown, isFalse);
+      expect(hidden.category, row.category);
+      expect(hidden.joinsMine, row.joinsMine);
+      expect(hidden.eventCount, row.eventCount);
+      expect(hidden.copyWith(shown: true), row);
+    });
+  });
+
   group('isStale (D22)', () {
     final readAt = DateTime(2026, 11, 1, 9);
     final read = ShareOverview(readAt: readAt);

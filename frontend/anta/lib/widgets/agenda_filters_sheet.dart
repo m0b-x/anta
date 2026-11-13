@@ -101,15 +101,20 @@ class AgendaFiltersSheet extends StatefulWidget {
           top: Radius.circular(FormMetrics.sheetRadius),
         ),
       ),
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
-        ),
-        child: AgendaFiltersSheet(
-          initial: filters,
-          appearance: appearance,
-          partnerLook: partnerLook,
+      // A sub-sheet opened while this one is still sliding in covers it
+      // before it has settled, as the Filters sheet's does.
+      builder: (context) => FormSheetSemanticsRefresh(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                FormMetrics.sheetHeightFactor,
+          ),
+          child: AgendaFiltersSheet(
+            initial: filters,
+            appearance: appearance,
+            partnerLook: partnerLook,
+          ),
         ),
       ),
     );
@@ -234,27 +239,36 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   /// mine is a real narrowing, and ticking both groups whole is "all". A
   /// partner's id that has since left the list stays in the set as a
   /// deleted category's does — it matches no event and no row names it.
-  Future<void> _pickCategories(
-    List<CalendarCategory> categories,
-    List<CalendarCategory> partner,
-  ) => _guarded(() async {
-    final offered = {
-      for (final category in categories) category.id,
-      for (final category in partner) category.id,
-    };
-    final picked = await CategoryPickerSheet.pickMulti(
-      context,
-      selected: _draft.categoryIds.isEmpty ? offered : _draft.categoryIds,
-      partner: partner,
-      partnerLook: widget.partnerLook,
-    );
-    if (picked == null || !mounted) return;
-    _update(
-      _draft.copyWith(
-        categoryIds: picked.containsAll(offered) ? const {} : picked,
-      ),
-    );
-  });
+  ///
+  /// "Everything on offer" is read again after the picker returns, never from
+  /// the build that opened it: a category created inside the picker is on
+  /// offer now, and an answer that leaves it un-ticked must not collapse to
+  /// "all". The partner's are the ones the picker was handed, as in the
+  /// grid's sheet: one that arrived while it was open was never offered.
+  Future<void> _pickCategories(List<CalendarCategory> partner) =>
+      _guarded(() async {
+        final picked = await CategoryPickerSheet.pickMulti(
+          context,
+          selected: _draft.categoryIds.isEmpty
+              ? _offeredIds(partner)
+              : _draft.categoryIds,
+          partner: partner,
+          partnerLook: widget.partnerLook,
+        );
+        if (picked == null || !mounted) return;
+        final offered = _offeredIds(partner);
+        _update(
+          _draft.copyWith(
+            categoryIds: picked.containsAll(offered) ? const {} : picked,
+          ),
+        );
+      });
+
+  Set<String> _offeredIds(List<CalendarCategory> partner) => {
+    for (final category in CalendarCategories.visiblePlus(_draft.categoryIds))
+      category.id,
+    for (final category in partner) category.id,
+  };
 
   Future<void> _pickPriorities(AppLocalizations l10n) => _guarded(() async {
     final picked = await FilterCheckListSheet.show(
@@ -625,7 +639,7 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
                         identifier: SemanticsIds.agendaFilterCategories,
                         enabled: eventsShown,
                         onTap: eventsShown
-                            ? () => _pickCategories(categories, partner)
+                            ? () => _pickCategories(partner)
                             : null,
                       ),
                       FormPickerRow(

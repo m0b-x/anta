@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../constants/settings_keys.dart';
 import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
 import '../crdt/synced_tables.dart';
@@ -37,7 +38,12 @@ typedef SharedRemoval = ({String key, String? parent});
 /// that went, by table, and the shared folders left without their parent,
 /// which now stand at the top level.
 class SharedRemovals {
-  const SharedRemovals(this.gone, this.placed, {this.eventTitles = const {}});
+  const SharedRemovals(
+    this.gone,
+    this.placed, {
+    this.eventTitles = const {},
+    this.hiddenCleared = false,
+  });
 
   static const SharedRemovals none = SharedRemovals({}, []);
 
@@ -50,8 +56,15 @@ class SharedRemovals {
   /// [SharedRowDao.removeAll] alone; a tombstone left long before.
   final Map<String, String> eventTitles;
 
+  /// [SharedRowDao.removeAll] took a hidden set with it: the calendar,
+  /// which narrowed the partner's categories by it, owes a reload even when
+  /// no row went — a built-in shared and hidden is no row of the partner's.
+  final bool hiddenCleared;
+
   bool get isEmpty =>
-      placed.isEmpty && gone.values.every((rows) => rows.isEmpty);
+      !hiddenCleared &&
+      placed.isEmpty &&
+      gone.values.every((rows) => rows.isEmpty);
 
   /// The keys removed from [table].
   List<String> keysOf(String table) => [
@@ -595,6 +608,11 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// another partner took its place, or this database stopped syncing and
   /// nothing would keep the rows true. What the person keeps of their own
   /// on those rows stays, as [removeAbsent] says.
+  ///
+  /// The categories hidden on this phone go too
+  /// (`SettingsKeys.shareHiddenCategories`): they were choices about this
+  /// share, and after an unbind no read is left to find their holder gone —
+  /// a later pair would start with a built-in hidden.
   Future<SharedRemovals> removeAll() {
     return writing(() async {
       final owner = await this.owner();
@@ -624,8 +642,18 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedRefusedPrefix);
       await dao.deleteByPrefix(SyncDao.sharedBuiltInPrefix);
       await dao.deleteValue(SyncDao.keyShareSending);
+      final hiddenCleared =
+          await (db.delete(db.userSettings)
+                ..where((s) => s.key.equals(SettingsKeys.shareHiddenCategories)))
+              .go() >
+          0;
       // Every shared folder went, so none was left to place.
-      return SharedRemovals(removed, const [], eventTitles: eventTitles);
+      return SharedRemovals(
+        removed,
+        const [],
+        eventTitles: eventTitles,
+        hiddenCleared: hiddenCleared,
+      );
     });
   }
 

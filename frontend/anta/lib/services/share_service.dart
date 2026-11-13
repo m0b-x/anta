@@ -900,14 +900,25 @@ class ShareService {
     (hidden) => shown ? (Set.of(hidden)..remove(id)) : {...hidden, id},
   );
 
+  /// The read and the write are one transaction, as the shared reader's
+  /// prune is, so neither writes over the other. What follows the store is
+  /// published into the app-wide caches only while [_db] is still the
+  /// database those caches answer for.
   Future<void> _writeHidden(Set<String> Function(Set<String>) next) {
     final write = _hiddenWrites.then((_) async {
-      final hidden = await _settings.getShareHiddenCategories();
-      final wanted = Set<String>.unmodifiable(next(hidden));
-      if (wanted.length == hidden.length && wanted.containsAll(hidden)) {
+      final generation = DatabaseLifecycle.generation;
+      final wanted = await _db.transaction(() async {
+        final hidden = await SettingsService.shareHiddenCategoriesOf(_db);
+        final wanted = Set<String>.unmodifiable(next(hidden));
+        if (wanted.length == hidden.length && wanted.containsAll(hidden)) {
+          return null;
+        }
+        await SettingsService.setShareHiddenCategoriesOf(_db, wanted);
+        return wanted;
+      });
+      if (wanted == null || DatabaseLifecycle.generation != generation) {
         return;
       }
-      await _settings.setShareHiddenCategories(wanted);
       CalendarCategories.updatePartnerHidden(wanted);
       bool current;
       try {

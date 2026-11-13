@@ -3027,6 +3027,52 @@ void main() {
       expect(robot.shows(robot.emptyPeriodText), isTrue);
     });
 
+    /// A partner's shown category is searched by its name like one of mine;
+    /// a hidden one never is (RD3 F4).
+    testWidgets('a search by a partner\'s category name finds its events', (
+      tester,
+    ) async {
+      CalendarCategories.updateCache([
+        ...CalendarCategories.all,
+        const CalendarCategory(
+          id: 'p-wards',
+          name: 'Wards',
+          colorValue: 0xFF8E24AA,
+          iconKey: 'work',
+          sortOrder: 0,
+          isBuiltIn: false,
+          fromPartner: true,
+        ),
+      ]);
+      addTearDown(() => CalendarCategories.updatePartnerHidden(const {}));
+      final ward = CalendarEvent(
+        id: 'p1',
+        title: 'Ward round',
+        categoryId: 'p-wards',
+        startDate: DateTime.utc(year, 3, 9),
+        rule: const OneTimeRecurrence(),
+        fromPartner: true,
+      );
+      emitEvents([gymDaily, ward]);
+      final robot = OverviewRobot(tester);
+      await openList(robot);
+
+      await robot.typeQuery('wards');
+      expect(robot.countOf('Ward round'), 1);
+      expect(robot.shows('Leg day'), isFalse);
+
+      // Hiding bumps no catalogue revision; the next list the page adopts
+      // re-reads the names (reordered, or the bloc drops an equal state).
+      // The event stays only to show its name no longer finds it — the
+      // service drops a hidden category's events.
+      await robot.clearQuery();
+      CalendarCategories.updatePartnerHidden(const {'p-wards'});
+      emitEvents([ward, gymDaily]);
+      await tester.pumpAndSettle();
+      await robot.typeQuery('wards');
+      expect(robot.shows('Ward round'), isFalse);
+    });
+
     group('the search button (D21 · A)', () {
       testWidgets('the page opens with the Search row closed; the button '
           'reveals it focused', (tester) async {

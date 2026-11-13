@@ -897,6 +897,87 @@ void main() {
       }
     });
 
+    /// Share surfaces §6.7: a row of mine whose category I share wears what
+    /// my shared events wear — the sign while the look marks mine, "Shared
+    /// with Maria" either way — and nothing once the pair has ended (RD3 F8).
+    testWidgets('my shared categories wear the share sign by the handed '
+        'look\'s rule; the unshared stay plain', (tester) async {
+      CalendarCategories.updateCache([
+        for (var i = 0; i < 2; i++)
+          CalendarCategory(
+            id: 'c$i',
+            name: 'Cat$i',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: i,
+            isBuiltIn: false,
+            sharedByMe: i == 0,
+          ),
+      ]);
+      final shared = l10n.shareMarkMineLabel('Maria');
+      for (final (look, badge, label) in [
+        (maria, EventAvatarBadge.mine, shared),
+        (const PartnerLook(name: 'Maria', markMine: false), null, shared),
+        (const PartnerLook(name: 'Maria', unpaired: true), null, null),
+      ]) {
+        await openWithPartner(tester, selected: const {}, look: look);
+
+        final mine = avatarOf(tester, 'c0');
+        expect(mine.badge, badge, reason: '$look');
+        expect(mine.semanticsLabel, label, reason: '$look');
+        expect(mine.outlined, isFalse);
+        final plain = avatarOf(tester, 'c1');
+        expect(plain.badge, isNull);
+        expect(plain.semanticsLabel, isNull);
+
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+        );
+        await tester.pumpAndSettle();
+      }
+    });
+
+    /// The Sharing page's tick sheet hands no look — its tick is the share
+    /// state — and neither does any caller outside the filters: a shared
+    /// category of mine draws there as every row always has.
+    testWidgets('with no look handed, a shared category of mine wears no '
+        'sign', (tester) async {
+      CalendarCategories.updateCache([
+        const CalendarCategory(
+          id: 'c0',
+          name: 'Cat0',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 0,
+          isBuiltIn: false,
+          sharedByMe: true,
+        ),
+      ]);
+      await openSheet<Set<String>>(
+        tester,
+        (context) => CategoryPickerSheet.pickMulti(
+          context,
+          selected: const {'c0'},
+          title: l10n.shareCategoriesTitle,
+          identifier: SemanticsIds.shareCategoriesSheet,
+          tickCreated: false,
+        ),
+      );
+      expect(avatarOf(tester, 'c0').badge, isNull);
+      expect(avatarOf(tester, 'c0').semanticsLabel, isNull);
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+      );
+      await tester.pumpAndSettle();
+
+      await openSheet<String>(
+        tester,
+        (context) => CategoryPickerSheet.pickSingle(context, selectedId: 'c0'),
+      );
+      expect(avatarOf(tester, 'c0').badge, isNull);
+      expect(avatarOf(tester, 'c0').semanticsLabel, isNull);
+    });
+
     testWidgets('Select all and Select none act on both groups and are '
         'disabled by the no-op rule over both', (tester) async {
       seed(2);
@@ -967,8 +1048,11 @@ void main() {
       expect(find.text('FROM MARIA'), findsOneWidget);
       expect(find.byType(FormCheckRow), findsOneWidget);
       expect(find.text('Pilates'), findsOneWidget);
-      // A partner's row answered, so the typed name is no new category.
-      expect(find.text(l10n.createCategory), findsOneWidget);
+      // None of mine answered: a partner's match withholds nothing, since my
+      // own category may carry that name (RD3 F7); the no-match caption
+      // still needs both groups empty.
+      expect(find.text(l10n.createCategoryNamed('pil')), findsOneWidget);
+      expect(find.text(l10n.noCategoriesMatch), findsNothing);
       // The bulk rows act on what is listed: Pilates alone.
       await tester.tap(find.text(l10n.categoriesSelectAll));
       await tester.pumpAndSettle();

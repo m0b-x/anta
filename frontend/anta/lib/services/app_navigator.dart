@@ -461,20 +461,93 @@ abstract final class AppNavigator {
     );
   }
 
-  /// [openSharing] opens the Sharing page on top once the pair is known, as
-  /// a share notice's View does; already in front, the page stays as it is.
+  /// The route name of the Sharing page Sync & sharing pushes. A name and
+  /// never a `NavDestination`: the page is handed its parent's pairing bloc,
+  /// so launch restore could not rebuild it.
+  static const String sharingRouteName = 'sharing';
+
+  /// A share notice's View asking the live Sync & sharing page for its
+  /// Sharing page — a live page cannot be handed constructor arguments.
+  /// Served and cleared by the page [servesSharingRequest] names.
+  static final ValueNotifier<bool> sharingRequested = ValueNotifier(false);
+
+  /// Whether the Sync & sharing page on [route] is the one a published
+  /// [sharingRequested] is for: the last live one. Any route serves while
+  /// none is known, as [servesOverviewLook] answers.
+  static bool servesSharingRequest(Route<dynamic> route) {
+    final navigator = route.navigator;
+    if (navigator == null) return true;
+    final routes = _livePageRoutes(navigator);
+    final index = routes.lastIndexWhere(
+      (candidate) => _isStamped(candidate, NavDestinationKind.syncSettings),
+    );
+    return index < 0 || identical(routes[index], route);
+  }
+
+  /// Whether [route] is a Sync & sharing page: what a share notice's View
+  /// goes back to, closing everything above it ([_toSharing]) — so its
+  /// caller can see what that would close before it asks.
+  static bool isSyncSettingsRoute(Route<dynamic> route) =>
+      _isStamped(route, NavDestinationKind.syncSettings);
+
+  /// [openSharing] is a share notice's View, which always ends on the
+  /// Sharing page over the one Sync & sharing page ([_toSharing]); without
+  /// it, a Sync & sharing page already in front stays as it is.
   static Future<void> toSyncSettings(
     BuildContext context, {
     bool openSharing = false,
   }) {
+    if (openSharing) return _toSharing(context);
     if (_isOnTop(context, NavDestinationKind.syncSettings)) {
       return Future<void>.value();
     }
     return push(
       context,
-      SyncSettingsPage(openSharing: openSharing),
+      const SyncSettingsPage(),
       destination: const NavDestination(NavDestinationKind.syncSettings),
     );
+  }
+
+  /// The Sharing page, exactly once: already directly over the last Sync &
+  /// sharing page, everything above it goes; a Sync & sharing page with no
+  /// Sharing page over it is gone back to and asked for one; none in the
+  /// stack, the sheets in front close and Sync & sharing is pushed to open
+  /// it. The caller has made sure no sheet in front holds a draft.
+  static Future<void> _toSharing(BuildContext context) {
+    final navigator = Navigator.of(context);
+    final routes = _livePageRoutes(navigator);
+    final index = routes.lastIndexWhere(
+      (route) => _isStamped(route, NavDestinationKind.syncSettings),
+    );
+    if (index < 0) {
+      navigator.popUntil((route) => route is PageRoute);
+      return push(
+        context,
+        const SyncSettingsPage(openSharing: true),
+        destination: const NavDestination(NavDestinationKind.syncSettings),
+      );
+    }
+    final sharingAbove =
+        index + 1 < routes.length &&
+        routes[index + 1].settings.name == sharingRouteName;
+    _clearAbove(navigator, routes, sharingAbove ? index + 1 : index);
+    if (!sharingAbove) sharingRequested.value = true;
+    return Future<void>.value();
+  }
+
+  /// [_collapseOnto] for a stack that may carry sheets: the pages between
+  /// `routes[index]` and the top page are removed outright, and the top
+  /// page with any sheet over it is popped, so one page transition plays.
+  static void _clearAbove(
+    NavigatorState navigator,
+    List<Route<dynamic>> routes,
+    int index,
+  ) {
+    for (var i = routes.length - 2; i > index; i--) {
+      navigator.removeRoute(routes[i]);
+    }
+    final target = routes[index];
+    navigator.popUntil((route) => identical(route, target));
   }
 
   static Future<void> toMarkdownSettings(

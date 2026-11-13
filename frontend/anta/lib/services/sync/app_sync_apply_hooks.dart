@@ -240,9 +240,14 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   }) async {
     // Spent here, so the next run gathers from its own pages; a page
     // announced after this one without its own `beforePage` (the re-filed
-    // notes) is gathered by none.
+    // notes) is gathered by none. A category that left the hidden set
+    // brings back events no page named: the run's tables then read as
+    // unknown, which reloads the event cache whole.
     final CalendarPullScope scope = (
-      tables: _runTables.isEmpty ? null : Set.unmodifiable(_runTables),
+      tables:
+          _runTables.isEmpty || touched.contains(SyncInvalidation.unhidden)
+          ? null
+          : Set.unmodifiable(_runTables),
       eventIds: Set.unmodifiable(_runEventIds),
     );
     _runTables.clear();
@@ -293,16 +298,16 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     }
   }
 
-  /// The titles of the partner's events in [left] that an alert of this
-  /// person's was armed on (D23); none when the registrations cannot be
-  /// read — a notice missed costs less than a run failed.
-  Future<List<String>> _leftArmed(List<SharedEventLeave> left) async {
+  /// The partner's events in [left] that an alert of this person's was
+  /// armed on (D23); none when the registrations cannot be read — a notice
+  /// missed costs less than a run failed.
+  Future<List<ShareNoticeEvent>> _leftArmed(List<SharedEventLeave> left) async {
     if (left.isEmpty) return const [];
     try {
       final armed = await _armedEvents({for (final event in left) event.id});
       return [
         for (final event in left)
-          if (armed.contains(event.id)) event.title,
+          if (armed.contains(event.id)) (id: event.id, title: event.title),
       ];
     } catch (error, stack) {
       debugPrint('[AppSyncApplyHooks] armed alerts not read: $error\n$stack');
@@ -325,9 +330,10 @@ class AppSyncApplyHooks implements SyncApplyHooks {
         : await _sharedCategories();
     return ShareArrived(
       categoryIds: shared.categoryIds,
-      eventTitles: [
+      events: [
         for (final event in loose)
-          if (!categories.contains(event.category)) event.title,
+          if (!categories.contains(event.category))
+            (id: event.id, title: event.title),
       ],
     );
   }

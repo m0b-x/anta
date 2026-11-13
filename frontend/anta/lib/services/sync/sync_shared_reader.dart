@@ -253,27 +253,45 @@ class _SharedReader {
   /// category un-shared or deleted, a built-in's record gone, the pair
   /// ended. One statement when nothing is hidden. A setting of this phone,
   /// never a synced row.
+  ///
+  /// The read, the prune and the write are one transaction, as
+  /// `ShareService`'s switch is: a switch flipped between the two would
+  /// otherwise be written over. A failure here is logged and leaves the set
+  /// as it stood — it is not the read's, whose stamps say what it did.
   Future<void> _keepHiddenShared(
     Set<SyncInvalidation> touched, {
     Set<String>? shared,
   }) async {
     final db = _e._db;
-    final hidden = await SettingsService.shareHiddenCategoriesOf(db);
-    if (hidden.isEmpty) return;
-    final Set<String> held;
-    if (shared != null) {
-      held = shared;
-    } else {
-      final owner = await db.sharedRowDao.owner();
-      held = owner == null
-          ? const {}
-          : await db.sharedRowDao.sharedCategoryIds(owner);
+    try {
+      if ((await SettingsService.shareHiddenCategoriesOf(db)).isEmpty) return;
+      final pruned = await db.transaction(() async {
+        final hidden = await SettingsService.shareHiddenCategoriesOf(db);
+        if (hidden.isEmpty) return false;
+        final Set<String> held;
+        if (shared != null) {
+          held = shared;
+        } else {
+          final owner = await db.sharedRowDao.owner();
+          held = owner == null
+              ? const {}
+              : await db.sharedRowDao.sharedCategoryIds(owner);
+        }
+        final kept = hidden.intersection(held);
+        if (kept.length == hidden.length) return false;
+        await SettingsService.setShareHiddenCategoriesOf(db, kept);
+        return true;
+      });
+      if (!pruned) return;
+      // The calendar reload re-reads the catalogue, and the events whole:
+      // one shared singly in a category that left was out of the cache, and
+      // no page of this read names it.
+      touched
+        ..add(SyncInvalidation.calendar)
+        ..add(SyncInvalidation.unhidden);
+    } catch (error, stack) {
+      _warn('the hidden categories were not pruned: $error\n$stack');
     }
-    final kept = hidden.intersection(held);
-    if (kept.length == hidden.length) return;
-    await SettingsService.setShareHiddenCategoriesOf(db, kept);
-    // The calendar reload re-reads the catalogue and the events by it.
-    touched.add(SyncInvalidation.calendar);
   }
 
   /// Removes every shared row this database holds and tells the caches.
@@ -303,6 +321,8 @@ class _SharedReader {
     SharedRemovals removals,
     Set<SyncInvalidation> touched,
   ) async {
+    // The catalogue and the events re-read the set that went.
+    if (removals.hiddenCleared) touched.add(SyncInvalidation.calendar);
     for (final MapEntry(key: table, value: gone) in removals.gone.entries) {
       final rows = [
         for (final row in gone)
@@ -559,6 +579,8 @@ class _SharedReader {
     final newCategories = <String>[];
     final newEvents = <SharedEventArrival>[];
     final left = <String, String>{};
+    // The live events this page stored, inserted or brought back.
+    final liveEvents = <String>[];
     // The one writer the fences let at shared rows (`SharedRowFences`).
     await db.sharedRowDao.writing(() async {
       await _stillReading(bound, partner);
@@ -636,11 +658,15 @@ class _SharedReader {
           if (title != null && outcome.result == MergeResult.applied) {
             left[envelope.rowKey] = title;
           }
+        } else if (table is CalendarEventsBinding &&
+            outcome.result == MergeResult.applied) {
+          liveEvents.add(envelope.rowKey);
         } else if (outcome.result == MergeResult.inserted) {
           if (table is CalendarCategoriesBinding) {
             newCategories.add(envelope.rowKey);
           } else if (table is CalendarEventsBinding) {
             final event = table.decode(envelope);
+            liveEvents.add(event.id);
             newEvents.add((
               id: event.id,
               title: event.title,
@@ -715,6 +741,12 @@ class _SharedReader {
     }
     _newCategories.addAll(newCategories);
     _newEvents.addAll(newEvents);
+    // Removed earlier in this read and stored again, it never left: the
+    // read that forgets an old pair stores again what the new one shares —
+    // an insert, so it has arrived — and under the same pair a tombstone
+    // met from the cursor can be followed by the row's return from the
+    // start, which updates the row it had and is no arrival either.
+    liveEvents.forEach(_left.remove);
     _left.addAll(left);
     if (changed) touched.add(table.invalidation);
     try {

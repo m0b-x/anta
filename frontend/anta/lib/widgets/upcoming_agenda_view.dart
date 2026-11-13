@@ -14,6 +14,7 @@ import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/fasting_appearance.dart';
 import '../models/partner_look.dart';
@@ -178,6 +179,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// (keyboard, theme) leaves both equal and rescans nothing.
   String? _searchLocale;
   int? _searchCategoryRevision;
+  List<CalendarCategory>? _searchPartnerShown;
   Set<String> _searchCategoryKeep = const {};
   String _localeName = '';
 
@@ -387,21 +389,30 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
   /// hidden id sitting in this view's own `categoryIds` allowlist is a live
   /// selection and must survive — which is why the kept set joins the memo key
   /// rather than the revision carrying it alone.
+  ///
+  /// A partner's shown categories join: their events draw here under the
+  /// partner's names. A hidden one never does — its events are gone — and
+  /// hiding bumps no revision, so the shown list's identity joins the key.
   bool _refreshSearchCatalog() {
     final l10n = AppLocalizations.of(context)!;
     _localeName = l10n.localeName;
     final revision = CalendarCategories.revision;
     final keep = widget.filters.categoryIds;
+    final partner = CalendarCategories.partnerShown;
     if (_searchLocale == _localeName &&
         _searchCategoryRevision == revision &&
+        identical(_searchPartnerShown, partner) &&
         setEquals(_searchCategoryKeep, keep)) {
       return false;
     }
     _searchLocale = _localeName;
     _searchCategoryRevision = revision;
+    _searchPartnerShown = partner;
     _searchCategoryKeep = keep;
     _categoryLabels = {
       for (final category in CalendarCategories.visiblePlus(keep))
+        category.id: CalendarCategories.labelOf(category, l10n),
+      for (final category in partner)
         category.id: CalendarCategories.labelOf(category, l10n),
     };
     _queryForLocale = null;

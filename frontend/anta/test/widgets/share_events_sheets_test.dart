@@ -22,6 +22,7 @@ import 'package:anta/widgets/share_events_sheets.dart';
 
 import '../goldens/support/golden_fonts.dart';
 import '../support/fake_share_service.dart';
+import 'support/semantics_geometry.dart';
 
 /// The two Single events lists of the Sharing page (the slice C spec §4):
 /// mine, whose ✕ un-shares at once with Undo and whose row then leaves, and
@@ -110,6 +111,7 @@ void main() {
     Locale locale = const Locale('en'),
     double scale = 1.0,
     ThemeData? theme,
+    bool settled = true,
   }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(360, 780);
@@ -146,6 +148,7 @@ void main() {
       ),
     );
     await tester.tap(find.text('open'));
+    if (!settled) return;
     await tester.pumpAndSettle();
   }
 
@@ -228,6 +231,54 @@ void main() {
   );
 
   group('my singly shared events', () {
+    /// A row opened while the list is still sliding in: the list reaches
+    /// its place under the sheet the row opened, whose barrier blocks its
+    /// semantics, and a ✕ that only moved kept its old transform (the
+    /// filter sheets showed it on the device, 2026-11-13).
+    testWidgets('a ✕ is reported where it is painted after a row opened '
+        'its event while the list was still sliding in', (tester) async {
+      final handle = tester.ensureSemantics();
+      await open(
+        tester,
+        (context) => MySharedEventsSheet.show(
+          context,
+          bloc: bloc,
+          onOpen: (context, event, day) => showModalBottomSheet<void>(
+            context: context,
+            builder: (_) => const SizedBox(height: 200, child: Text('above')),
+          ),
+        ),
+        settled: false,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      final stop = find.bySemanticsIdentifier(
+        SemanticsIds.shareEventUnshare(dinner.id),
+      );
+      final sliding = tester.getRect(stop);
+      await tester.tapAt(tester.getCenter(find.text(dinner.title)));
+      await tester.pumpAndSettle();
+      expect(find.text('above'), findsOneWidget);
+
+      Navigator.of(tester.element(find.text('above'))).pop();
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      final painted = tester.getRect(stop);
+      expect(
+        painted.top,
+        lessThan(sliding.top),
+        reason: 'the list was still on its way up when the row was tapped',
+      );
+      expect(
+        semanticsGlobalRect(tester.getSemantics(stop), tester.view),
+        painted,
+      );
+      handle.dispose();
+    });
+
     testWidgets('lists each with its when and a ✕, under "Single events"', (
       tester,
     ) async {

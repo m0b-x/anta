@@ -224,19 +224,35 @@ class _SharedCategorySheetState extends State<SharedCategorySheet> {
   /// Shows [next] at once and queues its write. [canRing] is an add, an
   /// edit or an enable — a write after which the permission check runs, as
   /// it does after every saved alert that can fire.
+  ///
+  /// What the write's follow-ups need is taken here, while the sheet is
+  /// up: a write can end after it has closed, and the calendar's notice
+  /// and the permission check are owed all the same.
   void _write(List<CategoryAlert> next, {required bool canRing}) {
     setState(() => _alerts = List.unmodifiable(next));
     final alerts = _alerts;
     final generation = _generation;
+    // Nullable: a host without the app's bloc has no badges to redraw.
+    final calendar = context.read<CalendarBloc?>();
+    // The navigator's context, which outlives this sheet.
+    final host = Navigator.of(context).context;
+    void checkPermission() => unawaited(AlertPermissionCheck.afterSave(host));
     _writes = _writes.then((_) {
       if (generation != _generation) return null;
-      return _store(alerts, canRing: canRing);
+      return _store(
+        alerts,
+        canRing: canRing,
+        calendar: calendar,
+        checkPermission: checkPermission,
+      );
     });
   }
 
   Future<void> _store(
     List<CategoryAlert> alerts, {
     required bool canRing,
+    required CalendarBloc? calendar,
+    required VoidCallback checkPermission,
   }) async {
     try {
       final service = await EventAlertService.getInstance();
@@ -262,13 +278,10 @@ class _SharedCategorySheetState extends State<SharedCategorySheet> {
       return;
     }
     unawaited(SharedCategorySheet.reconcile(AlertReconcileReason.eventChanged));
-    if (!mounted) return;
-    // Nullable: a host without the app's bloc has no badges to redraw.
-    context.read<CalendarBloc?>()?.add(const CategoryAlertsChanged());
-    if (canRing && alerts.any((alert) => alert.enabled)) {
-      // The navigator's context, which outlives this sheet.
-      unawaited(AlertPermissionCheck.afterSave(Navigator.of(context).context));
+    if (calendar != null && !calendar.isClosed) {
+      calendar.add(const CategoryAlertsChanged());
     }
+    if (canRing && alerts.any((alert) => alert.enabled)) checkPermission();
   }
 
   Future<void> _addAlert() async {

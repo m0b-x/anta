@@ -240,6 +240,18 @@ abstract final class CalendarCategories {
   static CalendarCategory resolve(String id) =>
       _byId[id] ?? _byId[kFallbackCategoryId] ?? fallback;
 
+  /// The id of the category an event on [id] draws under — what a filter, a
+  /// summary card and a search by name decide by, so each reaches what the
+  /// screen shows: a partner's event shared on its own from a category of
+  /// theirs that is not shared keeps that id and draws as Other. Never for a
+  /// rule that reads the stored id (an unknown category inherits no alert).
+  ///
+  /// An empty catalogue knows no category at all — nothing loaded yet, or a
+  /// reset service before its next load — and would fold every event into
+  /// Other; the stored id stands until one is published.
+  static String drawnIdOf(String id) =>
+      _byId.isEmpty || _byId.containsKey(id) ? id : resolve(id).id;
+
   /// The category a brand-new event or template opens on: the first
   /// unarchived one in the user's order, so the order the user keeps is the
   /// default they get and an archived category is never handed out;

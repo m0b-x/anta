@@ -47,10 +47,6 @@ import '../widgets/shared_category_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 import '../widgets/value_change_highlight.dart';
 
-/// A caption's segments joined as `_captionFor` joins mine: the space before
-/// the dot is a no-break one, so a wrapped line never starts with the dot.
-const String _captionSeparator = ' · ';
-
 /// One entry of the per-row "category options" menu.
 enum _CategoryAction { moveToTop, edit, share, archive, delete }
 
@@ -170,8 +166,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   ShareLook _look = const ShareLook();
 
   /// Whether my alerts on a partner's category ring (`shareAlerts`), which
-  /// decides that row's "Alerts on".
-  ShareAlerts _shareAlerts = ShareAlerts.own;
+  /// decides that row's "Alerts on" — and nothing else on the page, so it
+  /// is read only once a partner row is listed; null until then.
+  ShareAlerts? _shareAlerts;
 
   /// The partner's own categories shown on this phone
   /// ([CalendarCategories.partnerShown]) as the section last listed them,
@@ -180,11 +177,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   List<CalendarCategory> _partner = const [];
   Map<String, int> _partnerCounts = const {};
 
-  /// What a partner row's sheet follows, built at the first tap: most who
-  /// pair never open one, and a page that never needs it reads nothing for
-  /// it.
+  /// What the open partner row's sheet follows, from its tap until the sheet
+  /// has closed; null otherwise, which is also the opening guard. One per
+  /// sheet, so a setting changed elsewhere since the last one is read
+  /// afresh, and nothing is followed while no sheet is open.
   ShareBloc? _shareBloc;
-  bool _partnerSheetOpening = false;
 
   bool get _isFiltering => _query.isNotEmpty;
 
@@ -229,7 +226,6 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       _refresh();
       unawaited(_refreshCounts());
     }
-    _shareBloc?.add(const ShareLoadRequested());
     unawaited(_refreshPartner(recount: change.eventsMerged));
   }
 
@@ -245,7 +241,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     // sharing and waits on nothing new (§9).
     final shareFuture = PairingService.pairedInMemory == false
         ? null
-        : _openShare();
+        : _openShare(categoryFuture);
     try {
       final service = await categoryFuture;
       final eventService = await eventFuture;
@@ -295,16 +291,21 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 
   /// The share service, the looks and the alerts setting, or null when
   /// sharing cannot be read — a database with none set up reads as never
-  /// paired.
-  Future<({ShareService service, ShareLook look, ShareAlerts alerts})?>
-  _openShare() async {
+  /// paired. The two settings are read together, the alerts setting only
+  /// when [catalogue] lists a partner row for it to caption.
+  Future<({ShareService service, ShareLook look, ShareAlerts? alerts})?>
+  _openShare(Future<CategoryService> catalogue) async {
     try {
       final service = await widget.shareService();
-      return (
-        service: service,
-        look: await service.looks(),
-        alerts: await service.alerts(),
-      );
+      final (look, alerts) = await (
+        service.looks(),
+        catalogue.then<ShareAlerts?>(
+          (_) => _partnerOf(service.availability).isEmpty
+              ? null
+              : service.alerts(),
+        ),
+      ).wait;
+      return (service: service, look: look, alerts: alerts);
     } catch (e) {
       debugPrint('[CalendarCategoriesPage] Sharing not read: $e');
       return null;
@@ -325,13 +326,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   }
 
   /// Re-reads the looks and the alerts setting, which the Sharing page —
-  /// one tap away through Sync & sharing from the editor — can change.
+  /// one tap away through Sync & sharing from the editor — can change;
+  /// together, and the alerts setting only while a partner row shows it.
   Future<void> _refreshLooks() async {
     final service = _shareService;
     if (service == null) return;
     try {
-      final look = await service.looks();
-      final alerts = await service.alerts();
+      // With no partner row the setting is let go rather than kept stale:
+      // the next row to arrive reads it then.
+      final (look, alerts) = await (
+        service.looks(),
+        _partner.isEmpty ? Future<ShareAlerts?>.value(null) : service.alerts(),
+      ).wait;
       if (mounted && (look != _look || alerts != _shareAlerts)) {
         setState(() {
           _look = look;
@@ -352,11 +358,13 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 
   /// Follows the section to what is shown now. A row that leaves goes at
   /// once; a row that arrives, or [recount] (a pull merged events), waits
-  /// on one count read, so a caption never shows a count it then corrects.
+  /// on one count read, so a caption never shows a count it then corrects —
+  /// and, the first time, on the alerts setting its "Alerts on" needs.
   /// Never paired, the page opened no share service and this reads nothing.
   Future<void> _refreshPartner({bool recount = false}) async {
     final eventService = _eventService;
-    if (_shareService == null || eventService == null) return;
+    final service = _shareService;
+    if (service == null || eventService == null) return;
     final partner = _partnerOf(_share);
     final held = {for (final category in _partner) category.id};
     final arrived = partner.any((category) => !held.contains(category.id));
@@ -364,12 +372,29 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       if (!listEquals(partner, _partner)) setState(() => _partner = partner);
       return;
     }
-    final counts = await eventService.countPartnerByCategory();
+    final (counts, alerts) = await (
+      eventService.countPartnerByCategory(),
+      _shareAlerts == null
+          ? _readAlerts(service)
+          : Future<ShareAlerts?>.value(_shareAlerts),
+    ).wait;
     if (!mounted) return;
     setState(() {
       _partner = _partnerOf(_share);
       _partnerCounts = counts;
+      _shareAlerts = alerts;
     });
+  }
+
+  /// The alerts setting, or null when it cannot be read: a partner row
+  /// then says no "Alerts on", and the next row to arrive asks again.
+  static Future<ShareAlerts?> _readAlerts(ShareService service) async {
+    try {
+      return await service.alerts();
+    } catch (e) {
+      debugPrint('[CalendarCategoriesPage] Alerts setting not read: $e');
+      return null;
+    }
   }
 
   void _refresh() {
@@ -406,17 +431,22 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// an optimistic order visibly springs back to what is actually stored —
   /// but only half: the sections render the stored flag, so a failed
   /// `setHidden` springs back to nothing at all, and a failed delete leaves
-  /// the row exactly where the user left it. Hence the message.
-  Future<bool> _guarded(Future<void> Function() write) async {
+  /// the row exactly where the user left it. Hence the message — the
+  /// category's words unless [failure] words it otherwise.
+  Future<bool> _guarded(
+    Future<void> Function() write, {
+    String Function(AppLocalizations l10n, Object error)? failure,
+  }) async {
     try {
       await write();
       return true;
     } catch (e) {
       debugPrint('[CalendarCategoriesPage] Write failed: $e');
       if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
         CustomSnackbar.showError(
           context,
-          AppLocalizations.of(context)!.categoryChangeFailed,
+          failure?.call(l10n, e) ?? l10n.categoryChangeFailed,
         );
       }
       return false;
@@ -540,27 +570,39 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 
   /// Shares [category] or stops sharing it at once, then offers Undo
   /// (decision ad of the share surfaces): reversible, so never a dialog
-  /// (D6). The write never waits on the page; the offer needs it.
+  /// (D6). The write never waits on the page; the offer needs it. A
+  /// failure says so in the Sharing page's words.
   Future<void> _setShared(CalendarCategory category, bool on) async {
     var change = ShareChange.none;
     final wrote = await _guarded(() async {
       final service = _shareService ?? await widget.shareService();
       change = await service.setCategoryShared(category.id, on);
-    });
+    }, failure: _shareFailure);
     if (!wrote || change.isEmpty || !mounted) return;
     final l10n = AppLocalizations.of(context)!;
+    final generation = ShareService.databaseGeneration;
     CustomSnackbar.showWithAction(
       context,
       message: _shareMessage(l10n, change),
       actionLabel: l10n.undo,
-      onAction: () => unawaited(
-        _guarded(() async {
-          final service = _shareService ?? await widget.shareService();
-          await service.undo(change);
-        }),
-      ),
+      onAction: () {
+        // An Undo belongs to the database it was offered in: built-in
+        // category ids are the same in every database, so one tapped after
+        // a switch would share in a database that never saw the act.
+        if (ShareService.databaseGeneration != generation) return;
+        unawaited(
+          _guarded(() async {
+            final service = _shareService ?? await widget.shareService();
+            await service.undo(change);
+          }, failure: _shareFailure),
+        );
+      },
     );
   }
+
+  /// A share write's failure as the Sharing page says it.
+  static String _shareFailure(AppLocalizations l10n, Object error) =>
+      error is ShareRefused ? l10n.shareNeedsSync : l10n.shareChangeFailed;
 
   /// "Sharing Work with Maria", "No longer shared: Gym", or, when some of
   /// its events carry a share of their own, how many stay (C10).
@@ -608,52 +650,40 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     CustomSnackbar.showSuccess(context, l10n.categoryDeleted);
   }
 
-  /// Opens the sheet of the partner's [category]. Its bloc loads without a
-  /// shared read — that ask belongs to the Sharing page's open alone — and
-  /// the first tap waits on that load, local reads only, so the sheet never
-  /// opens on nothing; later taps reuse it, and every change the page hears
-  /// reloads it.
-  ///
-  /// A bloc whose load failed is replaced, never asked again: a second
-  /// failure would emit a state equal to the first, which a bloc swallows,
-  /// and the wait would never end.
+  /// Opens the sheet of the partner's [category] over a bloc of its own,
+  /// built at the tap and closed once the sheet has: what it shows is read
+  /// now, never kept from an earlier sheet. The bloc loads without a shared
+  /// read — that ask belongs to the Sharing page's open alone — and the tap
+  /// waits on that load, local reads only, so the sheet never opens on
+  /// nothing. While a bloc is held, from the tap until the sheet has
+  /// closed, another tap opens nothing.
   Future<void> _openPartner(CalendarCategory category) async {
-    if (_partnerSheetOpening) return;
-    _partnerSheetOpening = true;
-    ShareBloc? bloc = _shareBloc;
+    if (_shareBloc != null) return;
+    final bloc = ShareBloc(
+      service: () async => _shareService ?? await widget.shareService(),
+    )..add(const ShareLoadRequested());
+    _shareBloc = bloc;
     try {
-      if (bloc != null && bloc.state is ShareLoadFailed) {
-        unawaited(bloc.close());
-        bloc = null;
-      }
-      if (bloc == null) {
-        bloc = ShareBloc(
-          service: () async => _shareService ?? await widget.shareService(),
-        )..add(const ShareLoadRequested());
-        _shareBloc = bloc;
-      }
-      if (bloc.state is! ShareLoaded) {
-        await bloc.stream.firstWhere(
-          (state) => state is ShareLoaded || state is ShareLoadFailed,
-        );
-      }
+      await bloc.stream.firstWhere(
+        (state) => state is ShareLoaded || state is ShareLoadFailed,
+      );
+      if (!mounted || bloc.state is! ShareLoaded) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      await SharedCategorySheet.show(
+        context,
+        bloc: bloc,
+        categoryId: category.id,
+        partner: _partnerLook,
+      );
+      // The sheet writes my alerts for the category; its "Alerts on" reads
+      // them from the facade.
+      if (mounted) setState(() {});
     } on StateError {
       // Closed with the page while it loaded.
-      return;
     } finally {
-      _partnerSheetOpening = false;
+      _shareBloc = null;
+      unawaited(bloc.close());
     }
-    if (!mounted || bloc.state is! ShareLoaded) return;
-    FocusManager.instance.primaryFocus?.unfocus();
-    await SharedCategorySheet.show(
-      context,
-      bloc: bloc,
-      categoryId: category.id,
-      partner: _partnerLook,
-    );
-    // The sheet writes my alerts for the category; its "Alerts on" reads
-    // them from the facade.
-    if (mounted) setState(() {});
   }
 
   PartnerLook get _partnerLook {
@@ -983,9 +1013,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     // the set grows. `_isFiltering` holds the field open once it is in use:
     // deleting a category can drop the count back under the threshold, and
     // retracting the field mid-query would strand the list filtered with
-    // nothing left to clear it.
+    // nothing left to clear it. The partner's rows count: they lengthen the
+    // list the field searches as much as mine do.
     final showSearch =
-        _isFiltering || _categories.length > AppConstants.listSearchThreshold;
+        _isFiltering ||
+        _categories.length + _partner.length > AppConstants.listSearchThreshold;
     final rows = _isFiltering
         ? [
             for (final ranked in rankCategories(_query, _categories, l10n))
@@ -1178,7 +1210,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
                 ShareCopy.partnerName(l10n, _share.audience?.displayName),
               )
             : l10n.categoryCaptionShared,
-    ].join(' · ');
+    ].join(AppConstants.captionSeparator);
   }
 
   /// Whether [category] shows as shared: its own mark, while paired.
@@ -1228,7 +1260,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     return [
       l10n.categoryEventCount(_partnerCounts[category.id] ?? 0),
       if (ringing) l10n.categoryCaptionAlertsOn,
-    ].join(_captionSeparator);
+    ].join(AppConstants.captionSeparator);
   }
 
   /// The lifted row: one card of its own, whatever its place in its group,
@@ -1537,15 +1569,14 @@ class _PartnerCategoryRow extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final name = CalendarCategories.labelOf(category, l10n);
     final compact = _compactLeading(context);
-    // The bare glyph carries no ring, so under Outlined it takes the ring's
-    // contrast rule itself: a dark colour on the dark group read 2.11:1.
+    // The bare glyph has no fill or ring to carry it, so in every look it
+    // takes the ring's contrast rule itself: a dark colour on the dark group
+    // read 2.11:1.
     final leading = compact
         ? Icon(
             CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
             size: RowMetrics.glyphSize,
-            color: look.outlined
-                ? MarkerContrast.atLeast(category.color, colorScheme.rowGroup)
-                : category.color,
+            color: MarkerContrast.atLeast(category.color, colorScheme.rowGroup),
           )
         : sharedCategoryAvatar(category, look);
 

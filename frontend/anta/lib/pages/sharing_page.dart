@@ -660,6 +660,11 @@ class _SharingViewState extends State<_SharingView> {
     ShareLoaded? loaded,
   ) {
     final look = loaded?.look ?? const ShareLook();
+    // Inert until the first read, as the alerts entry is: a tap would
+    // write from the shipped value, not from what is stored. Undimmed, so
+    // nothing changes when the read lands but what it says.
+    Widget untilLoaded(Widget row) =>
+        IgnorePointer(ignoring: loaded == null, child: row);
     return SettingsSectionData(
       icon: Icons.visibility_rounded,
       title: l10n.shareLookSection,
@@ -667,34 +672,37 @@ class _SharingViewState extends State<_SharingView> {
         SettingsEntry(
           title: l10n.shareEventLook,
           identifier: SemanticsIds.sharingLookEvents,
-          builder: (context, title, description) =>
-              settingsChoiceRow<ShareEventLook>(
-                title: title,
-                description: description,
-                value: look.eventLook,
-                labels: {
-                  ShareEventLook.outlined: l10n.shareLookOutlined,
-                  ShareEventLook.avatar: l10n.shareLookAvatar,
-                  ShareEventLook.plain: l10n.shareLookPlain,
-                },
-                identifiers: {
-                  for (final value in ShareEventLook.values)
-                    value: SemanticsIds.sharingLookEventsChoice(value.name),
-                },
-                onChanged: (value) =>
-                    context.read<ShareBloc>().add(ShareEventLookSet(value)),
-              ),
+          builder: (context, title, description) => untilLoaded(
+            settingsChoiceRow<ShareEventLook>(
+              title: title,
+              description: description,
+              value: look.eventLook,
+              labels: {
+                ShareEventLook.outlined: l10n.shareLookOutlined,
+                ShareEventLook.avatar: l10n.shareLookAvatar,
+                ShareEventLook.plain: l10n.shareLookPlain,
+              },
+              identifiers: {
+                for (final value in ShareEventLook.values)
+                  value: SemanticsIds.sharingLookEventsChoice(value.name),
+              },
+              onChanged: (value) =>
+                  context.read<ShareBloc>().add(ShareEventLookSet(value)),
+            ),
+          ),
         ),
         SettingsEntry(
           title: l10n.shareMarkMine,
           description: l10n.shareMarkMineDesc,
           identifier: SemanticsIds.sharingMarkMine,
-          builder: (context, title, description) => SwitchListTile(
-            value: look.markMine,
-            title: title,
-            subtitle: description,
-            onChanged: (value) =>
-                context.read<ShareBloc>().add(ShareMarkMineSet(value)),
+          builder: (context, title, description) => untilLoaded(
+            SwitchListTile(
+              value: look.markMine,
+              title: title,
+              subtitle: description,
+              onChanged: (value) =>
+                  context.read<ShareBloc>().add(ShareMarkMineSet(value)),
+            ),
           ),
         ),
       ],

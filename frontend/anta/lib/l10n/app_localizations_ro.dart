@@ -11339,7 +11339,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String appGuideSharingTheirsBody(String sharingPage) {
-    return 'Evenimentele lui sunt desenate altfel decât ale tale și deschid o foaie pe care o poți citi, nu edita. În „$sharingPage” alegi care dintre categoriile lui apar în calendarul tău și cum arată evenimentele partajate. Rapoartele, obiectivele și prezența numără doar evenimentele tale.';
+    return 'Evenimentele lui deschid o foaie pe care o poți citi, nu edita. În „$sharingPage” alegi care dintre categoriile lui apar în calendarul tău și cum deosebești evenimentele lui de ale tale. Rapoartele, obiectivele și prezența numără doar evenimentele tale.';
   }
 
   @override
@@ -11351,7 +11351,7 @@ class AppLocalizationsRo extends AppLocalizations {
     String alertsOff,
     String alertsCategory,
   ) {
-    return 'Alertele partenerului nu sună niciodată pe telefonul tău, nici ale tale pe al lui. Adaugă o alertă a ta la un eveniment partajat, din foaia lui. „$shareAlerts” din aceeași pagină le poate opri pe toate („$alertsOff”) sau lasă evenimentele partajate să urmeze alertele categoriilor tale („$alertsCategory”).';
+    return 'Alertele partenerului nu sună niciodată pe telefonul tău, nici ale tale pe al lui. Adaugă o alertă a ta la un eveniment partajat, din foaia lui. „$shareAlerts” din aceeași pagină le poate opri pe toate („$alertsOff”) sau poate lăsa evenimentele partajate să urmeze alertele categoriilor tale („$alertsCategory”).';
   }
 
   @override
@@ -11447,7 +11447,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get shareNeedsSyncReceive => 'Pornește sincronizarea ca să primești';
 
   @override
-  String get shareCheckFailed => 'Nu s-a putut verifica. Se încearcă din nou.';
+  String get shareCheckFailed => 'Verificare eșuată';
 
   @override
   String get shareMaybeStale => 'Poate să nu fie la zi';

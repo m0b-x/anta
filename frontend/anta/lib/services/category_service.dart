@@ -215,12 +215,18 @@ class CategoryService {
             fromPartner: partner != null && row.ownerId == partner,
           ),
       ]);
-      if (_cache.any((c) => c.fromPartner)) {
-        hidden = await SettingsService.shareHiddenCategoriesOf(_db);
-      }
     } catch (e) {
       debugPrint('[CategoryService] Load error: $e');
       _cache = const [];
+    }
+    // Apart from the catalogue's read: a choice of what shows that cannot
+    // be read hides nothing, and must not cost the person every category.
+    if (_cache.any((c) => c.fromPartner)) {
+      try {
+        hidden = await SettingsService.shareHiddenCategoriesOf(_db);
+      } catch (e, st) {
+        debugPrint('[CategoryService] hidden categories not read: $e\n$st');
+      }
     }
     _own = List.unmodifiable(_cache.where((c) => !c.fromPartner));
     CalendarCategories.updatePartnerHidden(hidden);

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../constants/calendar_categories.dart';
 import '../constants/event_presence.dart';
 import '../constants/fasting_calendar.dart';
 import '../constants/public_holidays.dart';
@@ -403,6 +404,14 @@ abstract final class EventAgenda {
   /// The event-level filters every agenda scan applies before any day is
   /// looked at — the one definition, so the year bounds a surface pages
   /// between are computed over exactly the events its scans would return.
+  ///
+  /// Both category sets match the category the event draws under
+  /// ([CalendarCategories.drawnIdOf]), as the grid's denylist does — with
+  /// one exception: an event of mine on an id no category holds meets the
+  /// allowlist by its stored id, the report's scope (D32 of
+  /// `docs/calendar-report-roadmap.md`), so the overview still lists what
+  /// its report counts. Such an event is a moment (a sync race, a
+  /// categories-only restore); a partner's drawn as Other is for good.
   static bool passesEventFilters(
     CalendarEvent event, {
     Set<String> hiddenCategoryIds = const {},
@@ -417,8 +426,11 @@ abstract final class EventAgenda {
     if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
       return false;
     }
-    if (hiddenCategoryIds.contains(event.categoryId)) return false;
-    if (categoryIds.isNotEmpty && !categoryIds.contains(event.categoryId)) {
+    if (hiddenCategoryIds.isEmpty && categoryIds.isEmpty) return true;
+    final drawn = CalendarCategories.drawnIdOf(event.categoryId);
+    if (hiddenCategoryIds.contains(drawn)) return false;
+    if (categoryIds.isNotEmpty &&
+        !categoryIds.contains(event.fromPartner ? drawn : event.categoryId)) {
       return false;
     }
     return true;
@@ -625,10 +637,12 @@ abstract final class EventAgenda {
   /// Groups an already-scanned occurrence list into one summary per category —
   /// the agenda's `summary` event presentation.
   ///
-  /// A **post-pass**, never a scan: it walks [occurrences] once and touches no
-  /// facade, so it costs nothing in `CalendarEvent.occursOn` calls and cannot
-  /// see days the scan (and its filters, and the search query) already
-  /// excluded. Same discipline as the collapse post-filter above.
+  /// A **post-pass**, never a scan: it walks [occurrences] once, costs
+  /// nothing in `CalendarEvent.occursOn` calls and cannot see days the scan
+  /// (and its filters, and the search query) already excluded. Same
+  /// discipline as the collapse post-filter above. Cards group by the
+  /// category an event draws under ([CalendarCategories.drawnIdOf]), so
+  /// everything drawn as Other is one Other card.
   ///
   /// [occurrences] must be the scan's own output — ascending by day — which is
   /// what makes `first`/`last` and the per-category order fall out for free.
@@ -655,9 +669,8 @@ abstract final class EventAgenda {
           EventPresence.isMissed(occurrence.event, occurrence.day)) {
         continue;
       }
-      (byCategory[occurrence.event.categoryId] ??= <EventOccurrence>[]).add(
-        occurrence,
-      );
+      final drawn = CalendarCategories.drawnIdOf(occurrence.event.categoryId);
+      (byCategory[drawn] ??= <EventOccurrence>[]).add(occurrence);
     }
     return [
       // `byCategory` preserves first-insertion order, and the input is
