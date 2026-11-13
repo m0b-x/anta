@@ -225,6 +225,10 @@ same readers (`profileOf` joined `ReportRequest`'s nullable seam).
   `PublicHolidays.revision`: workday and holiday rules read that facade, which
   changes with no bloc event (the calendar bloc folds it as a generation for
   the same reason), and the report bloc re-asks on resume.
+  Since the share surfaces (2026-11-13): the allowlist still matches my own
+  events by their stored id; in the overview's List a partner's event is
+  matched by the category it draws under (`CalendarCategories.drawnIdOf`);
+  the report counts no partner's event at all.
 - **D33 A long span keeps its end.** A Custom span over 366 days is clamped to
   its **last** 366 days — at pick time by the page and again by the service
   as the safety net — so a span that holds today keeps today and its Ahead;

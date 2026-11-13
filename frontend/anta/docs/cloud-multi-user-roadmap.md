@@ -15,8 +15,11 @@ surfaces (the owner's scope of 2026-11-11): everything slices E1–E4,
 N1–N2, R5 and R9 stand on — the grant, wire 47, the rules and indexes,
 the reader of a partner's shared rows, read-only in the database, backups
 — in `cloud-sharing-foundations.md` (F1–F4, three independent reviews and
-their fixes); nothing in the app can set a share yet, and each surface is
-still its own slice. R10 DONE with it: the two-guest saved suite `qa pass
+their fixes). The calendar's share surfaces are BUILT on them 2026-11-13 —
+`cloud-share-surfaces-roadmap.md` §15, slices A–E and G: E1, E2, E3, E6
+and E7 done on the calendar, E4's alerts done and its presence deferred;
+the folders' surfaces (N1, N2) are that record's slice F, not built. R10
+DONE with the foundations: the two-guest saved suite `qa pass
 share`, green on two fleet guests against the emulator suite (pair, share
 an event and a folder, a later change, un-share, end the pair, delete the
 partner's account) — an account deleted while its pair is still active is
@@ -126,13 +129,13 @@ build.
 | **D2** | Delete my account and everything it holds in the cloud | M | yes — done (§6.1) |
 | D3 | Ask for deletion from outside the app (a web page) | S | no — listing only |
 | E0 | Pairing proven between two real accounts on the live project | S | yes |
-| E1 | An event I share shows on my partner's calendar, read-only | L | yes |
-| E2 | Stopping a share takes the event off my partner's calendar | M | yes |
-| E3 | A shared recurring event arrives whole: skipped days, per-day texts | M | yes |
-| E4 | My own presence and my own alerts on an event shared with me | M | yes |
+| **E1** | An event I share shows on my partner's calendar, read-only | L | yes — done on the calendar (`cloud-share-surfaces-roadmap.md` §15) |
+| **E2** | Stopping a share takes the event off my partner's calendar | M | yes — done on the calendar |
+| **E3** | A shared recurring event arrives whole: skipped days, per-day texts | M | yes — done on the calendar |
+| E4 | My own presence and my own alerts on an event shared with me | M | yes — alerts done; presence deferred (share surfaces §13) |
 | E5 | My partner may edit the events I share, when I allow it | L | yes |
-| E6 | Share a whole category, future events included | M | optional |
-| E7 | "New from my partner" — a notice inside the app | S | optional |
+| **E6** | Share a whole category, future events included | M | optional — done |
+| **E7** | "New from my partner" — a notice inside the app | S | optional — done |
 | N1 | A folder I share shows on my partner's phone, read-only | L | yes |
 | N2 | Stopping a folder share takes it off my partner's phone | M | yes |
 | N3 | My partner may edit the notes I share, when I allow it | L | yes |
@@ -1276,7 +1279,7 @@ Phase 03, rewritten against the engine as built, on the readiness
 decisions D1, D16, D17 and D18. That record is
 `cloud-sharing-foundations.md` for everything under the switch (built),
 and `cloud-share-surfaces-roadmap.md` for the surfaces — E1's switch and
-mark, E6, E7 (PLAN, 2026-11-12, with a mock).
+mark, E6, E7 (built for the calendar 2026-11-13, its §15; with a mock).
 
 - **E0 — Pairing proven.** The live database was created on 2026-11-05;
   pairing shipped on 2026-08-17 and no record shows it run against the

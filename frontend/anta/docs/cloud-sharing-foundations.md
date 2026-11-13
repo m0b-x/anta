@@ -51,8 +51,9 @@ Nothing in the app sets the mark yet: the two service calls that do
 Left for the surface slices: the switch in the event editor and the folder
 menu, the owner's mark on a row, the read-only editor, "new from my
 partner", a place for shared folders in the browser. Their plan is
-`cloud-share-surfaces-roadmap.md` (PLAN, 2026-11-12), which also makes a
-category a third thing that can be shared (its §7).
+`cloud-share-surfaces-roadmap.md` — the calendar's surfaces built
+2026-11-13, its §15 — which also makes a category a third thing that can
+be shared (its §7).
 
 ## 2. Decisions (lettered)
 

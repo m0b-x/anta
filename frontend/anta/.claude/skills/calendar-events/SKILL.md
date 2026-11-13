@@ -38,6 +38,7 @@ Read only the `docs/calendar-events-feature.md` section you touch (§1–§13: v
 | Fasting schedule | §4.5 is the behaviour of record; `docs/fasting-schedule-roadmap.md` the design record |
 | The guide (2026-10-29): the hub, the topic pages, the "Try it" cards, the practice calendar, the sandbox seams | `docs/calendar-guide-page.md` §2 (D1–D12, the first build) and §7 (the hands-on rework: §7.1 D13–D37, §7.2 the slice specs with their as-built and review notes); its §3–§4 are the newcomer review and the proposals |
 | Categories at scale | `docs/category-scaling-roadmap.md` |
+| Sharing with the paired partner — a partner's events and categories, the Sharing page, the receiver's settings, the notices | `docs/cloud-share-surfaces-roadmap.md` (§4 the decisions, §6 the spec, §8 every case, §15 as built per slice; + `docs/cloud-sharing-foundations.md` under it) |
 
 Reworks follow `ui-revamp`. **Before changing a surface, read its section in `references/subsystems.md`**.
 
@@ -221,6 +222,22 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - **A digest's tap** is `OpenOverviewIntent` → `AppNavigator.toCalendarOverviewLook` → `pendingOverviewLook` (the `pendingCalendarOccurrence` twin): the overview serves it once settings have loaded (a look wins), clears the query and Missed only, lands in List mode on the custom span with the allowlist, persists mode and allowlist and **never the period** (`encode` would delete the key), keeps Order and Rows; `_listLook` is shared with `_applyView`, which still persists a view's period. While a ring is in progress the intent waits.
 - `AlertPermissionCheck.afterSave(context)` is the one permission check after a save (the flow, the category editor, the digest sheet); the flow checks effective alerts, so an event whose only alerts are inherited still asks and still shows the countdown.
 
+## Sharing — a partner's events and categories (2026-11-13)
+
+Record: `docs/cloud-share-surfaces-roadmap.md` (§15 is the truth over the plan); facts in `references/subsystems.md` "Sharing surfaces".
+
+- **A surface asks before it offers an edit.** A partner's row is told by `CalendarEvent.fromPartner` / `CalendarCategory.fromPartner` (transient, set where the services map rows). `EventSheetsFlow.openDetail` / `openEditor` are the only doors into an event's sheets and send a partner's event to `SharedEventSheet`; no write action is offered on a partner's row; Duplicate is "Copy to my calendar".
+- **A partner's rows never reach a figure, an export or an unasked alert**: the report, goals, presence (`EventPresence.appliesTo`), the day rail, the day tint, the Years tiles, the "missed" / "tracked" filters and every export skip them. Alerts follow `ShareAlerts` (`off` · `own` · `category`) through `EventAlerts.effectiveFor`; a partner's event inherits by its **stored** category id, and an id this phone does not know inherits nothing.
+- **Hiding is one predicate, in `CalendarEventService`** (`_shown`): a partner's event in a category hidden on this phone is not in the cache. Never filter a hidden category anywhere else; `_ensureOwn` asks the shared rows for an id the cache does not hold while something is hidden.
+- **Filters, grouping and search decide by the category an event draws under** — `CalendarCategories.drawnIdOf(id)` — never by the stored id alone: an event shared on its own from a category that is not shared draws as Other. The one exception is an allowlist for my own events (the report's D32).
+- **Whose list**: `visible` / `visiblePlus` are mine; `partnerShown` is the partner's own shown categories, **by name** (the reader stores them all at order 0); a shared built-in is my own row. A choosing surface for my events never lists a partner's; a filter passes `pickMulti(partner:, partnerLook:)`, and its "everything listed" check counts both groups.
+- **The look travels as `PartnerLook`** from the page's settings state to the rows (`EventAvatar.ofRow`), never looked up per row, and is never the only carrier: semantics always say "From {name}" or "Shared with {name}". Every "{name}" goes through `ShareCopy.partnerName`.
+- **Share acts go through `ShareService`** — one transaction per act, queued by `ShareBloc`; no surface holds a pair id. An Undo keeps `ShareService.databaseGeneration` and writes nothing under another; it outlives its surface (through the bloc while open, through `ShareService.undo` once closed).
+- **A receiver's setting shows from the tap** (`ShareBloc._pending`): draw from the bloc's state, add no local pending value. A share bloc built for one sheet is closed with it.
+- **Every share row keeps one height in every state** (`FormSwitchRow.subtitleTemplates`, `FormCaptionSlot`); a dimmed row that leads to Sync & sharing is one enabled button with the hint, never a disabled control that acts.
+- **Not paired costs nothing**: `PairingService.pairedInMemory == false` answers at once — no share service, no read, no await before an editor or a page shows. Pin it in every new surface's suite.
+- **A notice takes nothing down**: `ShareNoticeListener` waits under a dialog, a menu, a form sheet (held by a `PopScope`), an alert and someone's bar with an action, and its View never closes a form sheet. So a bar with an action is raised through `CustomSnackbar.showWithAction` (it records `actionBarUntil`), never `OverlaySnackbar` directly; a sheet that may hold a draft keeps its `PopScope`.
+
 ## Change-set recipes
 
 - **New persisted event field**: table + guarded migration → DAO → `CalendarEventService` mapping → model `copyWith` (+ `clearX`) → editor row → backup → `build_runner` → ARB ×3 + `gen-l10n` → upgrade-chain and parity tests.
@@ -239,6 +256,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - Constants: `calendar_bounds.dart, calendar_categories.dart, calendar_icons.dart, public_holidays.dart, fasting_calendar.dart, event_priorities.dart, event_presence.dart, event_skips.dart, occurrence_descriptions.dart, event_alerts.dart, alert_constants.dart, event_title.dart, category_name.dart, fasting_style_limits.dart, event_digests.dart, report_metrics.dart`; the report's bloc `lib/bloc/calendar_report/`.
 - DAOs: `category_alert_dao.dart, event_digest_dao.dart`.
 - QA: `tool/qa/fixtures/calendar.json, alerts.json, alerts_pair.json` (`test/qa/calendar_fixture_test.dart` pins the first); `tool/qa/flows/calendar/*.txt, alerts/, alerts_pair/`; the alerts fixture's category alert and digest, flows `alerts/03_category_alerts.txt`, `alerts/04_digests.txt` (names as S5 lands them). Robots: `category_editor_robot.dart`, `digest_sheet_robot.dart`. Update a flow in the slice that changes its screen.
+- Sharing: `lib/services/share_service.dart, sync/sync_shared_reader.dart`; `lib/bloc/share/`; `lib/models/share_overview.dart, share_settings.dart, share_notice.dart`; `lib/utils/share_copy.dart`; `lib/pages/sharing_page.dart`; widgets `share_events_sheets.dart, shared_event_sheet.dart, shared_categories_sheet.dart, shared_category_sheet.dart, share_notice_listener.dart`; DAO `shared_row_dao.dart`; QA `tool/qa/flows/share/`.
 
 ## References
 

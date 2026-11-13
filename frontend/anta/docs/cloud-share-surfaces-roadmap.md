@@ -1,8 +1,10 @@
 # Share Surfaces — ANTA
 
-**Status: IN PROGRESS — slices A, B, C and E built and committed (2026-11-12),
-slices D and G in build; §15 says what is built. Scope on the owner's word of
-that day: the calendar side, slices A–E and G; slice F (folders, the
+**Status: BUILT 2026-11-13, the calendar side — slices A, B, C, D, E and G
+COMMITTED (`6f6b8c62` A, `9bb22e4f` B, `da3a892b` C and E, `1e054564` D,
+`7cde4038` G; the closing reviews `3395137f` and `fa3af0ad`); §15 says
+what is built and is the truth over the plan above it. Scope on the
+owner's word of 2026-11-12: slices A–E and G; slice F (folders, the
 partner's notes) is not in this build.** The mock is
 published (https://claude.ai/artifact/E5Zm8rPv5hGLk2V5fKphPt). Every
 decision is taken (§4): four are the owner's own words, the rest the
@@ -1172,6 +1174,32 @@ Cut on purpose; each with enough to resume from.
   foundations keep them; the read sheet does not offer the control.
 - **The partner's counters and currency on a shared note** (F7): the
   note-data settings of the roadmap's N1 (readiness D10).
+- **"All of mine" in an allowlist** (found in slice D's review). The
+  agenda's and the overview's category filters are allowlists; with a
+  partner's group listed, "only mine" is an explicit list, and a category
+  created later stays out until the filter is opened again. The way out
+  that keeps the stored shape: a reserved token for "all of mine" beside
+  the partner's ticked ids — `EventAgenda.passesEventFilters`, the two
+  sheets' `_pickCategories`, `CalendarFilterSummary.allowlistLabel`. A
+  saved overview view syncs, so every device must know the token before
+  one writes it.
+- **The import line** (§6.14's last row): for the day an import can land
+  events in an existing category. Today the only import that carries
+  events is a backup restore, which replaces the categories and unbinds
+  the database.
+- **What slice F finds waiting in the built surfaces**:
+  `ShareService.setFolderShared` is not one transaction; the Sharing page
+  has no Folders entry and no "Notes shared with you" row;
+  `shareMarkMineDesc`, the stop-all confirmation and the guide's "What is
+  never shared" row name no folders; a partner's event shows no Linked
+  note.
+- **The partner's Single events, opened from the Sharing page, open
+  nothing**: Sync & sharing holds no calendar. The door is
+  `PartnerSharedEventsSheet.onOpen`.
+- **A digest restricted to categories** lists mine only.
+- **Who ended the pair**: the leave notice after an unpair says "your
+  partner"; knowing who ended it would let the notice say nothing when I
+  did.
 - **More than one partner** — §14.
 
 ---
@@ -1669,3 +1697,374 @@ stay pixel-identical).
 **The device suite.** Flows `00`, `05` and `06` follow the Unpair entry
 to its new page; the cookbook's two sentences about it are corrected. The
 surfaces' own flows, and the run of all of them, come with slice G.
+
+### Slice D — choose what shows and what rings (2026-11-12)
+
+Built by Opus 5.5 implementers in parallel worktrees — the service layer,
+the two sheets, the filter lists, the Sharing page's receiving half, the
+remaining lists, the Categories page's section — from the designer's
+slice D spec; reviewed by three code reviewers and a design reviewer.
+Their findings are fixed in a commit of their own, after slice G's ("The
+reviews of the receiving side", below). Gate: `dart analyze lib test tool
+test_driver` clean; the whole suite `+16915 ~17`.
+
+**What a person gets.** The Sharing page's other three sections: what
+{name} shares with me (categories, single events), how shared things look
+(Outlined · Avatar · Like mine, and whether what I share is marked), and
+alerts for shared events (Off · Only alerts I add · Category alerts too).
+A sheet of the partner's categories with a switch each: a hidden one
+leaves my calendar at once — the grid, the lists, the filters, the
+figures, the alerts — and comes back with no read. A sheet for one of
+their categories, where I keep my own alerts for it. Their shown
+categories on the Categories page under "From {name}", and in the filter
+lists as a group of their own.
+
+**The pieces.**
+
+- **Hiding is one predicate, in one place.** `shareHiddenCategories` holds
+  the hidden ids, per device. A partner's event in a hidden category is
+  left out where `CalendarEventService` maps its rows — the whole load
+  and a pull's keyed patch alike (`_sharingOf`, `_shown`) — so nothing
+  that reads the cache can disagree about what exists; the rows stay
+  stored and current. My own events in a built-in the partner shares
+  stay. `ShareService.setCategoryShown` writes the set, publishes
+  `CalendarCategories.partnerShown`, reloads the events once (local, no
+  network), tells the open calendar and runs the alert pass.
+- **The hidden set stays true.** The shared reader prunes it after every
+  read (`_keepHiddenShared`): an id leaves when its category is un-shared
+  or deleted, when a built-in stops being shared, and when the pair ends
+  or changes — so sharing it again starts shown.
+- `CalendarCategories.partnerShown` (the partner's own categories shown
+  here, by name; never a shared built-in), `updatePartnerHidden` (it does
+  not bump `revision`: hiding changes which events exist, never what an
+  id resolves to).
+- `ShareBloc`: `ShareCategoryShownSet`, `ShareEventLookSet`,
+  `ShareMarkMineSet`, `ShareAlertsSet`; `ShareLoaded.look` and `.alerts`.
+  **A setting shows from the tap**: the bloc lays the writes still in
+  flight over every state it emits, so a switch never waits on the
+  calendar's reload and the read after an earlier write cannot flip a
+  later one back for a frame; a failed write draws back to what is
+  stored.
+- `ShareOverview.partnerCategories` (`PartnerSharedCategory{category,
+  joinsMine, shown, eventCount}`), `partnerEvents` (shared one by one),
+  `isStale(now)` (D22: seven days, `staleAfter`).
+- My alerts for a partner's category are rows of my own keyed by its id
+  (`EventAlertService.replaceForCategory`): nothing of mine reaches the
+  partner and nothing of theirs reaches me.
+
+**The surfaces.**
+
+- The Sharing page, sections 2–4. The header's end says "Updated {when}"
+  or, after a failed read, "Could not check"; the reason "Turn on sync to
+  receive" takes the intro's place in one slot; "May be out of date",
+  "Update ANTA to see everything {name} shares" and "{n} items could not
+  be shown" are held from the page's first loaded state for the visit, so
+  the entries never move. The look is a choice row, the mark a switch,
+  the alerts an entry with a menu of three captioned items.
+- `SharedCategoriesSheet` (a filler): one row per category the partner
+  shares — their own by name, then the shared built-ins in my page's
+  order. An own category's row is two targets (the row opens its sheet,
+  the switch shows or hides); a built-in's row is one, and toggles. A
+  hidden row dims its avatar only.
+- `SharedCategorySheet`: who it is from, the show switch, and ALERTS — my
+  alerts for it, each written at once and in order; inert, in place, with
+  the caption that says why, under "Off" and "Only alerts I add" and while
+  the category is hidden. It closes itself when the category is no longer
+  shared.
+- The Categories page's "From {name}" section: after Archived, outside
+  the reorderable list, read-only rows that open that sheet; absent when
+  nothing is listed.
+- The filters: `CategoryPickerSheet.pickMulti(partner:, partnerLook:)`
+  lists the partner's shown categories under "From {name}" for the grid's
+  denylist, the agenda's allowlist and the overview's; Select all / none
+  act on both groups; "everything listed is ticked" still stores nothing.
+  The chips and a saved filter's subtitle count the same lists. An
+  Upcoming card of a partner's own category wears the event look and says
+  "From {name}".
+
+**Decided in the build.**
+
+- The partner's own categories list **by name** everywhere: the reader
+  stores every one of them at sort order 0 — their order is no place in
+  my list — so the stored order would be by id.
+- The partner's Single events, opened from the Sharing page, are
+  read-only rows with no tap: Sync & sharing holds no calendar to open an
+  event sheet on. Where a calendar opens the list, a tap opens the read
+  sheet.
+- The agenda's category chip keeps its wording, "Categories (N)"; only
+  what it counts changed — the listed categories, the partner's shown
+  ones included, never the id of a deleted category ("No categories" when
+  none is left).
+- The received sheet counts a hidden category's events: it says what the
+  partner shares; "counted nowhere" (§6.4) is about my calendar's figures.
+- A digest restricted to categories lists mine only; an all-categories
+  digest includes the partner's under "Category alerts too".
+- The alerts menu's items are as tall as their captions need (56 dp, 74
+  with a two-line caption), not the spec's 66.
+
+**Costs, pinned.** An account that never paired: no new statement and no
+new await on a launch, an event load, a category load or a sync run. A
+paired one: one settings read per event load once a loaded row is the
+partner's; one per category load while a partner's own category is held;
+one per shared read (about four when something is hidden); two more per
+reload of an open Sharing page.
+
+### The closing review of slices C and E (2026-11-12)
+
+Two reviewers read the fix pass of slices C and E once more, in fresh
+contexts: 27 findings, three reproduced by a probe. Twenty are fixed in
+this commit, each with the test that would have been its probe; seven
+are kept and listed below.
+
+**Fixed.**
+
+- A share bloc closed in the turn it was opened subscribes to nothing
+  (it used to follow the calendar and throw on the next change).
+- "Shares anything" counts live rows (`SyncDao.anyLiveShareMark`): a
+  shared event that was deleted no longer enables "Stop sharing
+  everything" over empty lists, nor the stop-syncing sentence. The
+  engine and `stopAll()` still count tombstones — their marks must be
+  cleared and re-sent.
+- An Undo belongs to the database it was offered in: it keeps
+  `ShareService.databaseGeneration` and writes nothing under another.
+  Built-in category ids are the same in every database.
+- One voice per outcome: while the Single events sheet is open the page
+  says no outcome of a ✕ or an Undo; the sheet says them, over itself.
+- Back from Sync & sharing, an editor's share switch is re-seeded from
+  what is stored now, not from what it opened with.
+- The stop-syncing confirmation opens only where it was asked: a route
+  or a dialog that arrived while it waited for the first read drops the
+  tap; a failed load is an answer.
+- A summary load (the Pairing row's) follows the calendar's changes and
+  reads no counts; the tick sheet's counts are read for the Sharing page
+  alone.
+- The calendar hears a share flag that an act only corrected; the
+  catalogue's refresh waits for a construction in flight; no failure
+  stamp for an account that never paired; what is counted after an act's
+  store cannot fail the act.
+- A dimmed entry says what is shared as well as why it is dimmed; a date
+  not in this year carries its year, and "Tomorrow" keeps its word across
+  a year's end; the page's shape is decided at its first loaded state, so
+  it keeps its sections while a pair is ending; an error after the page
+  has left needs no host Scaffold.
+
+**Kept, known.** An offline shared read says "Could not check" — the
+check could not be made. "Sending…" stands while the pusher has parked a
+share's entry; the Sync page lists it as held back. A reload that fails
+right after an act can drop that act's snackbar. An Undo queued behind a
+running act is dropped if its bloc closes inside those milliseconds. The
+Categories page of an account not yet paired does not follow a pairing
+made while it is open. A share written for a new category after its page
+has gone fails silently. `ShareService.setFolderShared` is not one
+transaction — no surface reaches it (slice F).
+
+### Slice G — say what arrived; the guide (2026-11-12 → 13)
+
+**What a person gets.** A bar, inside the app, the first time something
+of the partner's arrives — "{name} shares Night shift with you", with
+View, which opens the Sharing page on top of Sync & sharing — and one
+when a shared event left while an alert of mine was armed on it: "{name}
+no longer shares {what}. Your alert is off." A "Sharing with your
+partner" page in the app guide, and one paragraph more in "Where your
+data is stored".
+
+**The pieces.**
+
+- A shared read says what it changed (`SharedReadChanges`): the partner's
+  categories newly held (a stored row whose merge was an insert; a
+  built-in newly recorded as shared), the events newly held, and the
+  events it removed, with their titles. Arrivals cost no statement; a
+  page that carries a built-in or an event tombstone costs one keyed
+  read; a read that changes nothing costs nothing more. A re-read from
+  the start and an update of a held row are no arrival.
+- `AppSyncApplyHooks.afterRun` asks the device's alert registrations
+  which removed events were armed **before** the reconcile cancels them,
+  and posts — after the run's reloads, at most once per run for each
+  kind — `ShareLeftWithAlert` and `ShareArrived` (`lib/models/
+  share_notice.dart`). An arrival names every new category and, of the
+  events, only those shared one by one. Hiding a category is my own act:
+  no notice.
+- `ShareService.notices` / `notify` are static, like
+  `CalendarEventService.externalChanges`: `ShareNoticeListener`, mounted
+  once in the app shell, subscribes without building a service. It says
+  a notice at once while the app is in front and holds it — merged, no
+  duplicates — until the next resume while it is not; the leave is said
+  before the arrival, each for `AppConstants.shareNoticeDuration` (a
+  notice arrives unasked, so it stays as long as any bar may).
+- The guide: `AppGuideTopic.sharing`, eight rows, every label passed in
+  from the app's own strings; `dataNoticeShared` after the partner's
+  paragraph.
+
+**Not built.** The import line (§6.14's last row, case C2's last clause):
+the only import that carries events is a backup restore, which replaces
+the categories and unbinds the database; marks return from the cloud
+after the bind (X6). The string left the ARBs.
+
+### The reviews of the receiving side (2026-11-13)
+
+Slice D was read by three code reviewers and a design reviewer, slice G
+by one reviewer, each in a fresh context: 53 findings, 14 reproduced by a
+probe. The ones ruled a fix are fixed here, each pinned by the test that
+was its probe; the rest are kept and listed. Gate: `dart analyze lib test
+tool test_driver` clean; the whole suite `+17127 ~17`.
+
+**Fixed — what shows.**
+
+- The hidden set goes with the shared rows (`SharedRowDao.removeAll`): it
+  used to survive "Stop syncing", so a new pair's built-in could start
+  hidden. Its two writers — a switch and the reader's prune — each run in
+  one transaction and cannot interleave. A failed read of it no longer
+  empties the category list. A write the database was switched under
+  publishes nothing.
+- A prune that removed an id ends in a whole re-read of the events
+  (`SyncInvalidation.unhidden`); a failed prune is not a failed read.
+- `CalendarEventService` refuses a write to a partner's event it no
+  longer holds because its category is hidden — one keyed read, and only
+  while something is hidden.
+- The share bloc falls back to what it last read from storage, never to
+  what is on screen: a tap whose write and read-back both fail draws
+  back.
+- **A filter decides by the category an event draws under**
+  (`CalendarCategories.drawnIdOf`): an event the partner shares on its
+  own from a category of theirs that is not shared draws as Other (R9)
+  and is now filtered, grouped and found as Other — it was reached by no
+  filter, and Upcoming showed two cards both titled Other. The alert rule
+  "an unknown category inherits nothing" still reads the stored id, and
+  so does an allowlist for my own events (the report's D32).
+- Searching by a category's name finds the partner's shown categories; a
+  category created inside the agenda's or the overview's picker can be
+  left un-ticked; "Create '{typed}'" follows my categories alone; my
+  shared categories wear their sign in the filter lists.
+- On the Categories page a share bloc is built per sheet and closed with
+  it (a reused one contradicted the alert setting); the alert setting is
+  read only when there is a partner row to caption; the search field
+  counts both lists; the partner's bare glyph at large text is
+  contrast-corrected in every look. An alert write that ends after the
+  category's sheet has closed still tells the calendar and asks for the
+  permission. The look row and the mark switch wait for the page's first
+  load.
+- The header's failure text is "Could not check" (it was two sentences,
+  and wrapped the section's title).
+
+**Fixed — what is said.**
+
+- What a read removed and stored again has not left: re-pairing with the
+  same partner used to say "no longer shares" about events that were
+  back. Under a pair made anew they are told as arrived.
+- A notice names an event by id and title (`ShareNoticeEvent`), so two
+  events of one title are two.
+- "View" always ends on the Sharing page, over the one Sync & sharing
+  page, exactly once — it used to stack a second pair of pages, or do
+  nothing with Sync & sharing in front. Going back to a Sync & sharing
+  page closes what is above it, so View only takes the bar down when a
+  form sheet — it may hold a draft — lies above that page; one under it
+  stays, and the Sharing page opens over it.
+- Over a plain bottom sheet the bar takes the overlay road and is seen;
+  under a dialog or a menu, over a form sheet, while an alert rings or
+  waits to be routed, and while someone's bar with an action — an Undo —
+  is up, the notice waits and is said when that has gone
+  (`ShareNoticeRoutes`, an observer of every route; no timer but a bar's
+  own).
+- What the listener holds belongs to the database it arrived under; a
+  category is worded from a loaded catalogue.
+- An e-mail address standing in for a name — an account with no profile
+  name publishes its address — is no longer capitalised at a sentence's
+  start (`ShareCopy.sentence`; found on the device, where the accounts
+  have no names).
+- The guide no longer says the partner's events are always drawn apart
+  (not under "Like mine").
+
+**Kept, known.**
+
+- In the agenda's and the overview's filters — allowlists — choosing
+  only my categories stores them by name, so a category created later
+  stays out until the filter is opened again; the chip shows a filter is
+  on, and the grid's filter, a denylist, is the answer for "only mine for
+  a moment" (R3). The way out is in Deferred.
+- A stale id of the partner's leaves the grid's denylist when its picker
+  is next opened, as a deleted category's always did.
+- A shared built-in's caption can wrap with its "·" leading a line at
+  text scale 2.0 in a narrow column: the count before it is already
+  unbreakable and wider than the column.
+- Hiding a category, stopping sync and a restore's unbind take armed
+  alerts off with no notice: each is the person's own act on this phone.
+- After the pair has ended the leave notice says "Your partner": the name
+  went with the pair.
+- A category and single events arriving in one read are told as the
+  category; an event that comes back from a tombstone is no arrival; a
+  notice that arrives before any page exists waits for the next resume.
+- The Sharing page's held lines read as one block with the intro at
+  German 2.0; the kit's switch entry carries its id on an unlabelled
+  node and "ALERTS" is spoken in capitals — the kit's and
+  `FormSectionLabel`'s behaviour app-wide.
+- The guide's "What is never shared" names notes: true while slice F is
+  not built.
+- A ring stopped from its notification with no alarm page up changes no
+  route: a notice that waited for it is said at the next route change or
+  resume. The ✕ of someone's Undo does not end the wait for that bar. A
+  plain message over a sheet can be replaced by a notice.
+
+### The device proof (2026-11-13)
+
+The two-guest suite `qa pass share -d emulator-5556` gains three flows
+that use no seam — the surfaces themselves give, receive and stop:
+
+- `04g_share_from_surfaces`: a category shared from its editor as it is
+  made, a built-in from its row's ⋮, an event from its editor's switch;
+  the Sharing page names them, the tick sheet takes one back, the Single
+  events sheet stops one and Undo brings it back; the partner is told
+  what arrived, and View opens its Sharing page.
+- `04h_receiver_chooses`: a category switched off leaves the partner's
+  calendar with no sync and comes back; under "Category alerts too" the
+  partner adds an alert of its own to it; the Categories page lists it
+  under "From …"; the filter lists it in a group of its own; the look
+  row changes how a partner's row is drawn.
+- `04i_stop_everything`: the partner arms an alert of its own on a
+  shared event, the owner stops sharing everything, and the partner is
+  told its alert is off.
+
+Sixteen flows, green twice in a row, each on a freshly started emulator
+suite (350 s each), and once more, 16/16 in 349 s, on the final build.
+
+**What the device found that no suite had.**
+
+- View did nothing with Sync & sharing in front — where "Sync now"
+  lives, so where a person who syncs by hand meets the bar. The review of
+  slice G had ruled it the same hour; `04g` now pins the fix.
+- An e-mail address standing in for a name was capitalised at a
+  sentence's start (the emulator's accounts have no names).
+- **A sheet covered while it is still sliding in kept the geometry of
+  mid-slide.** `04h` went red twice in six runs at the Filters sheet's ✕:
+  the category picker had opened before the sheet settled, the sheet
+  reached its place under the picker's barrier — which blocks its
+  semantics — and its ✕ was reported some 70 dp below where it was
+  painted, for TalkBack as for the harness. It is the 2026-10-13 trap
+  (`FormSheetSemanticsRefresh`) with no resize at all. The wrapper is now
+  on the two filter sheets, on the received-categories sheet and on the
+  shared-events lists, each pinned by a test that opens the sub-sheet
+  150 ms into the slide. A tap by sight was never affected. Every sheet
+  that opens a route above itself has the exposure: adopting the refresh
+  in the sheet chrome stays the open app-wide decision
+  (`ui-language-adoption-roadmap.md`).
+
+**The app's other saved suites on the final build:** calendar 35/35,
+settings 21/21, browser 3/3, alerts 5/5, alerts_pair 1/1, sync 5/5 — with
+the share suite 86 flows, none red, none rerun; `qa errors` clean.
+
+**The matrix** — dark, German, text scale 2.0 on both guests, then
+Romanian on the partner's; twenty-one screens, read by the lead. Nothing
+is broken in the share surfaces. Seen and kept: at 2.0 a Categories row
+is compact, with no avatar and so no "mine" badge (its caption still
+says "Shared"); the held end of the "YOU SHARE" header is an empty line
+at 2.0 (it is where "Sending…" goes); "Like mine" wraps inside its
+segment in German at 2.0, since the kit stacks only when a word would
+break; an e-mail address breaks at its dot in the editors' switch
+labels. Seen outside this build and left for their own pass: in German
+at 2.0 the day panel's header runs the date into the count, the Add
+event button covers the end of the day panel's last row, and the
+category editor's title is cut.
+
+Left to a phone, since no emulator proves it: TalkBack on the Sharing
+page and on the editors' share rows; the partner's real photo under the
+Avatar look; the system's 200 % font on a narrow phone; two real
+accounts on the live project (slice 0).
