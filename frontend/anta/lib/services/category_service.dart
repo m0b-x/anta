@@ -539,9 +539,21 @@ class CategoryService {
   /// after a mark written elsewhere cleared marks of another pair here
   /// (`CalendarEventDao.setSharedPair`, `FolderDao.setSharedPair`, which
   /// clear all three tables). Never constructs one: with none, the next
-  /// [getInstance] reads the table as it is.
+  /// [getInstance] reads the table as it is. A construction in flight is
+  /// waited for — its load may have read the table before the act wrote,
+  /// and the instance it publishes is the one every surface reads.
   static Future<void> refreshShareMarks() async {
-    final service = _instance;
+    var service = _instance;
+    final pending = _initializing;
+    if (service == null && pending != null) {
+      try {
+        final built = await pending;
+        // A reset retired it while it was awaited: nothing serves it.
+        if (identical(_instance, built)) service = built;
+      } catch (_) {
+        // The construction's failure is its own caller's to report.
+      }
+    }
     if (service == null) return;
     await service._serialize(service._load);
   }

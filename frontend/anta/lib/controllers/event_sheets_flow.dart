@@ -23,6 +23,7 @@ import '../models/share_overview.dart';
 import '../models/share_settings.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
+import '../services/calendar_event_service.dart';
 import '../services/note_storage_service.dart';
 import '../services/pairing_service.dart';
 import '../services/settings_service.dart';
@@ -115,6 +116,21 @@ class EventSheetsFlow {
       debugPrint('[EventSheetsFlow] share availability not read: $e');
       return const ShareNotPaired();
     }
+  }
+
+  /// The event's own share mark as the service's cache holds it, which a
+  /// share act refreshes as it writes; null when it cannot be read or the
+  /// event has gone, and the caller keeps what it knew.
+  static Future<bool?> _storedMarkOf(String id) async {
+    try {
+      final events = (await CalendarEventService.getInstance()).events;
+      for (final event in events) {
+        if (event.id == id) return event.markedShared;
+      }
+    } catch (e, st) {
+      debugPrint('[EventSheetsFlow] share mark not read: $e\n$st');
+    }
+    return null;
   }
 
   /// Shows an event read-only first, then routes whatever the user chose
@@ -665,6 +681,9 @@ class EventSheetsFlow {
     // picker's bar is a "taken" signal, and a filtered event still occurs, so
     // inheriting the grid's lens would show a busy day as free.
     final eventsForDay = context.read<CalendarBloc>().allEventsForDay;
+    // The mark the switch starts from and a Save is a flip against: Sync &
+    // sharing, opened from the form, can clear it, and the form is told.
+    var storedMark = initialEvent?.markedShared ?? false;
     final result = await EventEditorSheet.show(
       context,
       defaultDate: initialEvent?.startDate ?? day ?? DateTime.now(),
@@ -675,7 +694,13 @@ class EventSheetsFlow {
       appearance: _appearance(),
       showBack: showBack,
       shareAvailability: shareAvailability,
-      rereadShareAvailability: () async => _shareAvailability(),
+      rereadShare: () async {
+        final availability = await _shareAvailability();
+        if (initialEvent != null) {
+          storedMark = await _storedMarkOf(initialEvent.id) ?? storedMark;
+        }
+        return (availability: availability, markedShared: storedMark);
+      },
     );
     if (result == null || !context.mounted) return result;
     final bloc = context.read<CalendarBloc>();
@@ -691,8 +716,7 @@ class EventSheetsFlow {
         // asks nothing of sharing, so it cannot fail on a database that
         // stopped syncing while the form was open.
         final flipped =
-            result.shared != null &&
-            result.shared != (initialEvent?.markedShared ?? false);
+            result.shared != null && result.shared != storedMark;
         final shared = flipped ? result.shared : null;
         final shareOutcome = flipped ? Completer<ShareChange>() : null;
         if (initialEvent == null) {

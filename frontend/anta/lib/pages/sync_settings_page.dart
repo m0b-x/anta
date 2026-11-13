@@ -1662,6 +1662,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   ///
   /// While this database shares something it says what the partner keeps
   /// (D25): the shared documents stay in the cloud with their grant.
+  ///
+  /// A tap that waited on the share read is dropped when anything opened
+  /// over the page meanwhile — the Sharing page, the ended notice: the
+  /// confirmation belongs to the page it was asked on.
   Future<void> _stopSyncing(
     BuildContext context,
     AppLocalizations l10n, {
@@ -1675,8 +1679,15 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ? l10n.syncStopConfirmBodyDeleted
           : l10n.syncStopConfirmBody;
       final asked = _sharingWith(context, l10n);
-      final sharingWith = asked is Future<String?> ? await asked : asked;
-      if (!context.mounted) return;
+      final String? sharingWith;
+      if (asked is Future<String?>) {
+        sharingWith = await asked;
+        if (!context.mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) {
+          return;
+        }
+      } else {
+        sharingWith = asked;
+      }
       final confirmed = await AppDialogs.confirm(
         context,
         title: l10n.syncStopConfirmTitle,
@@ -1698,22 +1709,34 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// nothing; a paired page whose first read has not landed asks for one
   /// and waits for it, bounded by [SyncLimits.stopConfirmShareRead] —
   /// never the state of a read that may not have happened (review 15).
+  /// A failed load is an answer too: sharing could not be read, so the
+  /// confirmation asks without the sentence, at once.
   FutureOr<String?> _sharingWith(BuildContext context, AppLocalizations l10n) {
     if (context.read<PairingBloc>().state is! PairingPaired) return null;
     final share = context.read<ShareBloc>();
     final state = share.state;
     if (state is ShareLoaded) return _partnerKeeping(l10n, state);
-    if (share.isClosed) return null;
-    final loaded = share.stream.firstWhere((next) => next is ShareLoaded);
+    if (state is ShareLoadFailed || share.isClosed) return null;
+    // A read that never lands, or a bloc closed under it, answers null; the
+    // subscription ends with the wait, however it ends.
+    final answer = Completer<String?>();
+    void answerWith(String? value) {
+      if (!answer.isCompleted) answer.complete(value);
+    }
+
+    final subscription = share.stream.listen((next) {
+      if (next is ShareLoaded) answerWith(_partnerKeeping(l10n, next));
+      if (next is ShareLoadFailed) answerWith(null);
+    }, onDone: () => answerWith(null));
+    final patience = Timer(
+      SyncLimits.stopConfirmShareRead,
+      () => answerWith(null),
+    );
     share.add(const ShareLoadRequested());
-    return loaded
-        .timeout(SyncLimits.stopConfirmShareRead)
-        .then<String?>(
-          (next) => _partnerKeeping(l10n, next as ShareLoaded),
-          // A read that never lands, or a bloc closed under it: the
-          // confirmation asks without the sentence.
-          onError: (Object _) => null,
-        );
+    return answer.future.whenComplete(() {
+      patience.cancel();
+      subscription.cancel();
+    });
   }
 
   String? _partnerKeeping(AppLocalizations l10n, ShareLoaded share) =>

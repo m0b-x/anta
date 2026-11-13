@@ -17,9 +17,9 @@ class _UnreadableShare extends FakeShareService {
   bool failing = true;
 
   @override
-  Future<ShareOverview> overview() async {
+  Future<ShareOverview> overview({bool withCounts = false}) async {
     if (failing) throw StateError('the read failed');
-    return super.overview();
+    return super.overview(withCounts: withCounts);
   }
 }
 
@@ -272,6 +272,73 @@ void main() {
     share.emit(const ShareNotSyncing(audience));
     share.endRun();
     await pumpEventQueue();
+  });
+
+  for (final (name, event) in [
+    ('opened', const ShareOpened()),
+    ('loaded', const ShareLoadRequested()),
+  ]) {
+    test('a bloc $name and closed in the same turn subscribes to nothing, '
+        'and a later change adds nothing to it', () async {
+      final closing = ShareBloc(
+        service: () async => share,
+        calendarChanges: calendar.stream,
+      );
+      final errors = <Object>[];
+      var listened = true;
+      var heard = true;
+      // Guarded: what a late subscription adds to the closed bloc throws
+      // outside any future the test awaits.
+      await runZonedGuarded(() async {
+        closing.add(event);
+        await closing.close();
+        await pumpEventQueue();
+        listened = calendar.hasListener;
+        heard = share.heard;
+        calendar.add(null);
+        share.endRun();
+        await pumpEventQueue();
+      }, (error, _) => errors.add(error));
+
+      expect(listened, isFalse);
+      expect(heard, isFalse);
+      expect(errors, isEmpty);
+      expect(share.sharedReads, 0);
+    });
+  }
+
+  test('a load — the Pairing row\'s summary — follows the calendar too: a '
+      'change reads the overview again, with no shared read', () async {
+    bloc.add(const ShareLoadRequested());
+    await settled();
+    final reads = share.overviews;
+
+    share.shareOverview = ShareOverview.empty;
+    calendar.add(null);
+
+    expect((await settled()).overview, ShareOverview.empty);
+    expect(share.overviews, reads + 1);
+    expect(share.sharedReads, 0);
+  });
+
+  test('the tick sheet\'s counts are read for the Sharing page alone: never '
+      'by a summary\'s load, on every load once the page opened', () async {
+    bloc.add(const ShareLoadRequested());
+    await settled();
+    calendar.add(null);
+    await settled();
+    expect(share.countReads, [false, false]);
+
+    share.countReads.clear();
+    bloc.add(const ShareOpened());
+    await settled();
+    calendar.add(null);
+    await settled();
+    bloc.add(const ShareLoadRequested());
+    await settled();
+
+    expect(share.countReads, isNotEmpty);
+    expect(share.countReads, everyElement(isTrue));
   });
 
   test('acts run one at a time, in the order they were added: a second act '

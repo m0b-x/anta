@@ -2482,6 +2482,47 @@ void main() {
       expect(outcome.share, isNull);
     });
 
+    testWidgets('sharing stopped meanwhile: on the return the switch reads '
+        'what is stored now, clean, and a flip on is a change', (
+      tester,
+    ) async {
+      final robot = CategoryEditorRobot(tester);
+      final travel = await category('Travel', shared: true);
+      final outcome = await robot.show(
+        initial: travel,
+        share: notSyncing,
+        openSyncSettings: (_) async {},
+        rereadShare: () async => ready,
+      );
+      // "Stop sharing everything" on the trip; the sheet still holds the
+      // category as it opened. Written in the test's zone, as [category]
+      // writes: one run in the real zone leaves the Save below waiting on a
+      // clock nothing advances.
+      await service.setShared(travel.id, null);
+      expect(CalendarCategories.byId(travel.id)!.sharedByMe, isFalse);
+
+      await robot.tapShare();
+
+      expect(robot.shareEnabled, isTrue);
+      expect(robot.shareOn, isFalse, reason: 'no longer shared');
+      expect(robot.shareSubtitle, 'Only you see these events');
+      await robot.close();
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.share, isNull);
+
+      final again = await robot.show(
+        initial: travel,
+        share: notSyncing,
+        openSyncSettings: (_) async {},
+        rereadShare: () async => ready,
+      );
+      await robot.tapShare();
+      await robot.tapShare();
+      expect(robot.shareOn, isTrue);
+      await robot.save();
+      expect(again.share, isTrue);
+    });
+
     testWidgets('the switch is part of the draft: a flip is dirty, the leave '
         'guard asks, and Save hands it back unwritten', (tester) async {
       final robot = CategoryEditorRobot(tester);

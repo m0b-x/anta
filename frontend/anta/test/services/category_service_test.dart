@@ -1138,6 +1138,28 @@ void main() {
 
     expect(CalendarCategories.byId(created.id), isNotNull);
   });
+
+  /// A share act no longer waits for the catalogue to be built, so it can
+  /// commit while the first load's rows are on their way: the refresh it
+  /// asks for after waits for that construction and reads again.
+  test('a share act\'s refresh waits for a construction in flight, whose load '
+      'read the table before the act wrote', () async {
+    CategoryService.reset();
+    gate.holdNextCategoryRead(also: 'ORDER BY');
+    final building = CategoryService.forTesting(db);
+    for (var i = 0; i < 20 && !gate.held; i++) {
+      await pumpEventQueue();
+    }
+    expect(gate.held, isTrue);
+
+    await db.calendarCategoryDao.setSharedPair('gym', 'pair-1');
+    final refreshed = CategoryService.refreshShareMarks();
+    gate.release();
+    await building;
+    await refreshed;
+
+    expect(CalendarCategories.byId('gym')!.sharedByMe, isTrue);
+  });
 }
 
 /// Delivers the catalog's reload late: the `SELECT` runs at once, so its rows
@@ -1149,10 +1171,15 @@ class _HeldCategoryRead extends QueryInterceptor {
   bool _armed = false;
   bool held = false;
 
+  /// What the held read must also contain: `ORDER BY` passes over the
+  /// seed's read, which a construction runs first, inside a transaction.
+  String _also = '';
+
   /// Holds the next read of `calendar_categories`, which is the reload's:
   /// one shot, so the write that follows inside the window runs freely.
-  void holdNextCategoryRead() {
+  void holdNextCategoryRead({String also = ''}) {
     _armed = true;
+    _also = also;
     _hold = Completer<void>();
   }
 
@@ -1171,7 +1198,10 @@ class _HeldCategoryRead extends QueryInterceptor {
   ) async {
     final rows = await super.runSelect(executor, statement, args);
     final hold = _hold;
-    if (_armed && hold != null && statement.contains('calendar_categories')) {
+    if (_armed &&
+        hold != null &&
+        statement.contains('calendar_categories') &&
+        statement.contains(_also)) {
       _armed = false;
       held = true;
       await hold.future;

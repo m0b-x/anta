@@ -801,26 +801,28 @@ class CalendarEventService {
   /// elsewhere cleared marks of another pair here
   /// (`CalendarCategoryDao.setSharedPair`, `FolderDao.setSharedPair` and
   /// `FolderDao.clearSharesExcept` clear all three tables). Never constructs
-  /// one, on [refreshAfterCategoryRemoval]'s terms.
-  static Future<void> refreshShareMarks() async {
+  /// one, on [refreshAfterCategoryRemoval]'s terms. Answers whether a
+  /// cached flag moved: an act that wrote nothing but mended a stale one
+  /// still owes the calendar a redraw (`ShareService`).
+  static Future<bool> refreshShareMarks() async {
     final service = await _liveOrCreating();
-    if (service == null) return;
+    if (service == null) return false;
     service._writes++;
-    await service._refreshMarks();
+    return service._refreshMarks();
   }
 
   /// Patches [CalendarEvent.markedShared] into the cached events from one
   /// keyed read of the marked ids, replacing only the events whose flag
-  /// moved. A failed read leaves the cache to the next load. [_writes] is
-  /// bumped by the caller first, so a whole load in flight reads again past
-  /// the write.
-  Future<void> _refreshMarks() async {
+  /// moved, and answers whether any did. A failed read leaves the cache to
+  /// the next load. [_writes] is bumped by the caller first, so a whole load
+  /// in flight reads again past the write.
+  Future<bool> _refreshMarks() async {
     final Set<String> marked;
     try {
       marked = await _dao.ownMarkedIds();
     } catch (e, st) {
       debugPrint('[CalendarEventService] Share marks error: $e\n$st');
-      return;
+      return false;
     }
     final cache = _cache;
     List<CalendarEvent>? next;
@@ -831,7 +833,9 @@ class CalendarEventService {
       if (mark) _mayHoldMarked = true;
       (next ??= [...cache])[i] = event.copyWith(markedShared: mark);
     }
-    if (next != null) _cache = List.unmodifiable(next);
+    if (next == null) return false;
+    _cache = List.unmodifiable(next);
+    return true;
   }
 
   /// Runs the four child patches of one event's delete or restore, each on

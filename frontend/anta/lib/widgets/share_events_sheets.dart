@@ -104,6 +104,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     // an Undo tapped after both have gone says that it failed.
     final messenger = ScaffoldMessenger.maybeOf(context);
     final shareService = widget.shareService;
+    final generation = ShareService.databaseGeneration;
     final event = shared.event;
     setState(() => _leaving.add(event.id));
     bloc.add(ShareEventUnshared(event.id));
@@ -125,6 +126,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
       onAction: () => _undo(
         bloc,
         event,
+        generation: generation,
         shareService: shareService,
         messenger: messenger,
         l10n: l10n,
@@ -136,17 +138,21 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   /// sheet and the page that owns [bloc] are gone, so it reads nothing of
   /// the sheet's but [mounted]. While [bloc] is open the undo goes through
   /// it, queued behind the ✕, and the row comes back on its outcome. Once
-  /// it is closed the undo writes through [ShareService.undo] itself — the
-  /// one place a sharing surface acts past its bloc, since nothing is left
-  /// to act through — and a failure is said on [messenger], never through
-  /// a context that has gone.
+  /// it is closed the undo writes through [undoSharePastBloc].
+  ///
+  /// [generation] is the database's when the bar was shown: tapped under
+  /// another, the undo would land in a database that never saw the ✕ —
+  /// where a built-in category of the same id would be shared without a
+  /// switch anyone flipped — so it writes nothing and says nothing.
   void _undo(
     ShareBloc bloc,
     CalendarEvent event, {
+    required int generation,
     required Future<ShareService> Function() shareService,
     required ScaffoldMessengerState? messenger,
     required AppLocalizations l10n,
   }) {
+    if (ShareService.databaseGeneration != generation) return;
     final change = ShareChange(unsharedEvents: [event]);
     if (!bloc.isClosed) {
       if (mounted) _undoing.add(event.id);
@@ -154,42 +160,13 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
       return;
     }
     unawaited(
-      _undoPastBloc(
+      undoSharePastBloc(
         change,
         shareService: shareService,
         messenger: messenger,
         l10n: l10n,
       ),
     );
-  }
-
-  static Future<void> _undoPastBloc(
-    ShareChange change, {
-    required Future<ShareService> Function() shareService,
-    required ScaffoldMessengerState? messenger,
-    required AppLocalizations l10n,
-  }) async {
-    String? failure;
-    try {
-      await (await shareService()).undo(change);
-    } on ShareRefused {
-      failure = l10n.shareNeedsSync;
-    } catch (e, st) {
-      debugPrint('[MySharedEventsSheet] undo failed: $e\n$st');
-      failure = l10n.shareChangeFailed;
-    }
-    if (failure == null) return;
-    messenger
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(failure),
-          behavior: SnackBarBehavior.floating,
-          margin: AppSpacing.snackbarMargin(),
-          duration: AppConstants.snackbarErrorDuration,
-          showCloseIcon: true,
-        ),
-      );
   }
 
   /// A ✕ the service refused or failed brings its rows back and says why;
@@ -230,6 +207,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final today = _today();
+    final withYear = DateFormat.yMMMd(l10n.localeName);
     return BlocConsumer<ShareBloc, ShareState>(
       bloc: widget.bloc,
       listener: _onState,
@@ -244,7 +222,8 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
           title: l10n.shareRowEvents,
           empty: l10n.shareEventsEmpty,
           rows: [
-            for (final shared in events) _row(context, l10n, shared, today),
+            for (final shared in events)
+              _row(context, l10n, withYear, shared, today),
           ],
         );
       },
@@ -254,13 +233,14 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   Widget _row(
     BuildContext context,
     AppLocalizations l10n,
+    DateFormat withYear,
     MySharedEvent shared,
     DateTime today,
   ) {
     final event = shared.event;
     final day = _dayOf(event, today);
     final category = CalendarCategories.byId(event.categoryId);
-    final when = _whenOf(context, l10n, event, day, today);
+    final when = _whenOf(context, l10n, withYear, event, day, today);
     // An event its category shares too stays on the partner's phone after
     // the ✕, and its row says so rather than let the ✕ read as "private".
     final through = shared.categoryShared && category != null
@@ -321,6 +301,7 @@ class PartnerSharedEventsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final today = _today();
+    final withYear = DateFormat.yMMMd(l10n.localeName);
     return BlocBuilder<ShareBloc, ShareState>(
       bloc: bloc,
       builder: (context, state) {
@@ -343,7 +324,7 @@ class PartnerSharedEventsSheet extends StatelessWidget {
                 return FormPickerRow(
                   leading: _avatar(l10n, event, partner: partner),
                   label: event.title,
-                  caption: _whenOf(context, l10n, event, day, today),
+                  caption: _whenOf(context, l10n, withYear, event, day, today),
                   captionWraps: true,
                   showChevron: false,
                   onTap: switch (onOpen) {
@@ -357,6 +338,43 @@ class PartnerSharedEventsSheet extends StatelessWidget {
       },
     );
   }
+}
+
+/// An Undo tapped once the surface that offered it has gone with its bloc —
+/// the events sheet's or the Sharing page's: it writes through
+/// [ShareService.undo] itself, the one place a sharing surface acts past
+/// its bloc, since nothing is left to act through. A failure is said on
+/// [messenger], the app's own captured when the bar was shown, as a plain
+/// floating bar: no context that has gone is read and no host Scaffold is
+/// looked for, which over a bottom route that does not resize would reach
+/// for an overlay from above it.
+Future<void> undoSharePastBloc(
+  ShareChange change, {
+  required Future<ShareService> Function() shareService,
+  required ScaffoldMessengerState? messenger,
+  required AppLocalizations l10n,
+}) async {
+  String? failure;
+  try {
+    await (await shareService()).undo(change);
+  } on ShareRefused {
+    failure = l10n.shareNeedsSync;
+  } catch (e, st) {
+    debugPrint('[undoSharePastBloc] undo failed: $e\n$st');
+    failure = l10n.shareChangeFailed;
+  }
+  if (failure == null) return;
+  messenger
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(failure),
+        behavior: SnackBarBehavior.floating,
+        margin: AppSpacing.snackbarMargin(),
+        duration: AppConstants.snackbarErrorDuration,
+        showCloseIcon: true,
+      ),
+    );
 }
 
 /// The filler box both lists open in: the editor's fixed height, the
@@ -397,19 +415,37 @@ DateTime _dayOf(CalendarEvent event, DateTime today) {
   return event.startDateUtc;
 }
 
-/// "Tomorrow · 18:00 – 19:00": the agenda's day words and the event's time.
-/// A day behind today — an event with no coming occurrence — carries its
-/// year, which the agenda's short date leaves out.
+/// The day a shared event's row names: the agenda's own words — "Today",
+/// "Tomorrow", "Aug 25" — except that a day behind [today] (an event with
+/// no coming occurrence) or in another year carries its year in
+/// [withYear], which the short date leaves out: a one-off more than a year
+/// ahead read as the coming one. Today and tomorrow keep their words
+/// whatever the year, so the last day of a year still says "Tomorrow".
+@visibleForTesting
+String shareEventDayLabel(
+  AppLocalizations l10n,
+  DateFormat withYear,
+  DateTime day,
+  DateTime today,
+) {
+  final tomorrow = DateTime(today.year, today.month, today.day + 1);
+  final soon = day == today || day == tomorrow;
+  if (!soon && (day.isBefore(today) || day.year != today.year)) {
+    return withYear.format(day);
+  }
+  return AgendaListView.shortDayLabel(l10n, day, today);
+}
+
+/// "Tomorrow · 18:00 – 19:00": [shareEventDayLabel] and the event's time.
 String _whenOf(
   BuildContext context,
   AppLocalizations l10n,
+  DateFormat withYear,
   CalendarEvent event,
   DateTime day,
   DateTime today,
 ) {
-  final date = day.isBefore(today)
-      ? DateFormat.yMMMd(l10n.localeName).format(day)
-      : AgendaListView.shortDayLabel(l10n, day, today);
+  final date = shareEventDayLabel(l10n, withYear, day, today);
   final time = event.time;
   if (time == null) return date;
   return '$date · ${EventTimeFormatter.formatRangeOfContext(time, context)}';

@@ -4,6 +4,7 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart' show SemanticsData;
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
@@ -33,6 +34,7 @@ import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/share_events_sheets.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
@@ -71,7 +73,8 @@ class _UnreadableShareService extends FakeShareService {
   _UnreadableShareService({super.availability});
 
   @override
-  Future<ShareOverview> overview() async => throw StateError('the read failed');
+  Future<ShareOverview> overview({bool withCounts = false}) async =>
+      throw StateError('the read failed');
 }
 
 /// Flutter's 4.5:1 text-contrast guideline but for the nodes of [reasons]:
@@ -247,6 +250,8 @@ void main() {
     double textScale = 1.0,
     bool dark = false,
     NavigatorObserver? observer,
+    Future<void> Function(BuildContext context)? onOpenEvents,
+    bool hostResizes = true,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -268,12 +273,14 @@ void main() {
         ),
         home: Builder(
           builder: (context) => Scaffold(
+            resizeToAvoidBottomInset: hostResizes,
             body: Center(
               child: TextButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => SharingPage(
                       pairingBloc: pairingBloc,
+                      onOpenEvents: onOpenEvents,
                       shareService: () async => share,
                     ),
                   ),
@@ -573,30 +580,36 @@ void main() {
   });
 
   testWidgets('a dimmed entry is one enabled button to a screen reader: its '
-      'title and the reason, and where it goes', (tester) async {
+      'title, what is shared and the reason, and where it goes', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     await boot(overview: sharing, availability: const ShareNotSyncing(maria));
     await open(tester, size: wholePage);
 
-    for (final (id, title, reason) in [
+    for (final (id, title, description, reason) in [
       (
         SemanticsIds.sharingMineCategories,
         l10n.shareRowCategories,
+        'Work, Travel',
         l10n.shareNeedsSync,
       ),
       (
         SemanticsIds.sharingMineEvents,
         l10n.shareRowEvents,
+        l10n.shareSummaryEvents(2),
         l10n.shareNeedsSync,
       ),
       (
         SemanticsIds.sharingTheirsCategories,
         l10n.shareRowCategories,
+        l10n.shareNone,
         l10n.shareNeedsSyncReceive,
       ),
       (
         SemanticsIds.sharingTheirsEvents,
         l10n.shareRowEvents,
+        l10n.shareNone,
         l10n.shareNeedsSyncReceive,
       ),
     ]) {
@@ -604,7 +617,7 @@ void main() {
         tester.getSemantics(byId(id)),
         matchesSemantics(
           identifier: id,
-          label: '$title\n$reason',
+          label: '$title\n$description\n$reason',
           hint: l10n.shareOpensSyncHint,
           isButton: true,
           hasEnabledState: true,
@@ -800,9 +813,12 @@ void main() {
   group('an Undo that outlives the page', () {
     /// Shares Travel from the tick sheet, leaves the page under its
     /// snackbar, and lets the page's bloc close.
-    Future<void> shareThenLeave(WidgetTester tester) async {
+    Future<void> shareThenLeave(
+      WidgetTester tester, {
+      bool hostResizes = true,
+    }) async {
       CalendarCategories.updateCache([work, travel]);
-      await open(tester);
+      await open(tester, hostResizes: hostResizes);
       share.nextChange = ShareChange(sharedCategories: [travel]);
       await tester.tap(byId(SemanticsIds.sharingMineCategories));
       await settle(tester);
@@ -854,6 +870,105 @@ void main() {
 
       await close(tester);
     });
+
+    testWidgets('a refused write says "Turn on sync to share", as the '
+        'events sheet says it', (tester) async {
+      await boot(overview: ShareOverview(categories: [work]));
+      await shareThenLeave(tester);
+      share.emit(const ShareNotSyncing(maria));
+
+      await tester.tap(find.text(l10n.undo));
+      await settle(tester);
+
+      expect(find.text(l10n.shareNeedsSync), findsOneWidget);
+      expect(find.text(l10n.shareChangeFailed), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await close(tester);
+    });
+
+    testWidgets('a failed write is said over a bottom route that does not '
+        'resize, throwing nothing', (tester) async {
+      await boot(
+        service: _FailingUndoShareService(
+          availability: const ShareReady(maria),
+        ),
+        overview: ShareOverview(categories: [work]),
+      );
+      await shareThenLeave(tester, hostResizes: false);
+
+      await tester.tap(find.text(l10n.undo));
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(l10n.shareChangeFailed), findsOneWidget);
+
+      await close(tester);
+    });
+
+    testWidgets('tapped after a database switch it writes nothing and says '
+        'nothing', (tester) async {
+      await boot(overview: ShareOverview(categories: [work]));
+      await shareThenLeave(tester);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      await tester.tap(find.text(l10n.undo));
+      await settle(tester);
+
+      expect(share.undone, isEmpty);
+      expect(find.text(l10n.shareChangeFailed), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await close(tester);
+    });
+  });
+
+  testWidgets('an Undo tapped after a database switch while the page is up '
+      'writes nothing', (tester) async {
+    CalendarCategories.updateCache([work, travel]);
+    await boot(overview: ShareOverview(categories: [work]));
+    await open(tester);
+    share.nextChange = ShareChange(sharedCategories: [travel]);
+    await tester.tap(byId(SemanticsIds.sharingMineCategories));
+    await settle(tester);
+    await tester.tap(tick('travel'));
+    await tester.pump();
+    await tester.tap(byId(SemanticsIds.categoryPickDone));
+    await settle(tester);
+    DatabaseLifecycle.notifyDatabaseSwitching();
+
+    await tester.tap(find.text(l10n.undo));
+    await settle(tester);
+
+    expect(share.undone, isEmpty);
+
+    await close(tester);
+  });
+
+  testWidgets('while the Single events sheet is up only the sheet says an '
+      'Undo that failed, over itself', (tester) async {
+    await boot(
+      service: _FailingUndoShareService(availability: const ShareReady(maria)),
+      overview: sharing,
+    );
+    await open(
+      tester,
+      onOpenEvents: (context) =>
+          MySharedEventsSheet.show(context, bloc: context.read<ShareBloc>()),
+    );
+    await tester.tap(byId(SemanticsIds.sharingMineEvents));
+    await settle(tester);
+    await tester.tap(byId(SemanticsIds.shareEventUnshare('a')));
+    await settle(tester);
+
+    await tester.tap(find.text(l10n.undo));
+    await settle(tester);
+
+    expect(find.text(l10n.shareChangeFailed), findsOneWidget);
+    expect(find.text(l10n.shareChangeFailed).hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await close(tester);
   });
 
   testWidgets('a load that fails says so in one line, and Unpair is still '
@@ -1014,6 +1129,30 @@ void main() {
       expect(gateway.endedPairs, hasLength(1));
       expect(byId(SemanticsIds.sharingPage), findsNothing);
       expect(find.text('host'), findsOneWidget);
+
+      await close(tester);
+    });
+
+    testWidgets('a page that opened whole keeps every section as the pair '
+        'ends: sharing saying "not paired" first moves nothing, and the '
+        'sections stay while the page leaves', (tester) async {
+      await boot(overview: sharing);
+      await open(tester, size: wholePage);
+      final before = rects(tester);
+
+      share.emit(const ShareNotPaired());
+      await settle(tester, rounds: 4);
+      expect(rects(tester), before);
+
+      pairingBloc.show(const PairingEnded());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      for (final id in everyEntry) {
+        expect(byId(id), findsOneWidget, reason: id);
+      }
+
+      await settle(tester);
+      expect(byId(SemanticsIds.sharingPage), findsNothing);
 
       await close(tester);
     });

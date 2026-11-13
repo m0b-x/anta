@@ -140,6 +140,21 @@ void main() {
     expect(pair.gateway.readSpaceCalls, 0);
   });
 
+  test('an account that never paired is never told "Could not check": a '
+      'local read that fails before the read knows of a pair stamps '
+      'nothing', () async {
+    pair.partners.local.clear();
+    pair.partners.pairs.clear();
+    pair.partners.localFailure = StateError('scripted');
+
+    await partner().sync();
+
+    final dao = partner().db.syncDao;
+    expect(await dao.getValue(SyncDao.keySharedReadFailedAt), isNull);
+    expect(await dao.getValue(SyncDao.keySharedReadAt), isNull);
+    expect(pair.partners.asked, isEmpty);
+  });
+
   group('a shared event', () {
     setUp(() async {
       await event(owner(), 'e1');

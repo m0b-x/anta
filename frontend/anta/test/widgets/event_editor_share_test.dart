@@ -109,7 +109,8 @@ void main() {
     bool sandbox = false,
     Locale locale = const Locale('en'),
     double scale = 1.0,
-    Future<ShareAvailability> Function()? reread,
+    Future<({ShareAvailability availability, bool markedShared})> Function()?
+    reread,
   }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(360, 780);
@@ -148,7 +149,7 @@ void main() {
                   initialEvent: initial,
                   sandbox: sandbox,
                   shareAvailability: availability,
-                  rereadShareAvailability: reread,
+                  rereadShare: reread,
                 ),
               ),
             ),
@@ -308,7 +309,7 @@ void main() {
         availability: ShareNotSyncing(audience()),
         reread: () async {
           asked++;
-          return ShareReady(audience());
+          return (availability: ShareReady(audience()), markedShared: false);
         },
       );
       expect(row(tester).onChanged, isNull);
@@ -325,6 +326,34 @@ void main() {
       expect(row(tester).onChanged, isNotNull);
       await tapAndSettle(tester, shareRowOf());
       expect((await save(tester, results)).shared, isTrue);
+    });
+
+    testWidgets('every share stopped over the form: on the return the switch '
+        'reads the mark as stored now, and the form stays clean', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: eventOf(shared: true),
+        availability: ShareNotSyncing(audience()),
+        reread: () async =>
+            (availability: ShareReady(audience()), markedShared: false),
+      );
+
+      await tester.ensureVisible(shareRowOf());
+      await tester.pumpAndSettle();
+      await tester.tap(shareRowOf());
+      final pushed = routes.pushed.last;
+      pushed.navigator!.removeRoute(pushed);
+      await tester.pumpAndSettle();
+
+      expect(row(tester).value, isFalse, reason: 'no longer shared');
+      expect(row(tester).subtitle, 'Only you see this event');
+      // Clean: ✕ leaves at once, asking nothing.
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(results.single, isNull);
     });
 
     testWidgets('without a profile name the partner is "your partner"', (

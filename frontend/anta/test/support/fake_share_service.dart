@@ -142,9 +142,13 @@ class FakeShareService implements ShareService {
     return 1;
   }
 
+  /// Every [overview]'s `withCounts`, in order.
+  final List<bool> countReads = [];
+
   @override
-  Future<ShareOverview> overview() async {
+  Future<ShareOverview> overview({bool withCounts = false}) async {
     overviews++;
+    countReads.add(withCounts);
     return _availability is ShareNotPaired
         ? ShareOverview.empty
         : shareOverview;

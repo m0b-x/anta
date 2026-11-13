@@ -36,6 +36,11 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
   ShareOutcome? _outcome;
   int _outcomes = 0;
 
+  /// Sent [ShareOpened]: this bloc serves the Sharing page, and every load
+  /// from then on reads the tick sheet's counts, which a summary never
+  /// shows.
+  bool _opened = false;
+
   ShareBloc({
     Future<ShareService> Function()? service,
     Stream<Object?>? calendarChanges,
@@ -44,7 +49,10 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
            calendarChanges ?? CalendarEventService.externalChanges,
        super(const ShareInitial()) {
     on<ShareOpened>(_onOpened);
-    on<ShareLoadRequested>((_, emit) => _reload(emit));
+    on<ShareLoadRequested>((_, emit) {
+      _followCalendar();
+      return _reload(emit);
+    });
     on<ShareSourcesChanged>((_, emit) => _reload(emit));
     on<ShareActEvent>(
       (event, emit) => switch (event) {
@@ -149,10 +157,22 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     Stream<E> Function(E) mapper,
   ) => events.asyncExpand(mapper);
 
-  Future<void> _onOpened(ShareOpened event, Emitter<ShareState> emit) async {
+  /// Marks set or cleared while a surface stays open — an act elsewhere, the
+  /// reader clearing them — reach it through the calendar's changes, the
+  /// summary's as much as the page's. Once, and never by a closed bloc: an
+  /// event opened or loaded and the bloc closed in one turn still runs its
+  /// handler, and what a late subscription heard would be added to a
+  /// closed bloc.
+  void _followCalendar() {
+    if (isClosed) return;
     _calendarSubscription ??= _calendarChanges.listen(
       (_) => add(const ShareSourcesChanged()),
     );
+  }
+
+  Future<void> _onOpened(ShareOpened event, Emitter<ShareState> emit) async {
+    _opened = true;
+    _followCalendar();
     await _reload(emit);
     final ShareService service;
     try {
@@ -234,7 +254,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     }
     ShareOverview overview;
     try {
-      overview = await service.overview();
+      overview = await service.overview(withCounts: _opened);
     } catch (e, st) {
       // The page keeps what it showed; the next change reads again. With
       // nothing shown yet, "None" would be a claim the read never made.

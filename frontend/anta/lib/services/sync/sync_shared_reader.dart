@@ -64,6 +64,9 @@ class _SharedReader {
     // The server or this device could not answer: the page's "Could not
     // check". A read the leave cut is neither this nor completed.
     var failed = false;
+    // Past the never-paired return: only then is there a read to fail —
+    // an account that never paired is never told "Could not check".
+    var paired = false;
     try {
       final uid = bound.accountUid;
       final holder = await db.sharedRowDao.owner();
@@ -72,6 +75,7 @@ class _SharedReader {
           !await source.pairedLocally(uid)) {
         return;
       }
+      paired = true;
       if (!asked && !await _due(SyncDao.keySharedReadAt, _interval)) return;
       stamps = true;
       final partner = await source.activePartner(uid);
@@ -135,11 +139,11 @@ class _SharedReader {
     } on SyncGatewayException catch (error) {
       // Offline, the next run asks again; anything else waits the interval
       // out — rules not deployed yet answer the same every time.
-      stamps = error.failure != SyncGatewayFailure.offline;
-      failed = true;
+      stamps = paired && error.failure != SyncGatewayFailure.offline;
+      failed = paired;
       debugPrint('[SyncEngine] shared rows not read: $error');
     } catch (error, stack) {
-      failed = true;
+      failed = paired;
       _warn('reading shared rows failed: $error\n$stack');
     } finally {
       if (stamps || failed) {

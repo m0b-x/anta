@@ -429,6 +429,23 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     return row.read<bool>('marked');
   }
 
+  /// [anyShareMark] over live rows alone: what a person is told they share
+  /// ("Stop sharing everything", the stop-syncing confirmation). A deleted
+  /// row's mark still has to be cleared and sent, so every check that
+  /// clears or sends marks keeps [anyShareMark]. Over the same partial
+  /// indexes.
+  Future<bool> anyLiveShareMark() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM folders '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0) '
+      'OR EXISTS(SELECT 1 FROM calendar_events '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0) '
+      'OR EXISTS(SELECT 1 FROM calendar_categories '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0) AS marked',
+    ).getSingle();
+    return row.read<bool>('marked');
+  }
+
   Future<String?> getLastSyncTimestamp() => getValue(keyLastSyncTimestamp);
 
   Future<void> setLastSyncTimestamp(String timestamp) =>

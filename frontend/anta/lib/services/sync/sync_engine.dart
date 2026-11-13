@@ -798,9 +798,11 @@ class SyncEngine {
   /// page's open (share surfaces record D22), which [pushNow] cannot serve:
   /// a drain never reaches the shared reader, and a full run would pull
   /// every table of the account's own. Through the same queue and gate as
-  /// every run, never beside another; the person asked, so the manual
-  /// cadence lets it through. An account that never paired asks nothing of
-  /// the server ([_SharedReader.read]).
+  /// every run, never beside another; its own mark,
+  /// [_RunRequest.readsShared], lets it through under every cadence — merged
+  /// into a run nobody asked for under the manual one, that run reads the
+  /// share alone. An account that never paired asks nothing of the server
+  /// ([_SharedReader.read]).
   Future<SyncRunReport> readSharedNow() => _request(_RunMode.shared);
 
   /// Set by [syncNow] and taken by the next run as it starts, never during

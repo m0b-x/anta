@@ -2984,8 +2984,8 @@ class _ReceivingShareService extends FakeShareService {
   }
 
   @override
-  Future<ShareOverview> overview() async {
-    await super.overview();
+  Future<ShareOverview> overview({bool withCounts = false}) async {
+    await super.overview(withCounts: withCounts);
     return ShareOverview(
       partnerCategories: [
         for (final category in CalendarCategories.partner)

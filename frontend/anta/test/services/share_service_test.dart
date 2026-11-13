@@ -685,6 +685,72 @@ void main() {
       },
     );
 
+    test('a shared event deleted shares nothing a person can see — the '
+        'overview says nothing is shared — and stopping everything still '
+        'clears its mark and sends it', () async {
+      await pairWith();
+      final share = await open();
+      await event('e1');
+      await share.setEventShared('e1', true);
+      await events.deleteById('e1');
+      await db.syncOutboxDao.clear();
+
+      final overview = await share.overview();
+
+      expect(overview.events, isEmpty);
+      expect(overview.anyMark, isFalse);
+      expect(overview.sharesAnything, isFalse);
+      expect(await share.stopAll(), 1);
+      expect(await marks(), isEmpty);
+      expect(await queued(), contains('calendar_events/e1'));
+    });
+
+    test('a switch-off that writes nothing but mends a flag the cache held '
+        'stale tells the calendar; one that changes nothing tells it '
+        'nothing', () async {
+      await pairWith();
+      final share = await open();
+      await event('e1');
+      await share.setEventShared('e1', true);
+      // Cleared under the cache, as the reader clears an old pair's marks.
+      await db.folderDao.clearSharesExcept(null);
+      expect(cached('e1').markedShared, isTrue);
+      final heard = <Object>[];
+      final heardSub = CalendarEventService.externalChanges.listen(heard.add);
+      addTearDown(heardSub.cancel);
+
+      expect(await share.setEventShared('e1', false), ShareChange.none);
+      await pumpEventQueue();
+
+      expect(cached('e1').markedShared, isFalse);
+      expect(heard, hasLength(1));
+
+      heard.clear();
+      expect(await share.setEventShared('e1', false), ShareChange.none);
+      await pumpEventQueue();
+      expect(heard, isEmpty);
+    });
+
+    test('an act stored is never reported failed by what is counted after '
+        'it: with no calendar to count, none are kept, and the change stands '
+        'for its Undo', () async {
+      await pairWith();
+      final share = await open();
+      final work = await custom('Work');
+      await event('a', category: work);
+      await share.setEventShared('a', true);
+      await share.setCategoryShared(work, true);
+      // The calendar let go of; under test no plugin answers for the
+      // database's path, so it cannot be opened again.
+      CalendarEventService.reset();
+
+      final change = await share.setCategoryShared(work, false);
+
+      expect(change.unsharedCategories.map((c) => c.id), [work]);
+      expect(change.keptOnTheirOwn, 0);
+      expect(await marks(), {'calendar_events/a'});
+    });
+
     test('an act of several writes is whole: the second write throwing '
         'leaves nothing shared, and the act fails', () async {
       await pairWith();
@@ -805,7 +871,7 @@ void main() {
       await events.reload();
       sync.isOffline = true;
 
-      final overview = await share.overview();
+      final overview = await share.overview(withCounts: true);
 
       expect(overview.categories.map((c) => c.id), ['gym', work]);
       expect(
@@ -839,6 +905,22 @@ void main() {
       expect(overview.sharesAnything, isTrue);
       // The tick sheet's counts: mine only, the partner's three left out.
       expect(overview.eventCounts, {work: 1, 'general': 1});
+    });
+
+    test('a summary\'s overview — the Pairing row\'s — reads no counts: the '
+        'grouped count over every event is the Sharing page\'s alone', () async {
+      await pairWith();
+      final share = await open();
+      await event('e1');
+      counter.reset();
+
+      final summary = await share.overview();
+
+      expect(summary.eventCounts, isEmpty);
+      expect(counter.matching('GROUP BY'), isEmpty);
+      expect((await share.overview(withCounts: true)).eventCounts, {
+        'general': 1,
+      });
     });
 
     test('says "Could not check" only after a failure newer than the last '

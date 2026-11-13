@@ -65,6 +65,37 @@ class _RecordingSyncBloc extends SyncBloc {
   }
 }
 
+/// Counts who listens to its states, so a wait that ended can be shown to
+/// have left no subscription behind.
+class _ListenedShareBloc extends ShareBloc {
+  _ListenedShareBloc({super.service, super.calendarChanges});
+
+  int listeners = 0;
+
+  @override
+  Stream<ShareState> get stream {
+    final source = super.stream;
+    late StreamSubscription<ShareState> forwarding;
+    late final StreamController<ShareState> out;
+    out = StreamController<ShareState>(
+      sync: true,
+      onListen: () {
+        listeners++;
+        forwarding = source.listen(
+          out.add,
+          onError: out.addError,
+          onDone: out.close,
+        );
+      },
+      onCancel: () {
+        listeners--;
+        return forwarding.cancel();
+      },
+    );
+    return out.stream;
+  }
+}
+
 class _RecordingPairingBloc extends PairingBloc {
   _RecordingPairingBloc({required super.authService, required super.gateway});
 
@@ -102,9 +133,15 @@ void main() {
   late FakeShareService share;
   var shareBlocs = 0;
 
+  /// The share bloc the page built first — its own.
+  _ListenedShareBloc? pageShare;
+
   /// While set, every share read waits on it: the page's first load has
   /// not landed until a case completes it.
   Completer<void>? shareGate;
+
+  /// Whether sharing cannot be opened: every load ends failed.
+  var shareFails = false;
 
   final l10n = AppLocalizationsEn();
 
@@ -134,16 +171,21 @@ void main() {
           : const ShareNotPaired(),
     )..shareOverview = overview;
     shareBlocs = 0;
+    pageShare = null;
     shareGate = null;
+    shareFails = false;
     GetIt.I.registerFactory<ShareBloc>(() {
       shareBlocs++;
-      return ShareBloc(
+      final bloc = _ListenedShareBloc(
         service: () async {
           await shareGate?.future;
+          if (shareFails) throw StateError('sharing not opened');
           return share;
         },
         calendarChanges: const Stream.empty(),
       );
+      pageShare ??= bloc;
+      return bloc;
     });
     auth = offline
         ? _OfflineAuthService()
@@ -241,6 +283,12 @@ void main() {
       )
       .last
       .text;
+
+  /// The ended notice's title; the paired row draws the same words.
+  Finder notice() => find.descendant(
+    of: find.byType(AlertDialog),
+    matching: find.text(l10n.pairingEndedTitle),
+  );
 
   Future<void> answerDialog(WidgetTester tester, String id) async {
     await tester.tap(find.bySemanticsIdentifier(id));
@@ -432,6 +480,55 @@ void main() {
     Navigator.of(tester.element(sheet)).pop();
     await settle(tester);
     expect(sheet, findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // The order the Sharing page's leave relies on: this page raises its
+  // ended notice before the Sharing page hears the pair end, so the page
+  // takes itself and the sheet over it out from under the notice.
+  testWidgets('a pair that ends under the Sharing page and its sheet leaves '
+      'the ended notice alone on this page', (tester) async {
+    await boot(
+      user: userA,
+      paired: true,
+      overview: ShareOverview(
+        events: [
+          MySharedEvent(
+            event: CalendarEvent(
+              id: 'a',
+              title: 'a',
+              categoryId: 'other',
+              startDate: DateTime(2026, 11, 12),
+            ),
+            categoryShared: false,
+          ),
+        ],
+      ),
+    );
+    await pumpPage(tester);
+    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingPaired));
+    await settle(tester);
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.sharingMineEvents),
+    );
+    await settle(tester);
+    expect(find.byType(MySharedEventsSheet), findsOneWidget);
+
+    pairingBloc!.show(PairingEnded(partnerName: userB.displayName));
+    await settle(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(notice(), findsOneWidget);
+    expect(find.byType(MySharedEventsSheet), findsNothing);
+    expect(find.byType(SharingPage), findsNothing);
+    expect(find.byType(SyncSettingsPage), findsOneWidget);
+
+    await answerDialog(tester, SemanticsIds.sharingEndedNoticeClose);
+    expect(tester.takeException(), isNull);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(SyncSettingsPage), findsOneWidget);
+    expect(pairingBloc!.events, contains(const EndedNoticeDismissed()));
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -666,6 +763,99 @@ void main() {
         await answerDialog(tester, SemanticsIds.sheetCancel);
 
         shareGate!.complete();
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('a wait that ran out leaves no listener on the share bloc', (
+        tester,
+      ) async {
+        await boot(user: userA, paired: true, overview: sharing);
+        shareGate = Completer<void>();
+        await showBound(tester);
+        final before = pageShare!.listeners;
+
+        await tester.tap(stop());
+        await tester.pump();
+        expect(pageShare!.listeners, before + 1, reason: 'the tap waits');
+        await tester.pump(SyncLimits.stopConfirmShareRead);
+        await settle(tester, rounds: 2);
+        expect(confirm(), findsOneWidget);
+        expect(pageShare!.listeners, before);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        shareGate!.complete();
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('a load that failed is an answer: the confirmation opens on '
+          'the tap\'s own frame, without the sentence', (tester) async {
+        await boot(user: userA, paired: true, overview: sharing);
+        shareFails = true;
+        await showBound(tester);
+        expect(pageShare!.state, isA<ShareLoadFailed>());
+
+        await tester.tap(stop());
+        await tester.pump();
+        expect(find.text(l10n.syncStopConfirmBody), findsOneWidget);
+        await settle(tester, rounds: 2);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('the Sharing page opened during the wait: the tap is '
+          'dropped, and the next one asks', (tester) async {
+        await boot(user: userA, paired: true, overview: sharing);
+        shareGate = Completer<void>();
+        await showBound(tester);
+
+        await tester.tap(stop());
+        await tester.pump();
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.sharingPaired),
+        );
+        await settle(tester, rounds: 2);
+        expect(find.byType(SharingPage), findsOneWidget);
+
+        shareGate!.complete();
+        await settle(tester, rounds: 4);
+        expect(confirm(), findsNothing);
+        expect(find.byType(AlertDialog), findsNothing);
+
+        Navigator.of(tester.element(find.byType(SharingPage))).pop();
+        await settle(tester);
+        expect(find.byType(SharingPage), findsNothing);
+        expect(confirm(), findsNothing, reason: 'the dropped tap stays dropped');
+
+        await tester.tap(stop());
+        await settle(tester, rounds: 4);
+        expect(confirm(), findsOneWidget);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('the ended notice raised during the wait stays alone: the '
+          'tap is dropped', (tester) async {
+        await boot(user: userA, paired: true, overview: sharing);
+        shareGate = Completer<void>();
+        await showBound(tester);
+
+        await tester.tap(stop());
+        await tester.pump();
+        pairingBloc!.show(PairingEnded(partnerName: userB.displayName));
+        await settle(tester, rounds: 2);
+        expect(notice(), findsOneWidget);
+
+        shareGate!.complete();
+        await settle(tester, rounds: 4);
+        expect(confirm(), findsNothing);
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(notice(), findsOneWidget);
+
+        await answerDialog(tester, SemanticsIds.sharingEndedNoticeClose);
+        expect(find.byType(AlertDialog), findsNothing);
+
         await tester.pumpWidget(const SizedBox.shrink());
       });
 

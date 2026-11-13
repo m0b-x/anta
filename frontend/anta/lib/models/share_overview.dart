@@ -92,13 +92,15 @@ class ShareOverview extends Equatable {
   /// their id ("{n} items could not be shown").
   final int refusedCount;
 
-  /// Any category, event or folder of this database carries a share mark,
-  /// as the database says (`SyncDao.anyShareMark`) — folders included,
-  /// which [categories] and [events] do not list.
+  /// Any live category, event or folder of this database carries a share
+  /// mark, as the database says (`SyncDao.anyLiveShareMark`) — folders
+  /// included, which [categories] and [events] do not list. A deleted row's
+  /// mark is not counted: nothing the person can see is shared through it.
   final bool anyMark;
 
   /// This person's live events per category id, the tick sheet's counts —
-  /// read with the rest so the page asks its bloc, never the calendar.
+  /// read with the rest so the page asks its bloc, never the calendar. Read
+  /// for the Sharing page alone; empty in a summary's overview.
   final Map<String, int> eventCounts;
 
   const ShareOverview({

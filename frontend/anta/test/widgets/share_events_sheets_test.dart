@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -413,6 +415,39 @@ void main() {
       );
     });
 
+    testWidgets('an Undo tapped after a database switch writes nothing and '
+        'says nothing, through the bloc', (tester) async {
+      await openMine(tester);
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      await tester.tap(find.text('Undo'));
+      await settle(tester);
+
+      expect(service.undone, isEmpty);
+      expect(find.text(en.shareChangeFailed), findsNothing);
+      expect(find.text('Dinner'), findsNothing);
+    });
+
+    testWidgets('an Undo tapped after a database switch writes nothing and '
+        'says nothing, past the closed bloc', (tester) async {
+      await openMineOnFake(tester);
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      await tester.tap(sheetClose());
+      await tester.pumpAndSettle();
+      await tester.runAsync(bloc.close);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+
+      await tester.tap(find.text('Undo'));
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(service.undone, isEmpty);
+      expect(find.text(en.shareChangeFailed), findsNothing);
+    });
+
     testWidgets('a row\'s tap opens the event on the day it names', (
       tester,
     ) async {
@@ -628,6 +663,66 @@ void main() {
         'the locale\'s own order', (tester) async {
       await openTheirs(tester, locale: const Locale('de'));
       expect(rowOf(tester, 'Gig').caption, '9. März 2024');
+    });
+  });
+
+  testWidgets('a date in another year carries its year: next year\'s, and '
+      'a one-off more than a year ahead', (tester) async {
+    final nextYear = DateTime.utc(today.year + 1, 3, 9);
+    final later = DateTime.utc(today.year + 2, 3, 9);
+    service.shareOverview = ShareOverview(
+      events: [
+        MySharedEvent(
+          event: CalendarEvent(
+            id: 'fair',
+            title: 'Fair',
+            categoryId: 'gym',
+            startDate: nextYear,
+            markedShared: true,
+          ),
+          categoryShared: false,
+        ),
+        MySharedEvent(
+          event: CalendarEvent(
+            id: 'wedding',
+            title: 'Wedding',
+            categoryId: 'gym',
+            startDate: later,
+            markedShared: true,
+          ),
+          categoryShared: false,
+        ),
+      ],
+    );
+    await openMine(tester);
+
+    expect(rowOf(tester, 'Fair').caption, 'Mar 9, ${today.year + 1}');
+    expect(rowOf(tester, 'Wedding').caption, 'Mar 9, ${today.year + 2}');
+  });
+
+  group('the day a row names, on the last day of a year', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    final lastDay = DateTime(2026, 12, 31);
+
+    // Built in the test, never at declaration: the locale's date symbols
+    // are loaded by the suite's setUpAll.
+    String label(DateTime day, [DateTime? today]) =>
+        shareEventDayLabel(l10n, DateFormat.yMMMd('en'), day, today ?? lastDay);
+
+    test('today and tomorrow keep their words: "Tomorrow" never turns into '
+        'a date because the year does', () {
+      expect(label(lastDay), 'Today');
+      expect(label(DateTime(2027, 1, 1)), 'Tomorrow');
+    });
+
+    test('the day after tomorrow, in the new year, carries its year — and so '
+        'does any day behind today', () {
+      expect(label(DateTime(2027, 1, 2)), 'Jan 2, 2027');
+      expect(label(DateTime(2026, 12, 30)), 'Dec 30, 2026');
+    });
+
+    test('a day ahead in this year reads as the agenda reads it', () {
+      expect(label(DateTime(2026, 11, 20), DateTime(2026, 11, 12)), 'Nov 20');
     });
   });
 }

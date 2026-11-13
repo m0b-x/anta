@@ -290,10 +290,11 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   late final String _openedIconKey;
   late final List<CategoryAlert> _openedAlerts;
 
-  /// The share switch as the draft holds it, and as the sheet opened. Off
-  /// unless the phone can share now: the switch reads off while the
-  /// database does not sync (decision pb of the share surfaces), and a draft
-  /// that cannot change is never dirty.
+  /// The share switch as the draft holds it, and as stored — at the open,
+  /// then again on each return from Sync & sharing. Off unless the phone
+  /// can share now: the switch reads off while the database does not sync
+  /// (decision pb of the share surfaces), and a draft that cannot change is
+  /// never dirty.
   late bool _shared;
   late bool _openedShared;
 
@@ -346,12 +347,11 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     _openedColor = _colorValue;
     _openedIconKey = _iconKey;
     _openedAlerts = _alerts;
-    _openedShared = _sharedAsOpened();
+    _openedShared = _sharedAsOpened(initial?.sharedByMe ?? false);
     _shared = _openedShared;
   }
 
-  bool _sharedAsOpened() =>
-      _share is ShareReady && (widget.initial?.sharedByMe ?? false);
+  bool _sharedAsOpened(bool stored) => _share is ShareReady && stored;
 
   /// A category with no events is not repeat-only: its next event may be
   /// anything. Nothing in scope reads as nothing known. A partner's events in
@@ -1127,9 +1127,10 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   }
 
   /// Pushes Sync & sharing over the sheet, and on its return takes the
-  /// opener's answer again. The switch could not move while it was dimmed,
-  /// so the draft is re-seeded from the category as a share it can now
-  /// show, and stays clean.
+  /// opener's answer again. The draft is re-seeded from the catalogue as it
+  /// stands now — sharing may have stopped on that page — and stays clean;
+  /// a switch the person had moved keeps their choice. A new category has
+  /// nothing stored.
   Future<void> _openSyncSettings() async {
     _blur();
     await widget.openSyncSettings(context);
@@ -1137,10 +1138,15 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     if (reread == null || !mounted) return;
     final next = await reread();
     if (!mounted || next == _share) return;
+    final initial = widget.initial;
+    final touched = _shared != _openedShared;
     setState(() {
       _share = next;
-      _openedShared = _sharedAsOpened();
-      _shared = _openedShared;
+      _openedShared = _sharedAsOpened(
+        initial != null &&
+            (CalendarCategories.byId(initial.id)?.sharedByMe ?? false),
+      );
+      if (!touched) _shared = _openedShared;
     });
   }
 

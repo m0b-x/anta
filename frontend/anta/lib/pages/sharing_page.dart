@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint, setEquals;
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -129,9 +129,10 @@ class SharingPage extends StatelessWidget {
   final PairingBloc pairingBloc;
 
   /// Opens the list of the events shared one by one, under the page's
-  /// [ShareBloc] in [BuildContext]. Null leaves the entry in its place and
-  /// height, its tap doing nothing.
-  final void Function(BuildContext context)? onOpenEvents;
+  /// [ShareBloc] in [BuildContext], completing as it closes: while it is up
+  /// the sheet says what its ✕ and its Undo did, and the page says neither.
+  /// Null leaves the entry in its place and height, its tap doing nothing.
+  final Future<void> Function(BuildContext context)? onOpenEvents;
 
   /// Opens one of the events the partner shares singly, from their list.
   /// Null where no event sheets can open — Sync & sharing — and the list's
@@ -169,7 +170,7 @@ class SharingPage extends StatelessWidget {
 }
 
 class _SharingView extends StatefulWidget {
-  final void Function(BuildContext context)? onOpenEvents;
+  final Future<void> Function(BuildContext context)? onOpenEvents;
   final ShareEventOpener? onOpenPartnerEvent;
   final Future<ShareService> Function() shareService;
 
@@ -194,6 +195,17 @@ class _SharingViewState extends State<_SharingView> {
   /// While the counts are read and the tick sheet is up, so a second tap
   /// opens no second sheet.
   bool _picking = false;
+
+  /// While the Single events sheet is up: it says the outcome of its ✕ and
+  /// of an Undo over itself, and a bar of the page's under it would say a
+  /// failure twice (closing review finding 3).
+  bool _eventsOpen = false;
+
+  /// Whether the page is in its "pair another account made" shape, taken at
+  /// the first loaded state and held for the visit: sharing turns "not
+  /// paired" a moment before the pairing bloc says the pair has ended, and
+  /// a page that opened whole keeps its sections until it has left.
+  bool? _foreign;
 
   /// The lines under what the partner shares as the first loaded state
   /// said them, held for the visit (the slice C spec, decision t): the
@@ -225,14 +237,15 @@ class _SharingViewState extends State<_SharingView> {
     final l10n = AppLocalizations.of(context)!;
     return MultiBlocListener(
       listeners: [
-        // The page's own acts; an un-share from the events sheet is said
-        // from inside that sheet.
+        // The page's own acts; an un-share from the events sheet, and an
+        // Undo while that sheet is up, are said from inside the sheet.
         BlocListener<ShareBloc, ShareState>(
           listenWhen: (previous, current) {
             final outcome = _outcomeOf(current);
             return outcome != null &&
                 outcome.sequence != _outcomeOf(previous)?.sequence &&
-                outcome.act != ShareAct.eventUnshared;
+                outcome.act != ShareAct.eventUnshared &&
+                !(_eventsOpen && outcome.act == ShareAct.undo);
           },
           listener: (context, state) => _sayOutcome(
             context,
@@ -260,7 +273,10 @@ class _SharingViewState extends State<_SharingView> {
           final failed = state is ShareLoadFailed;
           // The pairing bloc says paired, sharing says not: a pair another
           // account made is stored here. Only the way out of it is drawn.
-          final foreign = loaded?.availability is ShareNotPaired;
+          if (loaded != null) {
+            _foreign ??= loaded.availability is ShareNotPaired;
+          }
+          final foreign = _foreign ?? false;
           return Scaffold(
             backgroundColor: Theme.of(context).colorScheme.pageGround,
             appBar: SettingsAppBar(
@@ -334,6 +350,19 @@ class _SharingViewState extends State<_SharingView> {
     // Blank until the first read, never "None" for a moment.
     String described(String text) => loaded == null ? '' : text;
     final intro = ShareCopy.sentence(l10n.shareYouShareCaption(name));
+    final categories = described(
+      overview.categories.isEmpty
+          ? l10n.shareNone
+          : [
+              for (final category in overview.categories)
+                CalendarCategories.labelOf(category, l10n),
+            ].join(_namesSeparator),
+    );
+    final events = described(
+      overview.events.isEmpty
+          ? l10n.shareNone
+          : l10n.shareSummaryEvents(overview.events.length),
+    );
     return SettingsSectionData(
       icon: Icons.group_rounded,
       title: l10n.shareYouShare,
@@ -356,14 +385,7 @@ class _SharingViewState extends State<_SharingView> {
       entries: [
         SettingsEntry(
           title: l10n.shareRowCategories,
-          description: described(
-            overview.categories.isEmpty
-                ? l10n.shareNone
-                : [
-                    for (final category in overview.categories)
-                      CalendarCategories.labelOf(category, l10n),
-                  ].join(_namesSeparator),
-          ),
+          description: categories,
           descriptionMaxLines: 1,
           identifier: SemanticsIds.sharingMineCategories,
           builder: (context, title, description) => _entryTile(
@@ -372,6 +394,7 @@ class _SharingViewState extends State<_SharingView> {
             label: l10n.shareRowCategories,
             title: title,
             description: description,
+            descriptionText: categories,
             needsSync: needsSync,
             reason: l10n.shareNeedsSync,
             onTap: ready ? () => _pickCategories(l10n, overview, name) : null,
@@ -379,11 +402,7 @@ class _SharingViewState extends State<_SharingView> {
         ),
         SettingsEntry(
           title: l10n.shareRowEvents,
-          description: described(
-            overview.events.isEmpty
-                ? l10n.shareNone
-                : l10n.shareSummaryEvents(overview.events.length),
-          ),
+          description: events,
           descriptionMaxLines: 1,
           identifier: SemanticsIds.sharingMineEvents,
           builder: (context, title, description) => _entryTile(
@@ -392,10 +411,11 @@ class _SharingViewState extends State<_SharingView> {
             label: l10n.shareRowEvents,
             title: title,
             description: description,
+            descriptionText: events,
             needsSync: needsSync,
             reason: l10n.shareNeedsSync,
             onTap: switch (widget.onOpenEvents) {
-              final open? when ready => () => open(context),
+              final open? when ready => () => _openEvents(context, open),
               _ => null,
             },
           ),
@@ -408,15 +428,16 @@ class _SharingViewState extends State<_SharingView> {
   /// [needsSync] it is the kit's disabled tile, in place, and a tap goes
   /// back to Sync & sharing, where sync is turned on (D8) — [reason] stands
   /// in the intro's slot above it. Dimmed yet acting, it is one enabled
-  /// button to a screen reader, named with [label] and [reason] and saying
-  /// where it goes, never a disabled tile that answers a tap (design
-  /// review 2).
+  /// button to a screen reader, named with [label], [descriptionText] —
+  /// what is shared still stands drawn — and [reason], and saying where it
+  /// goes, never a disabled tile that answers a tap (design review 2).
   Widget _entryTile(
     BuildContext context, {
     required IconData glyph,
     required String label,
     required Widget title,
     required Widget? description,
+    required String descriptionText,
     required bool needsSync,
     required String reason,
     required VoidCallback? onTap,
@@ -437,12 +458,31 @@ class _SharingViewState extends State<_SharingView> {
     return Semantics(
       button: true,
       enabled: true,
-      label: '$label\n$reason',
+      label: [
+        label,
+        if (descriptionText.isNotEmpty) descriptionText,
+        reason,
+      ].join('\n'),
       hint: l10n.shareOpensSyncHint,
       onTap: _backToSync,
       excludeSemantics: true,
       child: InkWell(onTap: _backToSync, child: tile),
     );
+  }
+
+  /// Holds [_eventsOpen] for the Single events sheet's lifetime; a second
+  /// tap while it is up opens no second sheet.
+  Future<void> _openEvents(
+    BuildContext context,
+    Future<void> Function(BuildContext context) open,
+  ) async {
+    if (_eventsOpen) return;
+    _eventsOpen = true;
+    try {
+      await open(context);
+    } finally {
+      _eventsOpen = false;
+    }
   }
 
   /// Sync & sharing is always the page beneath this one: going back to it
@@ -480,6 +520,14 @@ class _SharingViewState extends State<_SharingView> {
         CalendarCategories.labelOf(shared.category, l10n),
     ];
     final readAt = overview.readAt;
+    final categories = described(
+      names.isEmpty ? l10n.shareNone : names.join(_namesSeparator),
+    );
+    final events = described(
+      overview.partnerEvents.isEmpty
+          ? l10n.shareNone
+          : l10n.shareSummaryEvents(overview.partnerEvents.length),
+    );
     return SettingsSectionData(
       icon: Icons.group_rounded,
       title: ShareCopy.sentence(l10n.sharePartnerShares(name)),
@@ -534,9 +582,7 @@ class _SharingViewState extends State<_SharingView> {
       entries: [
         SettingsEntry(
           title: l10n.shareRowCategories,
-          description: described(
-            names.isEmpty ? l10n.shareNone : names.join(_namesSeparator),
-          ),
+          description: categories,
           descriptionMaxLines: 1,
           identifier: SemanticsIds.sharingTheirsCategories,
           builder: (context, title, description) => _entryTile(
@@ -545,6 +591,7 @@ class _SharingViewState extends State<_SharingView> {
             label: l10n.shareRowCategories,
             title: title,
             description: description,
+            descriptionText: categories,
             needsSync: needsSync,
             reason: l10n.shareNeedsSyncReceive,
             onTap: ready
@@ -558,11 +605,7 @@ class _SharingViewState extends State<_SharingView> {
         ),
         SettingsEntry(
           title: l10n.shareRowEvents,
-          description: described(
-            overview.partnerEvents.isEmpty
-                ? l10n.shareNone
-                : l10n.shareSummaryEvents(overview.partnerEvents.length),
-          ),
+          description: events,
           descriptionMaxLines: 1,
           identifier: SemanticsIds.sharingTheirsEvents,
           builder: (context, title, description) => _entryTile(
@@ -571,6 +614,7 @@ class _SharingViewState extends State<_SharingView> {
             label: l10n.shareRowEvents,
             title: title,
             description: description,
+            descriptionText: events,
             needsSync: needsSync,
             reason: l10n.shareNeedsSyncReceive,
             onTap: ready
@@ -917,41 +961,32 @@ class _SharingViewState extends State<_SharingView> {
     final bloc = context.read<ShareBloc>();
     final change = outcome.change;
     final resolve = widget.shareService;
-    // The navigator under the app's messenger outlives this page, as the
-    // bar does.
-    final messenger = Navigator.of(context, rootNavigator: true).context;
+    // The app's own, which outlives this page as the bar does.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final generation = ShareService.databaseGeneration;
     CustomSnackbar.showWithAction(
       context,
       message: shareChangeMessage(l10n, change, name),
       actionLabel: l10n.undo,
       onAction: () {
+        // An Undo belongs to the database it was offered in: built-in
+        // category ids are the same in every database, so one tapped after
+        // a switch would share in a database that never saw the act.
+        if (ShareService.databaseGeneration != generation) return;
         if (!bloc.isClosed) {
           bloc.add(ShareUndoRequested(change));
           return;
         }
-        unawaited(_undoAfterLeaving(change, resolve, messenger, l10n));
+        // The page has left and its bloc with it.
+        unawaited(
+          undoSharePastBloc(
+            change,
+            shareService: resolve,
+            messenger: messenger,
+            l10n: l10n,
+          ),
+        );
       },
     );
-  }
-
-  /// An Undo tapped once the page has left: its bloc closed with it, so the
-  /// write goes to [ShareService.undo] itself — the one sanctioned act of
-  /// this page past its bloc, as the Categories page's Undo writes — and a
-  /// failure is said on the app's messenger through [messenger], the root
-  /// navigator's context, since no context of the page lives.
-  static Future<void> _undoAfterLeaving(
-    ShareChange change,
-    Future<ShareService> Function() resolve,
-    BuildContext messenger,
-    AppLocalizations l10n,
-  ) async {
-    try {
-      await (await resolve()).undo(change);
-    } catch (e, st) {
-      debugPrint('[SharingPage] undo after leaving failed: $e\n$st');
-      if (messenger.mounted) {
-        CustomSnackbar.showError(messenger, l10n.shareChangeFailed);
-      }
-    }
   }
 }

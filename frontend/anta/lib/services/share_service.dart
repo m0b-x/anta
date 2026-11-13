@@ -228,6 +228,14 @@ class ShareService {
   static Future<ShareService>? _opening;
   static ShareServiceWiring? _wiring;
 
+  /// Which opening of the database is the current one
+  /// ([DatabaseLifecycle.generation]). A surface that offers an Undo keeps
+  /// the value it was offered under and drops an Undo tapped under another:
+  /// built-in category ids are the same in every database, so the write
+  /// would land in one that never saw the act. Read here so that no page
+  /// reaches for the database layer to learn it.
+  static int get databaseGeneration => DatabaseLifecycle.generation;
+
   /// How old the last completed shared read must be before the Sharing
   /// page's open asks for another: each read costs a dozen server reads,
   /// and a page opened, left and opened again learns nothing new sooner.
@@ -586,8 +594,10 @@ class ShareService {
   /// What the Sharing page lists and says, read now (§6.1, §6.2): local
   /// reads only. [ShareOverview.empty] at once, reading nothing, while not
   /// paired — an account that never paired pays nothing for the page's
-  /// summary.
-  Future<ShareOverview> overview() async {
+  /// summary. [withCounts] reads the tick sheet's [ShareOverview.eventCounts]
+  /// — a grouped count over every event, which only the Sharing page shows;
+  /// the Pairing row's summary leaves them empty.
+  Future<ShareOverview> overview({bool withCounts = false}) async {
     if (_pairing.status.pairId == null) return ShareOverview.empty;
     await CategoryService.getInstance();
     final events = (await CalendarEventService.getInstance()).events;
@@ -649,8 +659,10 @@ class ShareService {
       offline: await _sync.offline(),
       partnerNewerWire: await sync.getValue(SyncDao.keySharedNewerWire) != null,
       refusedCount: await _db.sharedRowDao.refusedCount(),
-      anyMark: await sync.anyShareMark(),
-      eventCounts: await _db.calendarEventDao.countByCategory(),
+      anyMark: await sync.anyLiveShareMark(),
+      eventCounts: withCounts
+          ? await _db.calendarEventDao.countByCategory()
+          : const {},
     );
   }
 
@@ -745,14 +757,20 @@ class ShareService {
     var kept = 0;
     if (unsharedCategories.isNotEmpty) {
       final left = {for (final category in unsharedCategories) category.id};
-      kept = (await CalendarEventService.getInstance()).events
-          .where(
-            (event) =>
-                event.markedShared &&
-                !event.fromPartner &&
-                left.contains(event.categoryId),
-          )
-          .length;
+      // The act is stored: a count that cannot be made must not report it
+      // failed and take its Undo away — the snackbar says no "kept" then.
+      try {
+        kept = (await CalendarEventService.getInstance()).events
+            .where(
+              (event) =>
+                  event.markedShared &&
+                  !event.fromPartner &&
+                  left.contains(event.categoryId),
+            )
+            .length;
+      } catch (e, st) {
+        debugPrint('[ShareService] kept events not counted: $e\n$st');
+      }
     }
     return ShareChange(
       sharedCategories: sharedCategories,
@@ -767,21 +785,24 @@ class ShareService {
   /// hold no cache, and a mark set clears every other pair's on all three
   /// tables even when the mark itself stood — so each cache reads its marks
   /// again, once, which also mends a flag a cache held stale. A stored
-  /// write asks for the run that sends it and tells a calendar already
-  /// showing the events, whose marks changed in its cache.
+  /// write asks for the run that sends it. A calendar already showing the
+  /// events is told whenever their marks changed in its cache — by the
+  /// write, or by a mend alone, which writes nothing.
   Future<void> _afterMarks({required bool wrote}) async {
+    var mended = false;
     try {
       await CategoryService.refreshShareMarks();
-      await CalendarEventService.refreshShareMarks();
+      mended = await CalendarEventService.refreshShareMarks();
       _foldersChanged();
     } catch (e, st) {
       // The marks are written; a cache that missed them reads them at its
       // next load.
       debugPrint('[ShareService] caches not refreshed: $e\n$st');
     }
-    if (!wrote) return;
-    if (_availability is ShareReady) _askForRun();
-    CalendarEventService.notifyExternalChange(cacheCurrent: true);
+    if (wrote && _availability is ShareReady) _askForRun();
+    if (wrote || mended) {
+      CalendarEventService.notifyExternalChange(cacheCurrent: true);
+    }
   }
 
   /// Not awaited: the run reaches the network, and the switch that asked

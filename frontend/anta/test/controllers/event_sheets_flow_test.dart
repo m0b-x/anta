@@ -816,6 +816,8 @@ void main() {
       WidgetTester tester,
       Future<void> Function(EventSheetsFlow flow, BuildContext context) door, {
       AlertWriter? alertWriter,
+      FutureOr<ShareAvailability> Function()? shareAvailability,
+      List<NavigatorObserver> navigatorObservers = const [],
     }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
@@ -836,7 +838,8 @@ void main() {
         appearance: () => const CalendarAppearance(),
         palette: () => MarkdownColorPalette.presets,
         keepsHeard: () => 0,
-        shareAvailability: () async => const ShareReady(audience),
+        shareAvailability:
+            shareAvailability ?? () async => const ShareReady(audience),
       );
       await tester.pumpWidget(
         MultiBlocProvider(
@@ -848,6 +851,7 @@ void main() {
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             locale: const Locale('en'),
+            navigatorObservers: navigatorObservers,
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(
@@ -1006,6 +1010,49 @@ void main() {
       expect(find.textContaining('Sharing'), findsNothing);
     });
 
+    testWidgets('every share stopped on Sync & sharing, opened from the form: '
+        'the switch reads the mark as stored now, and a flip on is written', (
+      tester,
+    ) async {
+      final service = (await tester.runAsync(
+        CalendarEventService.getInstance,
+      ))!;
+      await tester.runAsync(() => service.setShared(edited.id, audience.id));
+      ShareAvailability availability = const ShareNotSyncing(audience);
+      final routes = _PushRecorder();
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(
+          context,
+          initialEvent: edited.copyWith(markedShared: true),
+        ),
+        shareAvailability: () async => availability,
+        navigatorObservers: [routes],
+      );
+      FormSwitchRow row() => tester.widget<FormSwitchRow>(shareRow);
+      expect(row().onChanged, isNull, reason: 'waiting for sync');
+
+      // What the person does on the page: sync on, every share stopped.
+      await tester.runAsync(() => service.setShared(edited.id, null));
+      availability = const ShareReady(audience);
+      await tester.ensureVisible(shareRow);
+      await tester.pumpAndSettle();
+      await tester.tap(shareRow);
+      final pushed = routes.pushed.last;
+      // Taken down before its first frame: the page's blocs are the app's.
+      pushed.navigator!.removeRoute(pushed);
+      await tester.pumpAndSettle();
+
+      expect(row().onChanged, isNotNull);
+      expect(row().value, isFalse, reason: 'no longer shared');
+      expect(row().subtitle, 'Only you see this event');
+
+      share.nextChange = ShareChange(sharedEvents: [edited]);
+      await tapAndSettle(tester, shareRow);
+      await saveAnd(tester, () => share.eventShares.isNotEmpty);
+      expect(share.eventShares.single, (edited.id, true));
+    });
+
     testWidgets('the own mark taken off an event its category shares says it '
         'stays shared, never "No longer shared"', (tester) async {
       CalendarCategories.updateCache([
@@ -1098,6 +1145,15 @@ class _OrderedShareService extends FakeShareService {
     );
     return super.setEventShared(id, on);
   }
+}
+
+/// Every route pushed, so a case can take one down before it builds.
+class _PushRecorder extends NavigatorObserver {
+  final pushed = <Route<dynamic>>[];
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      pushed.add(route);
 }
 
 class _EventRecorder extends BlocObserver {

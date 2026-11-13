@@ -175,6 +175,73 @@ void main() {
     expect(await db.syncDao.anyShareMark(), isTrue);
   });
 
+  test('what a person is told they share counts live rows alone: a deleted '
+      'row\'s mark, on any of the three tables, is still a mark to clear and '
+      'send, and shares nothing', () async {
+    final day = DateTime.utc(2026, 6, 1);
+    final folder = await db.folderDao.createFolder(name: 'Shelf');
+    await db.calendarEventDao.upsert(
+      CalendarEventsCompanion.insert(
+        id: 'e1',
+        title: 'Climb',
+        category: 'general',
+        startDate: day,
+        ruleKind: 'weekly',
+        createdAt: day,
+        updatedAt: day,
+      ),
+    );
+    await db.calendarCategoryDao.insertCategory(
+      CalendarCategoriesCompanion.insert(
+        id: 'c1',
+        name: 'Climb',
+        colorValue: 0xFF336699,
+        iconKey: 'event',
+        createdAt: day,
+        updatedAt: day,
+      ),
+    );
+    final rows = {
+      'folders': folder.id,
+      'calendar_events': 'e1',
+      'calendar_categories': 'c1',
+    };
+
+    for (final MapEntry(key: table, value: id) in rows.entries) {
+      await db.customStatement(
+        "UPDATE $table SET shared_pair = 'pair-1' WHERE id = ?",
+        [id],
+      );
+      expect(await db.syncDao.anyLiveShareMark(), isTrue, reason: table);
+
+      await db.customStatement(
+        'UPDATE $table SET is_deleted = 1 WHERE id = ?',
+        [id],
+      );
+      expect(await db.syncDao.anyLiveShareMark(), isFalse, reason: table);
+      expect(await db.syncDao.anyShareMark(), isTrue, reason: table);
+
+      await db.customStatement(
+        'UPDATE $table SET shared_pair = NULL WHERE id = ?',
+        [id],
+      );
+    }
+
+    final counter = StatementCounter();
+    final counted = await openTestDatabase(interceptor: counter);
+    addTearDown(counted.close);
+    counter.reset();
+    expect(await counted.syncDao.anyLiveShareMark(), isFalse);
+    final detail = await explainCaptured(counted, counter.captured.single);
+    for (final index in [...indexes, categoryIndex]) {
+      expect(
+        detail.where((line) => line.contains(index)),
+        isNotEmpty,
+        reason: '$index: $detail',
+      );
+    }
+  });
+
   group('v55 → v56', () {
     Future<void> upgrade() => DatabaseMigrations(db).runMigrations(
       db.createMigrator(),

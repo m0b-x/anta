@@ -382,8 +382,16 @@ class FakePartners implements SharePartnerSource {
   /// Every [activePartner] call's account, in order.
   final List<String> asked = [];
 
+  /// When set, this device's own pairing cannot be read: every
+  /// [pairedLocally] throws it.
+  Object? localFailure;
+
   @override
-  Future<bool> pairedLocally(String uid) async => local.contains(uid);
+  Future<bool> pairedLocally(String uid) async {
+    final failed = localFailure;
+    if (failed != null) throw failed;
+    return local.contains(uid);
+  }
 
   @override
   Future<SharePartner?> activePartner(String uid) async {

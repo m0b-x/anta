@@ -247,8 +247,12 @@ class EventEditorSheet extends StatefulWidget {
 
   /// Asks the opener for [shareAvailability] again, once Sync & sharing —
   /// pushed from the dimmed share row — returns: sync turned on there
-  /// enables the row the person left it for. Null keeps the first answer.
-  final Future<ShareAvailability> Function()? rereadShareAvailability;
+  /// enables the row the person left it for. With it comes the event's mark
+  /// as stored now (false for a new event), since that page can stop every
+  /// share. Null keeps the first answers.
+  final Future<({ShareAvailability availability, bool markedShared})>
+  Function()?
+  rereadShare;
 
   const EventEditorSheet({
     super.key,
@@ -263,7 +267,7 @@ class EventEditorSheet extends StatefulWidget {
     this.initialSkippedDays,
     this.initialAlerts,
     this.shareAvailability = const ShareNotPaired(),
-    this.rereadShareAvailability,
+    this.rereadShare,
   });
 
   static Future<EventEditorResult?> show(
@@ -279,7 +283,8 @@ class EventEditorSheet extends StatefulWidget {
     Set<DateTime>? initialSkippedDays,
     List<EventAlert>? initialAlerts,
     ShareAvailability shareAvailability = const ShareNotPaired(),
-    Future<ShareAvailability> Function()? rereadShareAvailability,
+    Future<({ShareAvailability availability, bool markedShared})> Function()?
+    rereadShare,
   }) {
     return showModalBottomSheet<EventEditorResult>(
       context: context,
@@ -302,7 +307,7 @@ class EventEditorSheet extends StatefulWidget {
           initialSkippedDays: initialSkippedDays,
           initialAlerts: initialAlerts,
           shareAvailability: shareAvailability,
-          rereadShareAvailability: rereadShareAvailability,
+          rereadShare: rereadShare,
         ),
       ),
     );
@@ -707,6 +712,11 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// moving it to an unshared category again shows the choice they made.
   bool _markedShared = false;
 
+  /// The event's mark as stored: as it opened, then the opener's answer
+  /// after each trip to Sync & sharing. The draft is dirty by a switch that
+  /// differs from it, so a re-seed on the return leaves the form clean.
+  bool _storedMark = false;
+
   /// [EventEditorSheet.shareAvailability], then the opener's answer again
   /// after each trip to Sync & sharing from the share row.
   late ShareAvailability _shareAvailability = widget.shareAvailability;
@@ -854,6 +864,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _removeAfterAlert = initial?.removeAfterAlert ?? false;
     _categoryAlerts = initial?.categoryAlerts ?? true;
     _markedShared = initial?.markedShared ?? false;
+    _storedMark = _markedShared;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -2211,7 +2222,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       skipped,
       _noteId,
       _priority,
-      _markedShared,
+      _markedShared != _storedMark,
     ].join('\u0000');
   }
 
@@ -3046,15 +3057,21 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   /// D8: the one step missing is on Sync & sharing, pushed over the form so
   /// the draft is still there when the person comes back — and the row
-  /// follows what they did there.
+  /// follows what they did there: the switch reads the mark as stored now,
+  /// unless the person had moved it, whose choice stays.
   Future<void> _openSyncSettings() async {
     _blur();
     await AppNavigator.toSyncSettings(context);
-    final reread = widget.rereadShareAvailability;
+    final reread = widget.rereadShare;
     if (reread == null || !mounted) return;
     final next = await reread();
-    if (!mounted || next == _shareAvailability) return;
-    setState(() => _shareAvailability = next);
+    if (!mounted) return;
+    final touched = _markedShared != _storedMark;
+    setState(() {
+      _shareAvailability = next.availability;
+      _storedMark = next.markedShared;
+      if (!touched) _markedShared = _storedMark;
+    });
   }
 
   @override
