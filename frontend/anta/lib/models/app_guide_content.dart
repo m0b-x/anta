@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../utils/share_copy.dart';
 import 'calendar_guide_content.dart';
 import 'guide_content.dart';
 
@@ -14,7 +15,8 @@ enum AppGuideTopic implements GuideTopic {
   menu('menu', Icons.menu_rounded),
   settings('settings', Icons.tune_rounded),
   backup('backup', Icons.backup_rounded),
-  sync('sync', Icons.sync_rounded);
+  sync('sync', Icons.sync_rounded),
+  sharing('sharing', Icons.group_rounded);
 
   @override
   final String slug;
@@ -29,6 +31,7 @@ enum AppGuideTopic implements GuideTopic {
     settings => l10n.appGuidePageSettings,
     backup => l10n.appGuidePageBackup,
     sync => l10n.appGuidePageSync,
+    sharing => l10n.appGuidePageSharing,
   };
 
   @override
@@ -37,6 +40,7 @@ enum AppGuideTopic implements GuideTopic {
     settings => l10n.appGuidePageSettingsCaption,
     backup => l10n.appGuidePageBackupCaption,
     sync => l10n.appGuidePageSyncCaption,
+    sharing => l10n.appGuidePageSharingCaption,
   };
 
   @override
@@ -45,6 +49,7 @@ enum AppGuideTopic implements GuideTopic {
     settings => l10n.appGuideSettingsLead(l10n.settingsHubTitle),
     backup => l10n.appGuideBackupLead,
     sync => l10n.appGuideSyncLead,
+    sharing => l10n.appGuideSharingLead,
   };
 
   @override
@@ -262,5 +267,76 @@ enum AppGuideTopic implements GuideTopic {
         l10n.appGuideSyncDataBody(l10n.dataNoticeTitle),
       ),
     ],
+    sharing => _sharingRows(l10n),
   };
+
+  /// The guide names no partner, so a label that carries one takes the
+  /// stand-in the sharing screens show before a name is known.
+  static List<CalendarGuideRow> _sharingRows(AppLocalizations l10n) {
+    final partner = ShareCopy.partnerName(l10n, null);
+    final shareWith = l10n.shareWithPartner(partner);
+    final sharingPage = l10n.sharingWithTitle(partner);
+    return [
+      CalendarGuideRow(
+        'sharing-pair',
+        Icons.link_rounded,
+        l10n.appGuideSharingPairTitle,
+        l10n.appGuideSharingPairBody(
+          l10n.pairingSection,
+          l10n.sharingSettings,
+          l10n.syncThisDatabase,
+        ),
+      ),
+      CalendarGuideRow(
+        'sharing-category',
+        Icons.category_rounded,
+        l10n.appGuideSharingCategoryTitle,
+        l10n.appGuideSharingCategoryBody(
+          shareWith,
+          l10n.calendarCategories,
+          sharingPage,
+        ),
+      ),
+      CalendarGuideRow(
+        'sharing-event',
+        Icons.event_rounded,
+        l10n.appGuideSharingEventTitle,
+        l10n.appGuideSharingEventBody(shareWith),
+      ),
+      CalendarGuideRow(
+        'sharing-readonly',
+        Icons.lock_outline_rounded,
+        l10n.appGuideSharingReadOnlyTitle,
+        l10n.appGuideSharingReadOnlyBody(l10n.sharedEventCopy),
+      ),
+      CalendarGuideRow(
+        'sharing-theirs',
+        Icons.move_to_inbox_rounded,
+        l10n.appGuideSharingTheirsTitle,
+        l10n.appGuideSharingTheirsBody(sharingPage),
+      ),
+      CalendarGuideRow(
+        'sharing-alerts',
+        Icons.notifications_rounded,
+        l10n.appGuideSharingAlertsTitle,
+        l10n.appGuideSharingAlertsBody(
+          l10n.shareAlerts,
+          l10n.shareAlertsOff,
+          l10n.shareAlertsCategory,
+        ),
+      ),
+      CalendarGuideRow(
+        'sharing-stop',
+        Icons.group_off_rounded,
+        l10n.appGuideSharingStopTitle,
+        l10n.appGuideSharingStopBody(l10n.shareStopAll, l10n.unpair),
+      ),
+      CalendarGuideRow(
+        'sharing-private',
+        Icons.shield_outlined,
+        l10n.appGuideSharingPrivateTitle,
+        l10n.appGuideSharingPrivateBody,
+      ),
+    ];
+  }
 }

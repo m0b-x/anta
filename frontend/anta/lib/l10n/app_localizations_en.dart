@@ -11026,6 +11026,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Once you pair, your partner sees your name and profile picture — and nothing else unless you share it with them.';
 
   @override
+  String get dataNoticeShared =>
+      'What you share with your partner can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.';
+
+  @override
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
     return '“$deleteCopy” removes a database\'s copy from the cloud; “$deleteAccount” removes everything your account keeps there. Neither deletes anything on this device.';
   }
@@ -11034,6 +11038,92 @@ class AppLocalizationsEn extends AppLocalizations {
   String appGuideSyncDataBody(String dataNotice) {
     return 'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “$dataNotice” on the same page says where it is kept and how to remove it.';
   }
+
+  @override
+  String get appGuidePageSharing => 'Sharing with your partner';
+
+  @override
+  String get appGuidePageSharingCaption =>
+      'A category or an event, read-only on their phone';
+
+  @override
+  String get appGuideSharingLead =>
+      'Pair with one person and choose what they see. Nothing is shared until you switch it on; your partner reads and never changes it; switch it off and it leaves their phone.';
+
+  @override
+  String get appGuideSharingPairTitle => 'Pair first';
+
+  @override
+  String appGuideSharingPairBody(
+    String pairingSection,
+    String sharingSettings,
+    String syncThisDatabase,
+  ) {
+    return '“$pairingSection” in “$sharingSettings” links you with one person through a code. Pairing alone shares nothing. Both phones need “$syncThisDatabase” on — what you share travels with sync.';
+  }
+
+  @override
+  String get appGuideSharingCategoryTitle => 'Share a category';
+
+  @override
+  String appGuideSharingCategoryBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+  ) {
+    return 'In a category\'s editor, “$shareWith” shares every event in it, and every event you add to it later. The ⋮ menu on the “$calendarCategories” page does the same; “$sharingPage”, behind the pairing row, ticks several at once.';
+  }
+
+  @override
+  String get appGuideSharingEventTitle => 'Share one event';
+
+  @override
+  String appGuideSharingEventBody(String shareWith) {
+    return 'The same switch, “$shareWith”, in an event\'s editor shares that event alone. An event in a shared category is shared already; its switch says so.';
+  }
+
+  @override
+  String get appGuideSharingReadOnlyTitle => 'Read-only for them';
+
+  @override
+  String appGuideSharingReadOnlyBody(String copy) {
+    return 'Your partner sees what you share and cannot change it, so a list cannot be ticked off by both of you. “$copy” gives them an event of their own; your later changes do not reach that copy, and it stays when you stop sharing.';
+  }
+
+  @override
+  String get appGuideSharingTheirsTitle => 'What your partner shares';
+
+  @override
+  String appGuideSharingTheirsBody(String sharingPage) {
+    return 'Their events are drawn apart from yours and open a sheet you can read, not edit. On “$sharingPage” you choose which of their categories show on your calendar and how shared events look. Reports, goals and attendance count only your own events.';
+  }
+
+  @override
+  String get appGuideSharingAlertsTitle => 'Alerts';
+
+  @override
+  String appGuideSharingAlertsBody(
+    String shareAlerts,
+    String alertsOff,
+    String alertsCategory,
+  ) {
+    return 'Your partner\'s alerts never ring on your phone, nor yours on theirs. Add an alert of your own to a shared event from its sheet. “$shareAlerts” on the same page can silence them all (“$alertsOff”) or let shared events follow your own category alerts (“$alertsCategory”).';
+  }
+
+  @override
+  String get appGuideSharingStopTitle => 'Stopping';
+
+  @override
+  String appGuideSharingStopBody(String stopAll, String unpair) {
+    return 'Switch a share off and it leaves your partner\'s phone the next time it syncs. “$stopAll” takes everything back and keeps you paired; “$unpair” ends sharing both ways.';
+  }
+
+  @override
+  String get appGuideSharingPrivateTitle => 'What is never shared';
+
+  @override
+  String get appGuideSharingPrivateBody =>
+      'Your notes, counters, alerts, attendance marks, templates and settings stay on your side whatever you share.';
 
   @override
   String get sharePartnerFallback => 'your partner';
@@ -11421,12 +11511,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String shareImportLine(int count, String name) {
+  String shareGoneWithAlerts(int count, String name) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count are shared with $name.',
-      one: '1 is shared with $name.',
+      other:
+          '$name no longer shares $count events. Your alerts for them are off.',
+      one: '$name no longer shares 1 event. Your alert for it is off.',
     );
     return '$_temp0';
   }

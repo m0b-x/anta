@@ -947,6 +947,10 @@ abstract final class SemanticsIds {
   static String categoryPartnerRow(String categoryId) =>
       'category-partner-row-$categoryId';
 
+  /// The View action of the bar that says something new is shared (share
+  /// surfaces §6.14), which opens the Sharing page.
+  static const String shareNoticeView = 'share-notice-view';
+
   /// The Sharing page's receiving half (the slice C spec §1, sections 2–4):
   /// the two entries of what the partner shares, the look's choice row with
   /// a segment per look keyed by its name, the mark switch, and the alerts

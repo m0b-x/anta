@@ -20,14 +20,14 @@ void main() {
         dataNoticeParagraphs(l10n, region: region);
 
     group(code, () {
-      test('six paragraphs, none empty, the same but for the one that names '
+      test('seven paragraphs, none empty, the same but for the one that names '
           'the database\'s place', () {
         final us = at(CloudDataRegion.unitedStates);
         final eu = at(CloudDataRegion.europeanUnion);
 
-        expect(us, hasLength(6));
+        expect(us, hasLength(7));
         expect(us.every((paragraph) => paragraph.trim().isNotEmpty), isTrue);
-        expect(eu, hasLength(6));
+        expect(eu, hasLength(7));
         expect(
           [
             for (var i = 0; i < us.length; i++)
@@ -63,6 +63,19 @@ void main() {
         expect(paragraphs[2], l10n.dataNoticeReadable);
         expect(paragraphs.last, contains(l10n.syncDeleteCloud));
         expect(paragraphs.last, contains(l10n.syncDeleteAccount));
+      });
+
+      test('what a partner keeps of what you share follows what a partner '
+          'sees, and comes before how to take it back', () {
+        for (final region in CloudDataRegion.values) {
+          final paragraphs = at(region);
+          final partner = paragraphs.indexOf(l10n.dataNoticePartner);
+
+          expect(partner, 4);
+          expect(paragraphs[partner + 1], l10n.dataNoticeShared);
+          expect(paragraphs[partner + 2], paragraphs.last);
+          expect(l10n.dataNoticeShared, isNot(contains('{')));
+        }
       });
 
       test('unless a region is named, it is the build\'s own statement', () {

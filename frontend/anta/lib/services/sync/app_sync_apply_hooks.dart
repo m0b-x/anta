@@ -3,8 +3,10 @@ import 'dart:ui' show Locale, PlatformDispatcher;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:get_it/get_it.dart';
 
+import '../../database/database.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/item_label.dart';
+import '../../models/share_notice.dart';
 import '../../repositories/folder_repository.dart';
 import '../../repositories/note_repository.dart';
 import '../alert_scheduler.dart';
@@ -22,6 +24,7 @@ import '../filter_preset_service.dart';
 import '../note_storage_service.dart';
 import '../overview_view_service.dart';
 import '../settings_service.dart';
+import '../share_service.dart';
 import '../vocabulary_service.dart';
 import 'conflict_copy_title.dart';
 import 'open_note_registry.dart';
@@ -55,6 +58,9 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   final Future<bool> Function() _reportDigestEnabled;
   final Future<void> Function() _reloadVocabularies;
   final Future<void> Function() _refreshShareMarks;
+  final Future<Set<String>> Function(Set<String> eventIds) _armedEvents;
+  final Future<Set<String>> Function() _sharedCategories;
+  final void Function(ShareNotice notice) _notify;
   final Future<AppLocalizations> Function() _strings;
   final bool Function(String noteId) _editorClaimsFiling;
   final DateTime Function() _now;
@@ -94,6 +100,9 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     Future<bool> Function()? reportDigestEnabled,
     Future<void> Function()? reloadVocabularies,
     Future<void> Function()? refreshShareMarks,
+    Future<Set<String>> Function(Set<String> eventIds)? armedEvents,
+    Future<Set<String>> Function()? sharedCategories,
+    void Function(ShareNotice notice)? notify,
     Future<AppLocalizations> Function()? strings,
     bool Function(String noteId)? editorClaimsFiling,
     DateTime Function()? now,
@@ -107,6 +116,9 @@ class AppSyncApplyHooks implements SyncApplyHooks {
        _reportDigestEnabled = reportDigestEnabled ?? _appReportDigestEnabled,
        _reloadVocabularies = reloadVocabularies ?? _appReloadVocabularies,
        _refreshShareMarks = refreshShareMarks ?? _appRefreshShareMarks,
+       _armedEvents = armedEvents ?? _appArmedEvents,
+       _sharedCategories = sharedCategories ?? _appSharedCategories,
+       _notify = notify ?? ShareService.notify,
        _strings = strings ?? _appStrings,
        _editorClaimsFiling =
            editorClaimsFiling ?? OpenNoteRegistry.claimsConflictFiling,
@@ -222,7 +234,10 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   }
 
   @override
-  Future<void> afterRun(Set<SyncInvalidation> touched) async {
+  Future<void> afterRun(
+    Set<SyncInvalidation> touched, {
+    SharedReadChanges shared = SharedReadChanges.none,
+  }) async {
     // Spent here, so the next run gathers from its own pages; a page
     // announced after this one without its own `beforePage` (the re-filed
     // notes) is gathered by none.
@@ -233,6 +248,8 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     _runTables.clear();
     _runEventIds.clear();
     _openPage = null;
+    // Asked first: the reconcile below cancels what was armed on them.
+    final leftArmed = await _leftArmed(shared.left);
     if (touched.contains(SyncInvalidation.notes)) {
       await _guard('note cache', () async => _notes().invalidateAll());
     }
@@ -260,6 +277,59 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     if (touched.contains(SyncInvalidation.vocabularies)) {
       await _guard('vocabulary reload', _reloadVocabularies);
     }
+    // Last, once the calendar holds what they name: a listener that opens
+    // the Sharing page finds the rows.
+    if (leftArmed.isNotEmpty) {
+      await _guard(
+        'share notice',
+        () async => _notify(ShareLeftWithAlert(leftArmed)),
+      );
+    }
+    if (shared.categoryIds.isNotEmpty || shared.events.isNotEmpty) {
+      await _guard('share notice', () async {
+        final arrived = await _arrived(shared);
+        if (!arrived.isEmpty) _notify(arrived);
+      });
+    }
+  }
+
+  /// The titles of the partner's events in [left] that an alert of this
+  /// person's was armed on (D23); none when the registrations cannot be
+  /// read — a notice missed costs less than a run failed.
+  Future<List<String>> _leftArmed(List<SharedEventLeave> left) async {
+    if (left.isEmpty) return const [];
+    try {
+      final armed = await _armedEvents({for (final event in left) event.id});
+      return [
+        for (final event in left)
+          if (armed.contains(event.id)) event.title,
+      ];
+    } catch (error, stack) {
+      debugPrint('[AppSyncApplyHooks] armed alerts not read: $error\n$stack');
+      return const [];
+    }
+  }
+
+  /// What arrived, as the person is told it: every category newly held,
+  /// and only the events shared one by one — an event whose category the
+  /// partner shares, newly or before, came with it. The categories shared
+  /// are read only when an event's category is not one of [shared]'s own.
+  Future<ShareArrived> _arrived(SharedReadChanges shared) async {
+    final newCategories = shared.categoryIds.toSet();
+    final loose = [
+      for (final event in shared.events)
+        if (!newCategories.contains(event.category)) event,
+    ];
+    final categories = loose.isEmpty
+        ? const <String>{}
+        : await _sharedCategories();
+    return ShareArrived(
+      categoryIds: shared.categoryIds,
+      eventTitles: [
+        for (final event in loose)
+          if (!categories.contains(event.category)) event.title,
+      ],
+    );
   }
 
   /// Whether this run's rows can change what the alert planner arms: every
@@ -500,6 +570,25 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     'category marks': CategoryService.refreshShareMarks,
     'event marks': CalendarEventService.refreshShareMarks,
   });
+
+  /// Which of [eventIds] an armed registration of this phone names; one
+  /// read of the handful still pending.
+  static Future<Set<String>> _appArmedEvents(Set<String> eventIds) async {
+    final db = await AppDatabase.getInstance();
+    return {
+      for (final row in await db.alertRegistrationDao.pending())
+        if (eventIds.contains(row.eventId)) row.eventId,
+    };
+  }
+
+  /// Every category the partner shares with this database now: their own
+  /// held here and the built-ins they share.
+  static Future<Set<String>> _appSharedCategories() async {
+    final db = await AppDatabase.getInstance();
+    final owner = await db.sharedRowDao.owner();
+    if (owner == null) return const {};
+    return db.sharedRowDao.sharedCategoryIds(owner);
+  }
 
   /// The app's stored language, else the device's when it is one of ours,
   /// else English — the `alertGatewayStrings` shape, for a surface with no

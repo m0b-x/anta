@@ -16624,6 +16624,12 @@ abstract class AppLocalizations {
   /// **'Once you pair, your partner sees your name and profile picture — and nothing else unless you share it with them.'**
   String get dataNoticePartner;
 
+  /// Paragraph of the data notice: what the paired partner can read of what this person shares, and when it leaves their phone
+  ///
+  /// In en, this message translates to:
+  /// **'What you share with your partner can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.'**
+  String get dataNoticeShared;
+
   /// Last paragraph of the data notice: the two rows that remove cloud data, named by their labels
   ///
   /// In en, this message translates to:
@@ -16635,6 +16641,132 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “{dataNotice}” on the same page says where it is kept and how to remove it.'**
   String appGuideSyncDataBody(String dataNotice);
+
+  /// No description provided for @appGuidePageSharing.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing with your partner'**
+  String get appGuidePageSharing;
+
+  /// No description provided for @appGuidePageSharingCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A category or an event, read-only on their phone'**
+  String get appGuidePageSharingCaption;
+
+  /// No description provided for @appGuideSharingLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with one person and choose what they see. Nothing is shared until you switch it on; your partner reads and never changes it; switch it off and it leaves their phone.'**
+  String get appGuideSharingLead;
+
+  /// No description provided for @appGuideSharingPairTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pair first'**
+  String get appGuideSharingPairTitle;
+
+  /// Body of the app guide's row about pairing before sharing; the placeholders are the app's own labels
+  ///
+  /// In en, this message translates to:
+  /// **'“{pairingSection}” in “{sharingSettings}” links you with one person through a code. Pairing alone shares nothing. Both phones need “{syncThisDatabase}” on — what you share travels with sync.'**
+  String appGuideSharingPairBody(
+    String pairingSection,
+    String sharingSettings,
+    String syncThisDatabase,
+  );
+
+  /// No description provided for @appGuideSharingCategoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share a category'**
+  String get appGuideSharingCategoryTitle;
+
+  /// Body of the app guide's row about sharing a category; shareWith is the switch's label with the stand-in partner name, sharingPage the Sharing page's title
+  ///
+  /// In en, this message translates to:
+  /// **'In a category\'s editor, “{shareWith}” shares every event in it, and every event you add to it later. The ⋮ menu on the “{calendarCategories}” page does the same; “{sharingPage}”, behind the pairing row, ticks several at once.'**
+  String appGuideSharingCategoryBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+  );
+
+  /// No description provided for @appGuideSharingEventTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share one event'**
+  String get appGuideSharingEventTitle;
+
+  /// Body of the app guide's row about sharing one event
+  ///
+  /// In en, this message translates to:
+  /// **'The same switch, “{shareWith}”, in an event\'s editor shares that event alone. An event in a shared category is shared already; its switch says so.'**
+  String appGuideSharingEventBody(String shareWith);
+
+  /// No description provided for @appGuideSharingReadOnlyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only for them'**
+  String get appGuideSharingReadOnlyTitle;
+
+  /// Body of the app guide's row saying a share is read-only and that a copy stays; copy is the read sheet's Copy to my calendar label
+  ///
+  /// In en, this message translates to:
+  /// **'Your partner sees what you share and cannot change it, so a list cannot be ticked off by both of you. “{copy}” gives them an event of their own; your later changes do not reach that copy, and it stays when you stop sharing.'**
+  String appGuideSharingReadOnlyBody(String copy);
+
+  /// No description provided for @appGuideSharingTheirsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What your partner shares'**
+  String get appGuideSharingTheirsTitle;
+
+  /// Body of the app guide's row about what the partner shares with this person
+  ///
+  /// In en, this message translates to:
+  /// **'Their events are drawn apart from yours and open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how shared events look. Reports, goals and attendance count only your own events.'**
+  String appGuideSharingTheirsBody(String sharingPage);
+
+  /// No description provided for @appGuideSharingAlertsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get appGuideSharingAlertsTitle;
+
+  /// Body of the app guide's row about alerts on shared events; the placeholders are the Sharing page's own labels
+  ///
+  /// In en, this message translates to:
+  /// **'Your partner\'s alerts never ring on your phone, nor yours on theirs. Add an alert of your own to a shared event from its sheet. “{shareAlerts}” on the same page can silence them all (“{alertsOff}”) or let shared events follow your own category alerts (“{alertsCategory}”).'**
+  String appGuideSharingAlertsBody(
+    String shareAlerts,
+    String alertsOff,
+    String alertsCategory,
+  );
+
+  /// No description provided for @appGuideSharingStopTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping'**
+  String get appGuideSharingStopTitle;
+
+  /// Body of the app guide's row about stopping a share, everything, or the pair
+  ///
+  /// In en, this message translates to:
+  /// **'Switch a share off and it leaves your partner\'s phone the next time it syncs. “{stopAll}” takes everything back and keeps you paired; “{unpair}” ends sharing both ways.'**
+  String appGuideSharingStopBody(String stopAll, String unpair);
+
+  /// No description provided for @appGuideSharingPrivateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What is never shared'**
+  String get appGuideSharingPrivateTitle;
+
+  /// No description provided for @appGuideSharingPrivateBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your notes, counters, alerts, attendance marks, templates and settings stay on your side whatever you share.'**
+  String get appGuideSharingPrivateBody;
 
   /// Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it
   ///
@@ -17152,11 +17284,11 @@ abstract class AppLocalizations {
   /// **'{name} no longer shares {what}. Your alert is off.'**
   String shareGoneWithAlert(String name, String what);
 
-  /// Sentence added to an import's result when imported events landed in shared categories
+  /// Snackbar when several of the partner's events left in one read and took armed alerts of this person's with them
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{1 is shared with {name}.} other{{count} are shared with {name}.}}'**
-  String shareImportLine(int count, String name);
+  /// **'{count, plural, =1{{name} no longer shares 1 event. Your alert for it is off.} other{{name} no longer shares {count} events. Your alerts for them are off.}}'**
+  String shareGoneWithAlerts(int count, String name);
 
   /// Screen-reader words for a row of something this person shares
   ///

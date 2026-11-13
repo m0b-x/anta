@@ -461,13 +461,18 @@ abstract final class AppNavigator {
     );
   }
 
-  static Future<void> toSyncSettings(BuildContext context) {
+  /// [openSharing] opens the Sharing page on top once the pair is known, as
+  /// a share notice's View does; already in front, the page stays as it is.
+  static Future<void> toSyncSettings(
+    BuildContext context, {
+    bool openSharing = false,
+  }) {
     if (_isOnTop(context, NavDestinationKind.syncSettings)) {
       return Future<void>.value();
     }
     return push(
       context,
-      const SyncSettingsPage(),
+      SyncSettingsPage(openSharing: openSharing),
       destination: const NavDestination(NavDestinationKind.syncSettings),
     );
   }

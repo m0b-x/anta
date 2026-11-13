@@ -37,12 +37,18 @@ typedef SharedRemoval = ({String key, String? parent});
 /// that went, by table, and the shared folders left without their parent,
 /// which now stand at the top level.
 class SharedRemovals {
-  const SharedRemovals(this.gone, this.placed);
+  const SharedRemovals(this.gone, this.placed, {this.eventTitles = const {}});
 
   static const SharedRemovals none = SharedRemovals({}, []);
 
   final Map<String, List<SharedRemoval>> gone;
   final List<String> placed;
+
+  /// The live events among the removed `calendar_events` rows, by id, with
+  /// their titles: what a person who had an alert armed on one is told left
+  /// (share surfaces D23). Filled by [SharedRowDao.removeAbsent] and
+  /// [SharedRowDao.removeAll] alone; a tombstone left long before.
+  final Map<String, String> eventTitles;
 
   bool get isEmpty =>
       placed.isEmpty && gone.values.every((rows) => rows.isEmpty);
@@ -528,22 +534,59 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
           await db.syncDao.deleteValue(SyncDao.keySharedBuiltIn(key));
         }
       }
+      // An event's title comes with its key, in the same statement: once it
+      // is gone nothing can say what left.
+      final events = table == 'calendar_events';
       final held = await customSelect(
-        'SELECT ${synced.rowKeySql} AS k FROM ${synced.name} '
-        'WHERE owner_id = ?',
+        'SELECT ${synced.rowKeySql} AS k'
+        '${events ? ', title AS t, is_deleted AS d' : ''} '
+        'FROM ${synced.name} WHERE owner_id = ?',
         variables: [Variable<String>(owner)],
         readsFrom: {_tableOf(table)},
       ).get();
       final absent = [
         for (final row in held)
-          if (!kept.contains(row.read<String>('k'))) row.read<String>('k'),
+          if (!kept.contains(row.read<String>('k'))) row,
       ];
       if (absent.isEmpty) return SharedRemovals.none;
-      final gone = await _remove(synced, owner, absent);
-      return SharedRemovals({
-        table: gone,
-      }, table == 'folders' ? await placeFolders(owner) : const []);
+      final gone = await _remove(synced, owner, [
+        for (final row in absent) row.read<String>('k'),
+      ]);
+      return SharedRemovals(
+        {table: gone},
+        table == 'folders' ? await placeFolders(owner) : const [],
+        eventTitles: {
+          if (events)
+            for (final row in absent)
+              if (!row.read<bool>('d'))
+                row.read<String>('k'): row.read<String>('t'),
+        },
+      );
     });
+  }
+
+  /// The titles of the live events of [owner]'s held here among [ids]: read
+  /// before a page's tombstones delete them, which leaves no title behind.
+  /// One statement per [CrdtMerge.keysPerStatement] ids; none for no ids.
+  Future<Map<String, String>> liveEventTitles(
+    String owner,
+    List<String> ids,
+  ) async {
+    final rows = await CrdtMerge.loadInChunks(ids, (chunk) async {
+      return customSelect(
+        'SELECT id, title FROM calendar_events '
+        'WHERE owner_id = ? AND is_deleted = 0 AND id IN '
+        '(${List.filled(chunk.length, '?').join(', ')})',
+        variables: [
+          Variable<String>(owner),
+          for (final id in chunk) Variable<String>(id),
+        ],
+        readsFrom: {calendarEvents},
+      ).get();
+    });
+    return {
+      for (final row in rows) row.read<String>('id'): row.read<String>('title'),
+    };
   }
 
   /// Removes every row this database holds of the account it reads shared
@@ -556,10 +599,15 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     return writing(() async {
       final owner = await this.owner();
       final removed = <String, List<SharedRemoval>>{};
+      var eventTitles = const <String, String>{};
       if (owner != null) {
         for (final table in sharedTables.reversed) {
-          final gone = (await removeAbsent(table, owner, const {})).gone[table];
+          final removals = await removeAbsent(table, owner, const {});
+          final gone = removals.gone[table];
           if (gone != null && gone.isNotEmpty) removed[table] = gone;
+          if (removals.eventTitles.isNotEmpty) {
+            eventTitles = removals.eventTitles;
+          }
         }
       }
       final dao = db.syncDao;
@@ -577,7 +625,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedBuiltInPrefix);
       await dao.deleteValue(SyncDao.keyShareSending);
       // Every shared folder went, so none was left to place.
-      return SharedRemovals(removed, const []);
+      return SharedRemovals(removed, const [], eventTitles: eventTitles);
     });
   }
 

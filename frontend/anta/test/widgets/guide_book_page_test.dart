@@ -20,6 +20,7 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:anta/utils/settings_search.dart';
+import 'package:anta/utils/share_copy.dart';
 import 'package:anta/widgets/calendar_guide_rows.dart';
 import 'package:anta/widgets/guide_example_row.dart';
 import 'package:anta/widgets/settings_section_list.dart';
@@ -284,6 +285,101 @@ void main() {
       'sync-delete-account',
       'sync-data',
     ]);
+  });
+
+  testWidgets('the app book lists sharing right after sync, its title over '
+      'its caption', (tester) async {
+    expect(AppGuideTopic.values, [
+      AppGuideTopic.menu,
+      AppGuideTopic.settings,
+      AppGuideTopic.backup,
+      AppGuideTopic.sync,
+      AppGuideTopic.sharing,
+    ]);
+    await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.app)));
+    await tester.pumpAndSettle();
+
+    final sharing = _hubRow(GuideBook.app, AppGuideTopic.sharing);
+    await _scrollTo(tester, sharing);
+    final title = find.descendant(
+      of: sharing,
+      matching: find.text(en.appGuidePageSharing),
+    );
+    final caption = find.descendant(
+      of: sharing,
+      matching: find.text(en.appGuidePageSharingCaption),
+    );
+    expect(title, findsOneWidget);
+    expect(caption, findsOneWidget);
+    expect(
+      tester.getRect(caption).top,
+      greaterThanOrEqualTo(tester.getRect(title).bottom),
+    );
+    final sync = _hubRow(GuideBook.app, AppGuideTopic.sync);
+    expect(sync, findsOneWidget);
+    expect(
+      tester.getRect(sharing).top,
+      greaterThanOrEqualTo(tester.getRect(sync).bottom),
+    );
+    expect(
+      find.descendant(
+        of: _cardOf(sharing),
+        matching: _header(en.calendarGuideHowDoI),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  group('the sharing page', () {
+    const slugs = [
+      'sharing-pair',
+      'sharing-category',
+      'sharing-event',
+      'sharing-readonly',
+      'sharing-theirs',
+      'sharing-alerts',
+      'sharing-stop',
+      'sharing-private',
+    ];
+
+    for (final locale in const [Locale('en'), Locale('de'), Locale('ro')]) {
+      testWidgets('${locale.languageCode}: its lead, then its eight rows in '
+          'order, every placeholder filled', (tester) async {
+        final l10n = lookupAppLocalizations(locale);
+        await tester.pumpWidget(
+          _app(
+            const GuideTopicPage(
+              book: GuideBook.app,
+              topic: AppGuideTopic.sharing,
+            ),
+            locale: locale,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final lead = AppGuideTopic.sharing.lead(l10n)!;
+        expect(lead, l10n.appGuideSharingLead);
+        expect(find.text(lead), findsOneWidget);
+        final rows = _readRows(AppGuideTopic.sharing, l10n);
+        expect([for (final row in rows) row.slug], slugs);
+
+        final position = tester.state<ScrollableState>(_list()).position;
+        var previous = tester.getRect(find.text(lead)).top + position.pixels;
+        for (final row in rows) {
+          final found = _row(GuideBook.app, row.slug);
+          await _scrollTo(tester, found);
+          final texts = _textsUnder(tester, found).toList();
+          expect(texts, containsAll([row.title, row.body]), reason: row.slug);
+          for (final text in texts) {
+            expect(text, isNot(contains('{')), reason: row.slug);
+          }
+          final top = tester.getRect(found).top + position.pixels;
+          expect(top, greaterThan(previous), reason: row.slug);
+          previous = top;
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
 
   testWidgets('the book search finds a page by a word only an example '
@@ -679,6 +775,13 @@ void main() {
   });
 
   group('the guide quotes the live labels', () {
+    // The guide names no partner: a label that carries one is quoted with
+    // the stand-in the sharing screens show.
+    String shareWith(AppLocalizations l10n) =>
+        l10n.shareWithPartner(ShareCopy.partnerName(l10n, null));
+    String sharingPage(AppLocalizations l10n) =>
+        l10n.sharingWithTitle(ShareCopy.partnerName(l10n, null));
+
     for (final (locale, l10n, open, close) in [
       (const Locale('en'), en as AppLocalizations, '“', '”'),
       (const Locale('de'), AppLocalizationsDe() as AppLocalizations, '„', '“'),
@@ -802,6 +905,23 @@ void main() {
               'sync-data',
               l10n.dataNoticeTitle,
             ),
+            for (final (slug, label) in [
+              ('sharing-pair', l10n.pairingSection),
+              ('sharing-pair', l10n.sharingSettings),
+              ('sharing-pair', l10n.syncThisDatabase),
+              ('sharing-category', shareWith(l10n)),
+              ('sharing-category', l10n.calendarCategories),
+              ('sharing-category', sharingPage(l10n)),
+              ('sharing-event', shareWith(l10n)),
+              ('sharing-readonly', l10n.sharedEventCopy),
+              ('sharing-theirs', sharingPage(l10n)),
+              ('sharing-alerts', l10n.shareAlerts),
+              ('sharing-alerts', l10n.shareAlertsOff),
+              ('sharing-alerts', l10n.shareAlertsCategory),
+              ('sharing-stop', l10n.shareStopAll),
+              ('sharing-stop', l10n.unpair),
+            ])
+              (GuideBook.app, AppGuideTopic.sharing, slug, label),
           ]) {
         testWidgets('${locale.languageCode}: ${book.slug} $slug', (
           tester,

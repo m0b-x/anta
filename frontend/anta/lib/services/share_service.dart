@@ -12,6 +12,7 @@ import '../database/database_lifecycle.dart';
 import '../models/app_user.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import '../models/share_notice.dart';
 import '../models/share_overview.dart';
 import '../models/share_settings.dart';
 import '../models/sync_binding.dart';
@@ -240,6 +241,20 @@ class ShareService {
   /// page's open asks for another: each read costs a dozen server reads,
   /// and a page opened, left and opened again learns nothing new sooner.
   static const Duration sharedReadMinAge = Duration(minutes: 1);
+
+  static final StreamController<ShareNotice> _notices =
+      StreamController<ShareNotice>.broadcast();
+
+  /// What a read of the partner's shares changed that a person is told
+  /// about (§6.14) — heard by the app's one listener, which says it in the
+  /// app. Static, like `CalendarEventService.externalChanges`: the listener
+  /// subscribes at start without building this service, so an account that
+  /// never paired pays one idle subscription and nothing else.
+  static Stream<ShareNotice> get notices => _notices.stream;
+
+  /// Hands [notice] to whoever listens; with nobody listening it is
+  /// dropped — a notice is said once or not at all, never kept for later.
+  static void notify(ShareNotice notice) => _notices.add(notice);
 
   final PairingService _pairing;
   final ShareSyncSource _sync;

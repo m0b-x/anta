@@ -33,6 +33,16 @@ class _SharedReader {
   /// [SyncDao.keySharedWaiting]: loaded by each [read].
   Map<String, ({int tries, SyncSpaceRef space})> _waiting = const {};
 
+  /// What this [read] changed that a person is told of, gathered as its
+  /// writes commit and handed to the hooks with its invalidations
+  /// ([_changes]). Known from what the writes return — a merge
+  /// that inserted, a removal that read its rows — so a page costs a read of
+  /// its own only for what no write can say afterwards: the titles of the
+  /// live events its tombstones delete, and the built-ins shared before it.
+  final List<String> _newCategories = [];
+  final List<SharedEventArrival> _newEvents = [];
+  final Map<String, String> _left = {};
+
   /// Reads what the partner of [bound]'s account shares with it — when
   /// there may be anything to read or to remove, and a read is due.
   ///
@@ -160,8 +170,32 @@ class _SharedReader {
           _warn('the shared read was not stamped: $error\n$stack');
         }
       }
-      await _e._puller.notifyRun(touched);
+      await _e._puller.notifyRun(touched, shared: _changes());
     }
+  }
+
+  /// What [read] gathered, spent here so the next read starts empty: an
+  /// event that arrived and left within the one read never was here for
+  /// the person.
+  SharedReadChanges _changes() {
+    if (_newCategories.isEmpty && _newEvents.isEmpty && _left.isEmpty) {
+      return SharedReadChanges.none;
+    }
+    final changes = SharedReadChanges(
+      categoryIds: List.unmodifiable(_newCategories),
+      events: List.unmodifiable([
+        for (final event in _newEvents)
+          if (!_left.containsKey(event.id)) event,
+      ]),
+      left: List.unmodifiable([
+        for (final MapEntry(key: id, value: title) in _left.entries)
+          (id: id, title: title),
+      ]),
+    );
+    _newCategories.clear();
+    _newEvents.clear();
+    _left.clear();
+    return changes;
   }
 
   /// How long a shared read is not repeated unasked: each one asks the
@@ -246,6 +280,7 @@ class _SharedReader {
   Future<void> _forget(Set<SyncInvalidation> touched) async {
     final removed = await _e._db.sharedRowDao.removeAll();
     _waiting = const {};
+    _left.addAll(removed.eventTitles);
     await announce(removed, touched);
   }
 
@@ -345,10 +380,13 @@ class _SharedReader {
       );
       if (!complete) return false;
       if (seen != null) {
-        await announce(
-          await db.sharedRowDao.removeAbsent(name, partner.partnerUid, seen),
-          touched,
+        final removed = await db.sharedRowDao.removeAbsent(
+          name,
+          partner.partnerUid,
+          seen,
         );
+        _left.addAll(removed.eventTitles);
+        await announce(removed, touched);
         if (table is NotesBinding) await _stopWaitingExcept(seen);
         return true;
       }
@@ -517,9 +555,27 @@ class _SharedReader {
     // The notes of this page as they stand after it: stored, or waiting.
     final stored = <String>[];
     final waits = <String, ({int tries, SyncSpaceRef space})>{};
+    // What this page brought and took, kept once it commits.
+    final newCategories = <String>[];
+    final newEvents = <SharedEventArrival>[];
+    final left = <String, String>{};
     // The one writer the fences let at shared rows (`SharedRowFences`).
     await db.sharedRowDao.writing(() async {
       await _stillReading(bound, partner);
+      // A tombstone carries no title, and its merge leaves the row none.
+      final tombstones = table is CalendarEventsBinding
+          ? [
+              for (final envelope in envelopes)
+                if (isTombstone(envelope)) envelope.rowKey,
+            ]
+          : const <String>[];
+      final liveBefore = tombstones.isEmpty
+          ? const <String, String>{}
+          : await db.sharedRowDao.liveEventTitles(
+              partner.partnerUid,
+              tombstones,
+            );
+      Set<String>? builtInsBefore;
       for (final (i, envelope) in envelopes.indexed) {
         final MergeOutcome outcome;
         try {
@@ -544,6 +600,14 @@ class _SharedReader {
           if (_abortsTransaction(error)) rethrow;
           final space = page.spaces[envelope.rowKey];
           if (error is SharedRowRefused) {
+            if (error.builtIn && !isTombstone(envelope)) {
+              // Read before this page records any: a built-in is never
+              // stored, so its record is all that says it was shared.
+              builtInsBefore ??= await db.sharedRowDao.sharedBuiltIns();
+              if (!builtInsBefore.contains(envelope.rowKey)) {
+                newCategories.add(envelope.rowKey);
+              }
+            }
             // Recorded, so the count of what could not be shown — and of
             // the built-ins received — follows the share as a stored row
             // would.
@@ -567,6 +631,23 @@ class _SharedReader {
           continue;
         }
         if (table is NotesBinding) stored.add(envelope.rowKey);
+        if (isTombstone(envelope)) {
+          final title = liveBefore[envelope.rowKey];
+          if (title != null && outcome.result == MergeResult.applied) {
+            left[envelope.rowKey] = title;
+          }
+        } else if (outcome.result == MergeResult.inserted) {
+          if (table is CalendarCategoriesBinding) {
+            newCategories.add(envelope.rowKey);
+          } else if (table is CalendarEventsBinding) {
+            final event = table.decode(envelope);
+            newEvents.add((
+              id: event.id,
+              title: event.title,
+              category: event.category,
+            ));
+          }
+        }
         rows.add(
           SyncAppliedRow(
             rowKey: envelope.rowKey,
@@ -632,6 +713,9 @@ class _SharedReader {
         ...waits,
       };
     }
+    _newCategories.addAll(newCategories);
+    _newEvents.addAll(newEvents);
+    _left.addAll(left);
     if (changed) touched.add(table.invalidation);
     try {
       await _e._hooks.afterPage(name, List.unmodifiable(rows));

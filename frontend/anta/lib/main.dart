@@ -54,6 +54,7 @@ import 'widgets/app_system_bars.dart';
 import 'widgets/keyboard_inset_guard.dart';
 import 'widgets/lock_screen_curtain.dart';
 import 'widgets/permission_prompt_dialog.dart';
+import 'widgets/share_notice_listener.dart';
 
 export 'widgets/app_system_bars.dart' show AppSystemBars;
 
@@ -859,11 +860,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             // a text scale cannot remount it and lose what it has learned.
             // The curtain sits above the navigator for the same reason — a
             // page, a sheet or a dialog on a locked phone is covered alike.
+            // The share notices' listener goes innermost: it draws nothing,
+            // only has to outlive every route, and there it moves no wrapper
+            // and is never remounted with what it holds for the next resume.
             builder: (context, child) => KeyboardInsetGuard(
               onSettled: const WindowInsetsResync().request,
               child: LockScreenCurtain(
                 child: AppSystemBars(
-                  child: QaMode.enabled ? QaTextScale(child: child!) : child!,
+                  child: ShareNoticeListener(
+                    child: QaMode.enabled ? QaTextScale(child: child!) : child!,
+                  ),
                 ),
               ),
             ),

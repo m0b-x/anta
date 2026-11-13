@@ -9,6 +9,7 @@ import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/item_label.dart';
+import 'package:anta/models/share_notice.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -524,6 +525,244 @@ void main() {
       });
 
       expect(calls, ['calendar', 'reconcile', 'vocabularies']);
+    });
+  });
+
+  group('afterRun after a shared read: the notices (share surfaces §6.14)', () {
+    late List<ShareNotice> notices;
+    late Set<String> armed;
+    late Set<String> partnerCategories;
+    Object? noticeFailure;
+    Object? armedFailure;
+    late AppSyncApplyHooks sharing;
+
+    setUp(() {
+      notices = [];
+      armed = {};
+      partnerCategories = {};
+      noticeFailure = null;
+      armedFailure = null;
+      sharing = AppSyncApplyHooks(
+        notes: () => notes,
+        folders: () => folders,
+        noteStorage: () => storage,
+        counters: () async => counters,
+        reloadCalendar: (_) async => calls.add('calendar'),
+        reloadAlerts: () async => calls.add('alerts'),
+        reconcileAlerts: () async => calls.add('reconcile'),
+        reloadVocabularies: () async => calls.add('vocabularies'),
+        armedEvents: (ids) async {
+          calls.add('armed ${(ids.toList()..sort()).join(',')}');
+          if (armedFailure != null) throw armedFailure!;
+          return armed.intersection(ids);
+        },
+        sharedCategories: () async {
+          calls.add('categories');
+          return partnerCategories;
+        },
+        notify: (notice) {
+          calls.add('notice');
+          if (noticeFailure != null) throw noticeFailure!;
+          notices.add(notice);
+        },
+        strings: () async => lookupAppLocalizations(const Locale('en')),
+        now: () => now,
+      );
+    });
+
+    const calendar = {SyncInvalidation.calendar, SyncInvalidation.alerts};
+
+    SharedEventArrival arrival(String id, String category) =>
+        (id: id, title: 'Event $id', category: category);
+
+    group('an event that left', () {
+      const left = SharedReadChanges(
+        left: [
+          (id: 'e1', title: 'Night shift'),
+          (id: 'e2', title: 'Gym'),
+          (id: 'e3', title: 'Lunch'),
+        ],
+      );
+
+      test('the registrations are asked before the reconcile cancels them; '
+          'one notice names the armed ones, after the reloads', () async {
+        armed = {'e1', 'e3', 'other'};
+
+        await sharing.afterRun(calendar, shared: left);
+
+        expect(calls, ['armed e1,e2,e3', 'calendar', 'reconcile', 'notice']);
+        expect(notices, [
+          const ShareLeftWithAlert(['Night shift', 'Lunch']),
+        ]);
+      });
+
+      test('with no alert armed on any, nothing is said', () async {
+        await sharing.afterRun(calendar, shared: left);
+
+        expect(calls, ['armed e1,e2,e3', 'calendar', 'reconcile']);
+        expect(notices, isEmpty);
+      });
+
+      test('registrations that cannot be read cost the notice, never the '
+          'run', () async {
+        armed = {'e1'};
+        armedFailure = StateError('closed');
+
+        await sharing.afterRun(calendar, shared: left);
+
+        expect(calls, ['armed e1,e2,e3', 'calendar', 'reconcile']);
+        expect(notices, isEmpty);
+      });
+    });
+
+    group('what arrived', () {
+      test('a category alone: its id, and no read of what is shared', () async {
+        await sharing.afterRun(
+          calendar,
+          shared: const SharedReadChanges(categoryIds: ['climb']),
+        );
+
+        expect(calls, ['calendar', 'reconcile', 'notice']);
+        expect(notices, [
+          const ShareArrived(categoryIds: ['climb']),
+        ]);
+      });
+
+      test('three categories at one read are one notice', () async {
+        await sharing.afterRun(
+          calendar,
+          shared: const SharedReadChanges(categoryIds: ['a', 'b', 'c']),
+        );
+
+        expect(notices, [
+          const ShareArrived(categoryIds: ['a', 'b', 'c']),
+        ]);
+      });
+
+      test('a category with its events: the events are not listed', () async {
+        await sharing.afterRun(
+          calendar,
+          shared: SharedReadChanges(
+            categoryIds: const ['climb'],
+            events: [arrival('e1', 'climb'), arrival('e2', 'climb')],
+          ),
+        );
+
+        expect(calls, isNot(contains('categories')));
+        expect(notices, [
+          const ShareArrived(categoryIds: ['climb']),
+        ]);
+      });
+
+      test('an event shared one by one is listed by its title, once the '
+          'calendar reloaded', () async {
+        await sharing.afterRun(
+          calendar,
+          shared: SharedReadChanges(events: [arrival('e1', 'general')]),
+        );
+
+        expect(calls, ['calendar', 'reconcile', 'categories', 'notice']);
+        expect(notices, [
+          const ShareArrived(eventTitles: ['Event e1']),
+        ]);
+      });
+
+      test('a single event beside a category: both, the category\'s own '
+          'events left out', () async {
+        await sharing.afterRun(
+          calendar,
+          shared: SharedReadChanges(
+            categoryIds: const ['climb'],
+            events: [arrival('e1', 'climb'), arrival('e2', 'general')],
+          ),
+        );
+
+        expect(notices, [
+          const ShareArrived(categoryIds: ['climb'], eventTitles: ['Event e2']),
+        ]);
+      });
+
+      test('an event into a category already shared — their own, a built-in '
+          'they share, or one hidden here — is no news', () async {
+        partnerCategories = {'climb', 'gym'};
+
+        await sharing.afterRun(
+          calendar,
+          shared: SharedReadChanges(
+            events: [arrival('e1', 'climb'), arrival('e2', 'gym')],
+          ),
+        );
+
+        expect(calls, ['calendar', 'reconcile', 'categories']);
+        expect(notices, isEmpty);
+      });
+
+      test(
+        'a built-in newly shared touches no cache and is still told',
+        () async {
+          await sharing.afterRun(
+            const {},
+            shared: const SharedReadChanges(categoryIds: ['gym']),
+          );
+
+          expect(calls, ['notice']);
+          expect(notices, [
+            const ShareArrived(categoryIds: ['gym']),
+          ]);
+        },
+      );
+    });
+
+    test('what left and what arrived in one run: one notice of each, the '
+        'alert first', () async {
+      armed = {'old'};
+
+      await sharing.afterRun(
+        calendar,
+        shared: SharedReadChanges(
+          categoryIds: const ['climb'],
+          events: [arrival('e1', 'general')],
+          left: const [(id: 'old', title: 'Old shift')],
+        ),
+      );
+
+      expect(notices, [
+        const ShareLeftWithAlert(['Old shift']),
+        const ShareArrived(categoryIds: ['climb'], eventTitles: ['Event e1']),
+      ]);
+    });
+
+    test(
+      'a run that changed nothing shared says nothing and asks nothing',
+      () async {
+        await sharing.afterRun(calendar);
+
+        expect(calls, ['calendar', 'reconcile']);
+        expect(notices, isEmpty);
+      },
+    );
+
+    test('a poster that throws fails neither the run nor the other '
+        'notice', () async {
+      armed = {'old'};
+      noticeFailure = StateError('closed');
+
+      await sharing.afterRun(
+        {...calendar, SyncInvalidation.vocabularies},
+        shared: const SharedReadChanges(
+          categoryIds: ['climb'],
+          left: [(id: 'old', title: 'Old shift')],
+        ),
+      );
+
+      expect(calls, [
+        'armed old',
+        'calendar',
+        'reconcile',
+        'vocabularies',
+        'notice',
+        'notice',
+      ]);
     });
   });
 

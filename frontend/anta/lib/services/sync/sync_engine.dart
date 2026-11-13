@@ -42,6 +42,8 @@ import 'sync_status_service.dart';
 import 'sync_suspension.dart';
 import 'sync_table_binding.dart';
 import 'sync_tables.dart';
+import 'tables/calendar_categories_binding.dart';
+import 'tables/calendar_events_binding.dart';
 import 'tables/content_chunks_binding.dart';
 import 'tables/folders_binding.dart';
 import 'tables/notes_binding.dart';

@@ -21,7 +21,14 @@ abstract interface class SyncApplyHooks {
   /// Once per run after the pull, with the cache classes whose rows changed
   /// here; `alerts` rides along whenever `calendar` did, because events and
   /// categories feed the alert planner as much as the alert rows do.
-  Future<void> afterRun(Set<SyncInvalidation> touched);
+  ///
+  /// After a read of what a partner shares, [shared] says what it brought
+  /// and took away — what a person is told of, which no cache class names;
+  /// [SharedReadChanges.none] after the account's own pull.
+  Future<void> afterRun(
+    Set<SyncInvalidation> touched, {
+    SharedReadChanges shared = SharedReadChanges.none,
+  });
 
   /// A strictly newer remote replaced a note whose local edit had not been
   /// pushed yet: the losing text is filed as a copy so nothing typed is lost
@@ -129,8 +136,50 @@ class NoOpSyncApplyHooks implements SyncApplyHooks {
   Future<void> afterPage(String table, List<SyncAppliedRow> rows) async {}
 
   @override
-  Future<void> afterRun(Set<SyncInvalidation> touched) async {}
+  Future<void> afterRun(
+    Set<SyncInvalidation> touched, {
+    SharedReadChanges shared = SharedReadChanges.none,
+  }) async {}
 
   @override
   Future<String?> fileConflictCopy(SyncNoteConflict conflict) async => null;
+}
+
+/// A partner's event this phone came to hold: its stored category tells an
+/// event shared one by one from one that came with a category.
+typedef SharedEventArrival = ({String id, String title, String category});
+
+/// A partner's event this phone no longer holds, with the title it had —
+/// read before it went, since nothing is left to read it from.
+typedef SharedEventLeave = ({String id, String title});
+
+/// What one read of a partner's shares changed on this phone, by what this
+/// phone held before it (`docs/cloud-share-surfaces-roadmap.md` §6.14): an
+/// update of a row already held, or a read from the start that meets it
+/// again, is no arrival; a tombstone is none either.
+class SharedReadChanges extends Equatable {
+  /// The partner's categories newly held: a row of their own stored under
+  /// an id not held before, and a built-in newly recorded as shared.
+  final List<String> categoryIds;
+
+  /// The partner's live events stored under an id not held before.
+  final List<SharedEventArrival> events;
+
+  /// The partner's live events this read removed or saw deleted: no longer
+  /// shared, deleted by the partner, their category no longer shared, or
+  /// the whole share forgotten with its pair.
+  final List<SharedEventLeave> left;
+
+  const SharedReadChanges({
+    this.categoryIds = const [],
+    this.events = const [],
+    this.left = const [],
+  });
+
+  static const SharedReadChanges none = SharedReadChanges();
+
+  bool get isEmpty => categoryIds.isEmpty && events.isEmpty && left.isEmpty;
+
+  @override
+  List<Object?> get props => [categoryIds, events, left];
 }

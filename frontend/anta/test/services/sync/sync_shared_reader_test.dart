@@ -14,6 +14,7 @@ import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
@@ -2507,6 +2508,219 @@ void main() {
       await partner().sync();
 
       expect((await eventOn(partner(), 'old'))!.ownerId, partnerUid);
+    });
+  });
+
+  group('what a read changed, for the person (share surfaces §6.14)', () {
+    Future<void> category(String id, {bool builtIn = false}) =>
+        owner().db.calendarCategoryDao.insertCategory(
+          CalendarCategoriesCompanion.insert(
+            id: id,
+            name: 'Category $id',
+            colorValue: 0xFF336699,
+            iconKey: 'event',
+            isBuiltIn: Value(builtIn),
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    Future<void> eventIn(String id, String category) =>
+        owner().db.calendarEventDao.upsert(
+          CalendarEventsCompanion.insert(
+            id: id,
+            title: 'Event $id',
+            category: category,
+            startDate: day,
+            ruleKind: 'weekly',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    Future<void> shareEvent(String id) =>
+        owner().db.calendarEventDao.setSharedPair(id, sharePairId);
+
+    Future<void> shareCategory(String id) =>
+        owner().db.calendarCategoryDao.setSharedPair(id, sharePairId);
+
+    /// What the partner's reads reported since the last [syncBoth].
+    Future<List<SharedReadChanges>> syncBoth() async {
+      partner().hooks.clear();
+      await pair.syncBoth();
+      return List.of(partner().hooks.shared);
+    }
+
+    /// The one read of the built-ins shared before a page that carries one.
+    bool readsBuiltIns(CapturedStatement statement) =>
+        statement.isSelect &&
+        statement.args.length == 2 &&
+        statement.args.first == SyncDao.sharedBuiltInPrefix;
+
+    /// A read of every shared table from the start, as the daily one is.
+    Future<List<SharedReadChanges>> readFromStart() async {
+      final later = DateTime.now().add(SyncEngine.fullPullInterval);
+      partner().now = () => later;
+      return syncBoth();
+    }
+
+    test('a category arrives with its events: both reported, once, in the '
+        'run\'s one afterRun of the read', () async {
+      await category('climb');
+      await eventIn('e1', 'climb');
+      await shareCategory('climb');
+
+      expect(await syncBoth(), [
+        const SharedReadChanges(
+          categoryIds: ['climb'],
+          events: [(id: 'e1', title: 'Event e1', category: 'climb')],
+        ),
+      ]);
+    });
+
+    test('an event shared on its own reports its stored category', () async {
+      await eventIn('e1', 'general');
+      await shareEvent('e1');
+
+      expect(await syncBoth(), [
+        const SharedReadChanges(
+          events: [(id: 'e1', title: 'Event e1', category: 'general')],
+        ),
+      ]);
+    });
+
+    test('an update of a held row arrives as nothing, and so does a read from '
+        'the start that meets what is here', () async {
+      await category('climb');
+      await eventIn('e1', 'climb');
+      await shareCategory('climb');
+      await syncBoth();
+
+      await owner().db.calendarEventDao.upsert(
+        CalendarEventsCompanion(
+          id: const Value('e1'),
+          title: const Value('Renamed'),
+          updatedAt: Value(day),
+        ),
+      );
+      await owner().db.calendarCategoryDao.updateCategory(
+        const CalendarCategoriesCompanion(
+          id: Value('climb'),
+          name: Value('Bouldering'),
+        ),
+      );
+      expect(await syncBoth(), isEmpty);
+      expect((await eventOn(partner(), 'e1'))!.title, 'Renamed');
+
+      expect(await readFromStart(), isEmpty);
+    });
+
+    test('a built-in newly shared is a category received — by its id, with '
+        'no row stored — once: a read from the start does not repeat it, '
+        'and it is told though it touches no cache', () async {
+      await category('gym', builtIn: true);
+      await shareCategory('gym');
+
+      partner().statements.reset();
+      expect(await syncBoth(), [
+        const SharedReadChanges(categoryIds: ['gym']),
+      ]);
+      expect(partner().statements.captured.where(readsBuiltIns), hasLength(1));
+
+      partner().statements.reset();
+      expect(await readFromStart(), isEmpty);
+      expect(
+        partner().statements.captured.where(readsBuiltIns),
+        hasLength(1),
+        reason: 'one page of categories carries it again',
+      );
+    });
+
+    test('an event that leaves is reported with the title it had: made '
+        'private, or deleted by its owner', () async {
+      await eventIn('e1', 'general');
+      await eventIn('e2', 'general');
+      await shareEvent('e1');
+      await shareEvent('e2');
+      await syncBoth();
+
+      await owner().db.calendarEventDao.setSharedPair('e1', null);
+      expect(await syncBoth(), [
+        const SharedReadChanges(left: [(id: 'e1', title: 'Event e1')]),
+      ]);
+
+      await owner().db.calendarEventDao.tombstoneEventCascade('e2');
+      expect(await syncBoth(), [
+        const SharedReadChanges(left: [(id: 'e2', title: 'Event e2')]),
+      ]);
+      expect((await eventOn(partner(), 'e2'))!.isDeleted, isTrue);
+
+      expect(
+        await readFromStart(),
+        isEmpty,
+        reason: 'a tombstone held here is met again, and left long ago',
+      );
+    });
+
+    test('the events of a category made private leave with it', () async {
+      await category('climb');
+      await eventIn('e1', 'climb');
+      await shareCategory('climb');
+      await syncBoth();
+
+      await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+
+      expect(await syncBoth(), [
+        const SharedReadChanges(left: [(id: 'e1', title: 'Event e1')]),
+      ]);
+    });
+
+    test('the pair ended, everything shared is forgotten: each live event '
+        'reported as left', () async {
+      await eventIn('e1', 'general');
+      await eventIn('e2', 'general');
+      await shareEvent('e1');
+      await shareEvent('e2');
+      await syncBoth();
+      await owner().db.calendarEventDao.tombstoneEventCascade('e2');
+      await syncBoth();
+
+      pair.end();
+
+      expect(await syncBoth(), [
+        const SharedReadChanges(left: [(id: 'e1', title: 'Event e1')]),
+      ]);
+    });
+
+    test('costs: a read with nothing new reads no title and no built-in; a '
+        'page that carries a tombstone reads the titles once', () async {
+      bool readsTitles(CapturedStatement statement) =>
+          statement.sql.contains('is_deleted = 0 AND id IN');
+      await eventIn('e1', 'general');
+      await eventIn('e2', 'general');
+      await shareEvent('e1');
+      await shareEvent('e2');
+      await syncBoth();
+
+      partner().statements.reset();
+      await syncBoth();
+      expect(partner().statements.captured.where(readsTitles), isEmpty);
+      expect(partner().statements.captured.where(readsBuiltIns), isEmpty);
+      expect(await syncBoth(), isEmpty);
+
+      await owner().db.calendarEventDao.tombstoneEventCascade('e2');
+      await owner().sync();
+      partner().statements.reset();
+      await partner().sync();
+      expect(partner().statements.captured.where(readsTitles), hasLength(1));
+
+      partner().statements.reset();
+      await readFromStart();
+      expect(
+        partner().statements.captured.where(readsTitles),
+        hasLength(1),
+        reason: 'one page of events, whatever it holds',
+      );
     });
   });
 }

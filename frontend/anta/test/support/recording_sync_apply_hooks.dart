@@ -14,6 +14,9 @@ class RecordingSyncApplyHooks implements SyncApplyHooks {
   /// Each `afterRun`'s touched classes.
   final List<Set<SyncInvalidation>> runs = [];
 
+  /// Each `afterRun`'s [SharedReadChanges] that held anything.
+  final List<SharedReadChanges> shared = [];
+
   final List<SyncNoteConflict> conflicts = [];
 
   /// Runs inside `beforePage`, so a test can act mid-run — begin a
@@ -37,6 +40,7 @@ class RecordingSyncApplyHooks implements SyncApplyHooks {
     calls.clear();
     pages.clear();
     runs.clear();
+    shared.clear();
     conflicts.clear();
   }
 
@@ -54,9 +58,13 @@ class RecordingSyncApplyHooks implements SyncApplyHooks {
   }
 
   @override
-  Future<void> afterRun(Set<SyncInvalidation> touched) async {
+  Future<void> afterRun(
+    Set<SyncInvalidation> touched, {
+    SharedReadChanges shared = SharedReadChanges.none,
+  }) async {
     calls.add('run');
     runs.add(touched);
+    if (!shared.isEmpty) this.shared.add(shared);
     await onAfterRun?.call();
   }
 

@@ -39,7 +39,11 @@ import 'sharing_page.dart';
 /// two accounts into a pair; Phase 02 syncs this database with the account's
 /// other devices.
 class SyncSettingsPage extends StatelessWidget {
-  const SyncSettingsPage({super.key});
+  /// Opens the Sharing page on top once the pair is known, by the Pairing
+  /// row's own call — a share notice's View — so back lands here.
+  final bool openSharing;
+
+  const SyncSettingsPage({super.key, this.openSharing = false});
 
   @override
   Widget build(BuildContext context) {
@@ -59,13 +63,15 @@ class SyncSettingsPage extends StatelessWidget {
           create: (_) => getIt<ShareBloc>()..add(const ShareLoadRequested()),
         ),
       ],
-      child: const _SyncSettingsView(),
+      child: _SyncSettingsView(openSharing: openSharing),
     );
   }
 }
 
 class _SyncSettingsView extends StatefulWidget {
-  const _SyncSettingsView();
+  final bool openSharing;
+
+  const _SyncSettingsView({required this.openSharing});
 
   @override
   State<_SyncSettingsView> createState() => _SyncSettingsViewState();
@@ -140,6 +146,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// would open a second dialog.
   bool _stopAsking = false;
 
+  /// Whether [_SyncSettingsView.openSharing] was acted on: the Sharing page
+  /// opens once, and coming back from it must not open it again.
+  bool _sharingOpened = false;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -178,6 +188,16 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         top: false,
         child: MultiBlocListener(
           listeners: [
+            BlocListener<PairingBloc, PairingState>(
+              listenWhen: (previous, current) =>
+                  widget.openSharing &&
+                  !_sharingOpened &&
+                  current is PairingPaired,
+              listener: (context, state) {
+                _sharingOpened = true;
+                unawaited(_openSharing(context));
+              },
+            ),
             BlocListener<PairingBloc, PairingState>(
               listenWhen: (previous, current) => current is PairingEnded,
               listener: (context, state) =>

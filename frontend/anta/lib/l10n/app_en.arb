@@ -13858,6 +13858,10 @@
   "@dataNoticePartner": {
     "description": "Paragraph of the data notice: what a paired partner can see"
   },
+  "dataNoticeShared": "What you share with your partner can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.",
+  "@dataNoticeShared": {
+    "description": "Paragraph of the data notice: what the paired partner can read of what this person shares, and when it leaves their phone"
+  },
   "dataNoticeRemove": "“{deleteCopy}” removes a database's copy from the cloud; “{deleteAccount}” removes everything your account keeps there. Neither deletes anything on this device.",
   "@dataNoticeRemove": {
     "description": "Last paragraph of the data notice: the two rows that remove cloud data, named by their labels",
@@ -13879,6 +13883,74 @@
       }
     }
   },
+  "appGuidePageSharing": "Sharing with your partner",
+  "appGuidePageSharingCaption": "A category or an event, read-only on their phone",
+  "appGuideSharingLead": "Pair with one person and choose what they see. Nothing is shared until you switch it on; your partner reads and never changes it; switch it off and it leaves their phone.",
+  "appGuideSharingPairTitle": "Pair first",
+  "appGuideSharingPairBody": "“{pairingSection}” in “{sharingSettings}” links you with one person through a code. Pairing alone shares nothing. Both phones need “{syncThisDatabase}” on — what you share travels with sync.",
+  "@appGuideSharingPairBody": {
+    "description": "Body of the app guide's row about pairing before sharing; the placeholders are the app's own labels",
+    "placeholders": {
+      "pairingSection": { "type": "String" },
+      "sharingSettings": { "type": "String" },
+      "syncThisDatabase": { "type": "String" }
+    }
+  },
+  "appGuideSharingCategoryTitle": "Share a category",
+  "appGuideSharingCategoryBody": "In a category's editor, “{shareWith}” shares every event in it, and every event you add to it later. The ⋮ menu on the “{calendarCategories}” page does the same; “{sharingPage}”, behind the pairing row, ticks several at once.",
+  "@appGuideSharingCategoryBody": {
+    "description": "Body of the app guide's row about sharing a category; shareWith is the switch's label with the stand-in partner name, sharingPage the Sharing page's title",
+    "placeholders": {
+      "shareWith": { "type": "String" },
+      "calendarCategories": { "type": "String" },
+      "sharingPage": { "type": "String" }
+    }
+  },
+  "appGuideSharingEventTitle": "Share one event",
+  "appGuideSharingEventBody": "The same switch, “{shareWith}”, in an event's editor shares that event alone. An event in a shared category is shared already; its switch says so.",
+  "@appGuideSharingEventBody": {
+    "description": "Body of the app guide's row about sharing one event",
+    "placeholders": {
+      "shareWith": { "type": "String" }
+    }
+  },
+  "appGuideSharingReadOnlyTitle": "Read-only for them",
+  "appGuideSharingReadOnlyBody": "Your partner sees what you share and cannot change it, so a list cannot be ticked off by both of you. “{copy}” gives them an event of their own; your later changes do not reach that copy, and it stays when you stop sharing.",
+  "@appGuideSharingReadOnlyBody": {
+    "description": "Body of the app guide's row saying a share is read-only and that a copy stays; copy is the read sheet's Copy to my calendar label",
+    "placeholders": {
+      "copy": { "type": "String" }
+    }
+  },
+  "appGuideSharingTheirsTitle": "What your partner shares",
+  "appGuideSharingTheirsBody": "Their events are drawn apart from yours and open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how shared events look. Reports, goals and attendance count only your own events.",
+  "@appGuideSharingTheirsBody": {
+    "description": "Body of the app guide's row about what the partner shares with this person",
+    "placeholders": {
+      "sharingPage": { "type": "String" }
+    }
+  },
+  "appGuideSharingAlertsTitle": "Alerts",
+  "appGuideSharingAlertsBody": "Your partner's alerts never ring on your phone, nor yours on theirs. Add an alert of your own to a shared event from its sheet. “{shareAlerts}” on the same page can silence them all (“{alertsOff}”) or let shared events follow your own category alerts (“{alertsCategory}”).",
+  "@appGuideSharingAlertsBody": {
+    "description": "Body of the app guide's row about alerts on shared events; the placeholders are the Sharing page's own labels",
+    "placeholders": {
+      "shareAlerts": { "type": "String" },
+      "alertsOff": { "type": "String" },
+      "alertsCategory": { "type": "String" }
+    }
+  },
+  "appGuideSharingStopTitle": "Stopping",
+  "appGuideSharingStopBody": "Switch a share off and it leaves your partner's phone the next time it syncs. “{stopAll}” takes everything back and keeps you paired; “{unpair}” ends sharing both ways.",
+  "@appGuideSharingStopBody": {
+    "description": "Body of the app guide's row about stopping a share, everything, or the pair",
+    "placeholders": {
+      "stopAll": { "type": "String" },
+      "unpair": { "type": "String" }
+    }
+  },
+  "appGuideSharingPrivateTitle": "What is never shared",
+  "appGuideSharingPrivateBody": "Your notes, counters, alerts, attendance marks, templates and settings stay on your side whatever you share.",
   "sharePartnerFallback": "your partner",
   "@sharePartnerFallback": {
     "description": "Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it"
@@ -14344,11 +14416,11 @@
       "what": { "type": "String", "example": "Night shift" }
     }
   },
-  "shareImportLine": "{count, plural, =1{1 is shared with {name}.} other{{count} are shared with {name}.}}",
-  "@shareImportLine": {
-    "description": "Sentence added to an import's result when imported events landed in shared categories",
+  "shareGoneWithAlerts": "{count, plural, =1{{name} no longer shares 1 event. Your alert for it is off.} other{{name} no longer shares {count} events. Your alerts for them are off.}}",
+  "@shareGoneWithAlerts": {
+    "description": "Snackbar when several of the partner's events left in one read and took armed alerts of this person's with them",
     "placeholders": {
-      "count": { "type": "int", "example": "4" },
+      "count": { "type": "int", "example": "3" },
       "name": { "type": "String", "example": "Maria" }
     }
   },

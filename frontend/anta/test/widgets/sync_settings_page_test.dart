@@ -249,6 +249,7 @@ void main() {
     Locale locale = const Locale('en'),
     double textScale = 1.0,
     ThemeData? theme,
+    bool openSharing = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -265,7 +266,7 @@ void main() {
           ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        home: const SyncSettingsPage(),
+        home: SyncSettingsPage(openSharing: openSharing),
       ),
     );
     await settle(tester);
@@ -548,6 +549,62 @@ void main() {
     expect(syncBloc!.events.sublist(before), [const SignInRequested()]);
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // A share notice's View (share surfaces §6.14): the Sharing page on top,
+  // once, so back lands on Sync & sharing.
+  group('opened to show what is shared', () {
+    testWidgets('paired, it opens the Sharing page once, and not again '
+        'after coming back from it', (tester) async {
+      await boot(user: userA, paired: true);
+      await pumpPage(tester, openSharing: true);
+
+      expect(find.byType(SharingPage), findsOneWidget);
+      expect(find.byType(SyncSettingsPage, skipOffstage: false), findsOne);
+
+      Navigator.of(tester.element(find.byType(SharingPage))).pop();
+      await settle(tester);
+      expect(find.byType(SharingPage), findsNothing);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharingPaired),
+        findsOneWidget,
+      );
+
+      // A later paired state — a reload, a busy flag cleared — is not a
+      // second ask.
+      final paired = pairingBloc!.state as PairingPaired;
+      pairingBloc!.show(PairingPaired(partner: paired.partner, busy: true));
+      await settle(tester, rounds: 3);
+      pairingBloc!.show(PairingPaired(partner: paired.partner));
+      await settle(tester);
+      expect(find.byType(SharingPage), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('not paired, it never opens the Sharing page and builds no '
+        'share bloc', (tester) async {
+      await boot(user: userA);
+      await pumpPage(tester, openSharing: true);
+
+      expect(pairingBloc!.state, isA<PairingUnpaired>());
+      expect(find.byType(SharingPage), findsNothing);
+      expect(shareBlocs, 0);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('paired, without the ask it stays on Sync & sharing', (
+      tester,
+    ) async {
+      await boot(user: userA, paired: true);
+      await pumpPage(tester);
+
+      expect(pairingBloc!.state, isA<PairingPaired>());
+      expect(find.byType(SharingPage), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   group('the paired row\'s height', () {
@@ -1075,6 +1132,10 @@ void main() {
       );
       final paragraphs = dataNoticeParagraphs(l10n);
       expect(paragraphs, contains(l10n.dataNoticeCloudUs));
+      expect(
+        paragraphs.join('\n\n'),
+        contains('${l10n.dataNoticePartner}\n\n${l10n.dataNoticeShared}'),
+      );
       expect(
         find.descendant(
           of: dialog,

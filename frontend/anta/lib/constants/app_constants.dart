@@ -31,6 +31,17 @@ class AppConstants {
   static const Duration snackbarActionDefaultDuration = Duration(seconds: 3);
   static const Duration snackbarActionMaxDuration = Duration(seconds: 5);
 
+  /// A share notice arrives unasked — nothing the person just did announces
+  /// it — so it must be read first, and stays as long as any bar may.
+  static const Duration shareNoticeDuration = snackbarActionMaxDuration;
+
+  /// What a bar spends off its own time: a bar that replaces another waits
+  /// out that one's exit, then its own entrance (250 ms each in
+  /// `material/scaffold.dart`), before its duration starts. A caller that
+  /// says two bars in a row waits this long past the first one's duration,
+  /// or the second takes the first down early.
+  static const Duration snackbarTransitions = Duration(milliseconds: 500);
+
   // ============================================================
   // UI CONSTANTS
   // ============================================================

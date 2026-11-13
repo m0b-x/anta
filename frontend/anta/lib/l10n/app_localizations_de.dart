@@ -11111,6 +11111,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Nach dem Koppeln sieht dein Partner deinen Namen und dein Profilbild – und sonst nichts, solange du es nicht mit ihm teilst.';
 
   @override
+  String get dataNoticeShared =>
+      'Was du mit deinem Partner teilst, kann sein Konto aus deiner Cloud-Kopie lesen, und sein Telefon behält davon eine nur lesbare Kopie. Diese Kopie verschwindet beim nächsten Sync von seinem Telefon, nachdem du das Teilen beendet hast.';
+
+  @override
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
     return '„$deleteCopy“ entfernt die Kopie einer Datenbank aus der Cloud; „$deleteAccount“ entfernt alles, was dein Konto dort hat. Auf diesem Gerät wird dabei nichts gelöscht.';
   }
@@ -11119,6 +11123,92 @@ class AppLocalizationsDe extends AppLocalizations {
   String appGuideSyncDataBody(String dataNotice) {
     return 'Eine Datenbank, die du synchronisierst, hat eine Kopie in Googles Cloud. Sie ist dort verschlüsselt, aber nicht Ende-zu-Ende: Wer ANTAs Cloud-Dienst betreibt, kann sie lesen. „$dataNotice“ auf derselben Seite sagt, wo sie liegt und wie du sie entfernst.';
   }
+
+  @override
+  String get appGuidePageSharing => 'Mit deinem Partner teilen';
+
+  @override
+  String get appGuidePageSharingCaption =>
+      'Eine Kategorie oder ein Ereignis, nur lesbar auf dem anderen Telefon';
+
+  @override
+  String get appGuideSharingLead =>
+      'Kopple dich mit einer Person und wähle, was sie sieht. Nichts wird geteilt, bevor du es einschaltest; dein Partner liest und ändert nichts; schaltest du es aus, verschwindet es von seinem Telefon.';
+
+  @override
+  String get appGuideSharingPairTitle => 'Zuerst koppeln';
+
+  @override
+  String appGuideSharingPairBody(
+    String pairingSection,
+    String sharingSettings,
+    String syncThisDatabase,
+  ) {
+    return '„$pairingSection“ in „$sharingSettings“ verbindet dich über einen Code mit einer Person. Das Koppeln allein teilt nichts. Auf beiden Telefonen muss „$syncThisDatabase“ eingeschaltet sein – was du teilst, reist mit dem Sync.';
+  }
+
+  @override
+  String get appGuideSharingCategoryTitle => 'Eine Kategorie teilen';
+
+  @override
+  String appGuideSharingCategoryBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+  ) {
+    return 'Im Editor einer Kategorie teilt „$shareWith“ jedes Ereignis darin – und jedes, das du später hinzufügst. Das ⋮-Menü auf der Seite „$calendarCategories“ tut dasselbe; „$sharingPage“, hinter der Kopplungszeile, hakt mehrere auf einmal an.';
+  }
+
+  @override
+  String get appGuideSharingEventTitle => 'Ein einzelnes Ereignis teilen';
+
+  @override
+  String appGuideSharingEventBody(String shareWith) {
+    return 'Derselbe Schalter, „$shareWith“, im Editor eines Ereignisses teilt nur dieses Ereignis. Ein Ereignis in einer geteilten Kategorie ist schon geteilt; sein Schalter sagt es.';
+  }
+
+  @override
+  String get appGuideSharingReadOnlyTitle => 'Für den anderen nur lesbar';
+
+  @override
+  String appGuideSharingReadOnlyBody(String copy) {
+    return 'Dein Partner sieht, was du teilst, und kann es nicht ändern – eine Liste lässt sich also nicht von euch beiden abhaken. „$copy“ gibt ihm ein eigenes Ereignis; deine späteren Änderungen erreichen diese Kopie nicht, und sie bleibt, wenn du das Teilen beendest.';
+  }
+
+  @override
+  String get appGuideSharingTheirsTitle => 'Was dein Partner teilt';
+
+  @override
+  String appGuideSharingTheirsBody(String sharingPage) {
+    return 'Seine Ereignisse werden anders gezeichnet als deine und öffnen ein Blatt zum Lesen, nicht zum Bearbeiten. Auf „$sharingPage“ wählst du, welche seiner Kategorien in deinem Kalender erscheinen und wie geteilte Ereignisse aussehen. Berichte, Ziele und Anwesenheit zählen nur deine eigenen Ereignisse.';
+  }
+
+  @override
+  String get appGuideSharingAlertsTitle => 'Erinnerungen';
+
+  @override
+  String appGuideSharingAlertsBody(
+    String shareAlerts,
+    String alertsOff,
+    String alertsCategory,
+  ) {
+    return 'Die Erinnerungen deines Partners klingeln nie auf deinem Telefon, und deine nie auf seinem. Füge einem geteilten Ereignis in seinem Blatt eine eigene Erinnerung hinzu. „$shareAlerts“ auf derselben Seite schaltet alle stumm („$alertsOff“) oder lässt geteilte Ereignisse deinen eigenen Kategorie-Erinnerungen folgen („$alertsCategory“).';
+  }
+
+  @override
+  String get appGuideSharingStopTitle => 'Beenden';
+
+  @override
+  String appGuideSharingStopBody(String stopAll, String unpair) {
+    return 'Schaltest du etwas Geteiltes aus, verschwindet es beim nächsten Sync vom Telefon deines Partners. „$stopAll“ nimmt alles zurück und lässt die Kopplung bestehen; „$unpair“ beendet das Teilen in beide Richtungen.';
+  }
+
+  @override
+  String get appGuideSharingPrivateTitle => 'Was nie geteilt wird';
+
+  @override
+  String get appGuideSharingPrivateBody =>
+      'Deine Notizen, Zähler, Erinnerungen, Anwesenheitsmarken, Vorlagen und Einstellungen bleiben bei dir, egal was du teilst.';
 
   @override
   String get sharePartnerFallback => 'Partner';
@@ -11351,7 +11441,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String shareStopAllConfirm(String name) {
-    return 'Deine Kategorien und Ereignisse verschwinden vom anderen Handy. Was $name mit dir teilt, bleibt.';
+    return 'Deine Kategorien und Ereignisse verschwinden vom anderen Telefon. Was $name mit dir teilt, bleibt.';
   }
 
   @override
@@ -11476,7 +11566,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String sharedEventCaption(String name) {
-    return 'Nur $name kann dieses Ereignis ändern. Deine Erinnerungen folgen dem Stand, den dieses Handy zuletzt empfangen hat.';
+    return 'Nur $name kann dieses Ereignis ändern. Deine Erinnerungen folgen dem Stand, den dieses Telefon zuletzt empfangen hat.';
   }
 
   @override
@@ -11509,12 +11599,13 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String shareImportLine(int count, String name) {
+  String shareGoneWithAlerts(int count, String name) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count werden mit $name geteilt.',
-      one: '1 wird mit $name geteilt.',
+      other:
+          '$name teilt $count Ereignisse nicht mehr. Deine Erinnerungen dafür sind aus.',
+      one: '$name teilt 1 Ereignis nicht mehr. Deine Erinnerung dafür ist aus.',
     );
     return '$_temp0';
   }

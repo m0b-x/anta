@@ -11270,6 +11270,10 @@ class AppLocalizationsRo extends AppLocalizations {
       'După împerechere, partenerul tău îți vede numele și fotografia de profil — și nimic altceva, dacă nu partajezi cu el.';
 
   @override
+  String get dataNoticeShared =>
+      'Ce partajezi cu partenerul tău poate fi citit de contul lui din copia ta din cloud, iar telefonul lui păstrează o copie doar pentru citire. Copia aceea dispare de pe telefonul lui la următoarea sincronizare după ce oprești partajarea.';
+
+  @override
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
     return '„$deleteCopy” elimină din cloud copia unei baze de date; „$deleteAccount” elimină tot ce păstrează contul tău acolo. Niciuna nu șterge nimic de pe acest dispozitiv.';
   }
@@ -11278,6 +11282,92 @@ class AppLocalizationsRo extends AppLocalizations {
   String appGuideSyncDataBody(String dataNotice) {
     return 'O bază de date pe care o sincronizezi are o copie în cloudul Google. Acolo este criptată, dar nu de la un capăt la altul: cei care administrează serviciul cloud al ANTA o pot citi. „$dataNotice” de pe aceeași pagină spune unde este păstrată și cum o elimini.';
   }
+
+  @override
+  String get appGuidePageSharing => 'Partajarea cu partenerul tău';
+
+  @override
+  String get appGuidePageSharingCaption =>
+      'O categorie sau un eveniment, doar pentru citire pe celălalt telefon';
+
+  @override
+  String get appGuideSharingLead =>
+      'Împerechează-te cu o persoană și alege ce vede. Nimic nu e partajat până nu pornești tu; partenerul tău citește și nu modifică nimic; oprești, și dispare de pe telefonul lui.';
+
+  @override
+  String get appGuideSharingPairTitle => 'Mai întâi, împerecherea';
+
+  @override
+  String appGuideSharingPairBody(
+    String pairingSection,
+    String sharingSettings,
+    String syncThisDatabase,
+  ) {
+    return '„$pairingSection” din „$sharingSettings” te leagă de o persoană printr-un cod. Împerecherea singură nu partajează nimic. Pe ambele telefoane trebuie pornit „$syncThisDatabase” — ce partajezi circulă odată cu sincronizarea.';
+  }
+
+  @override
+  String get appGuideSharingCategoryTitle => 'Partajează o categorie';
+
+  @override
+  String appGuideSharingCategoryBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+  ) {
+    return 'În editorul unei categorii, „$shareWith” partajează fiecare eveniment din ea — și pe cele pe care le adaugi mai târziu. Meniul ⋮ din pagina „$calendarCategories” face același lucru; „$sharingPage”, din rândul de împerechere, bifează mai multe deodată.';
+  }
+
+  @override
+  String get appGuideSharingEventTitle => 'Partajează un singur eveniment';
+
+  @override
+  String appGuideSharingEventBody(String shareWith) {
+    return 'Același comutator, „$shareWith”, în editorul unui eveniment partajează doar acel eveniment. Un eveniment dintr-o categorie partajată e deja partajat; comutatorul lui o spune.';
+  }
+
+  @override
+  String get appGuideSharingReadOnlyTitle => 'Doar pentru citire la celălalt';
+
+  @override
+  String appGuideSharingReadOnlyBody(String copy) {
+    return 'Partenerul tău vede ce partajezi și nu poate modifica, așa că o listă nu poate fi bifată de amândoi. „$copy” îi face un eveniment al lui; modificările tale ulterioare nu ajung în acea copie, iar ea rămâne când oprești partajarea.';
+  }
+
+  @override
+  String get appGuideSharingTheirsTitle => 'Ce partajează partenerul tău';
+
+  @override
+  String appGuideSharingTheirsBody(String sharingPage) {
+    return 'Evenimentele lui sunt desenate altfel decât ale tale și deschid o foaie pe care o poți citi, nu edita. În „$sharingPage” alegi care dintre categoriile lui apar în calendarul tău și cum arată evenimentele partajate. Rapoartele, obiectivele și prezența numără doar evenimentele tale.';
+  }
+
+  @override
+  String get appGuideSharingAlertsTitle => 'Alerte';
+
+  @override
+  String appGuideSharingAlertsBody(
+    String shareAlerts,
+    String alertsOff,
+    String alertsCategory,
+  ) {
+    return 'Alertele partenerului nu sună niciodată pe telefonul tău, nici ale tale pe al lui. Adaugă o alertă a ta la un eveniment partajat, din foaia lui. „$shareAlerts” din aceeași pagină le poate opri pe toate („$alertsOff”) sau lasă evenimentele partajate să urmeze alertele categoriilor tale („$alertsCategory”).';
+  }
+
+  @override
+  String get appGuideSharingStopTitle => 'Oprirea';
+
+  @override
+  String appGuideSharingStopBody(String stopAll, String unpair) {
+    return 'Oprești o partajare și ea dispare de pe telefonul partenerului la următoarea lui sincronizare. „$stopAll” retrage tot și vă lasă împerecheați; „$unpair” oprește partajarea în ambele sensuri.';
+  }
+
+  @override
+  String get appGuideSharingPrivateTitle => 'Ce nu se partajează niciodată';
+
+  @override
+  String get appGuideSharingPrivateBody =>
+      'Notițele, contoarele, alertele, marcajele de prezență, șabloanele și setările tale rămân la tine, orice ai partaja.';
 
   @override
   String get sharePartnerFallback => 'partenerul tău';
@@ -11677,13 +11767,16 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String shareImportLine(int count, String name) {
+  String shareGoneWithAlerts(int count, String name) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count sunt partajate cu $name.',
-      few: '$count sunt partajate cu $name.',
-      one: 'Unul este partajat cu $name.',
+      other:
+          '$name nu mai partajează $count de evenimente. Alertele tale pentru ele sunt oprite.',
+      few:
+          '$name nu mai partajează $count evenimente. Alertele tale pentru ele sunt oprite.',
+      one:
+          '$name nu mai partajează un eveniment. Alerta ta pentru el este oprită.',
     );
     return '$_temp0';
   }

@@ -473,15 +473,19 @@ class _Puller {
   /// `afterRun` for the classes [touched] — alerts whenever the calendar
   /// moved, since events and categories feed the planner. A throwing hook
   /// must not mask what ended the run — a halt, a lost access — nor fail a
-  /// run whose rows all landed.
-  Future<void> notifyRun(Set<SyncInvalidation> touched) async {
-    if (touched.isEmpty) return;
+  /// run whose rows all landed. [shared] is the shared reader's: a built-in
+  /// newly shared touches no cache and is still told.
+  Future<void> notifyRun(
+    Set<SyncInvalidation> touched, {
+    SharedReadChanges shared = SharedReadChanges.none,
+  }) async {
+    if (touched.isEmpty && shared.isEmpty) return;
     final classes = {
       ...touched,
       if (touched.contains(SyncInvalidation.calendar)) SyncInvalidation.alerts,
     };
     try {
-      await _e._hooks.afterRun(Set.unmodifiable(classes));
+      await _e._hooks.afterRun(Set.unmodifiable(classes), shared: shared);
     } catch (error, stack) {
       _warn('afterRun failed: $error\n$stack');
     }
