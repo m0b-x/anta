@@ -1,6 +1,10 @@
 # Cloud Sync — Connections, Handshake, QR, Links, Push (Design)
 
-**Status: design, 2026-08-18. Nothing here is implemented.** Builds on Phase 01
+**Status: design, 2026-08-18. Nothing here is implemented — and its push
+section is replaced: push was built 2026-11-13 → 14 to another design,
+`cloud-shared-freshness.md` (the address in the pair's document, a relay
+that reads with the caller's own sign-in, a message that carries
+nothing).** Builds on Phase 01
 as shipped (`cloud-sync-phase-01-pairing.md`); revises the Phase 02/03 plans
 where multi-connection forces it. Android-first throughout: every iOS-side
 piece (camera scanner's 15.5 floor, APNs, Universal Links) is blocked on the

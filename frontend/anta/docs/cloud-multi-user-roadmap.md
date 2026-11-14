@@ -18,12 +18,18 @@ the reader of a partner's shared rows, read-only in the database, backups
 their fixes). The calendar's share surfaces are BUILT on them 2026-11-13 —
 `cloud-share-surfaces-roadmap.md` §15, slices A–E and G: E1, E2, E3, E6
 and E7 done on the calendar, E4's alerts done and its presence deferred;
-the folders' surfaces (N1, N2) are that record's slice F, not built. R10
+the folders' surfaces (N1, N2) are that record's slice F, BUILT
+2026-11-13 → 14 with its finishing pass (§15 "Slice F" and the "After
+the final reviews" blocks; §16.9 says what a device proved), and P6 is
+built for the one thing that acts while the app is closed — an alert on
+something the partner shares follows their changes
+(`cloud-shared-freshness.md`; its relay is not deployed). R10
 DONE with the foundations: the two-guest saved suite `qa pass
 share`, green on two fleet guests against the emulator suite (pair, share
 an event and a folder, a later change, un-share, end the pair, delete the
-partner's account) — an account deleted while its pair is still active is
-not walked yet. R1 DONE 2026-11-13, run by the owner (§9): the database
+partner's account) — since 2026-11-14 twenty-seven flows, the folders' and the calendar's
+cases of the finishing pass among them, and its last one is an account
+deleted while its pair is still active, with a folder shared. R1 DONE 2026-11-13, run by the owner (§9): the database
 is in the European Union (`eur3`), the rules and indexes of `b1046f23`
 are live in it, and the notice's place is flipped in the tree
 (`CloudDataRegion.current`) — it reaches a phone with the next build. A
@@ -31,9 +37,10 @@ second account on one phone is accepted (R4, not built). Left to the
 owner: the build on every device (it carries the notice's new place and,
 since after the deploy of `b1046f23`'s rules only a build of that wire
 can pair, is what pairing needs too), the phone checks (§5.8, §6.1), and
-a second deploy once the rules of the share pass's finishing work are
-committed (the pair's `push` field and `config/push`,
-`cloud-shared-freshness.md` §9). Every other slice is PLAN: one row of §3,
+and the relay with its `config/push` document
+(`cloud-shared-freshness.md` §9) — the rules that carry the pair's
+`push` field and `config/push` are live since 2026-11-14.
+Every other slice is PLAN: one row of §3,
 with its own design section or record when it starts. The target is the
 owner's (§1).** Written from the
 investigation of 2026-11-10 at `14a1dc58`: two code sweeps, the cloud
@@ -139,8 +146,8 @@ build.
 | E5 | My partner may edit the events I share, when I allow it | L | yes |
 | **E6** | Share a whole category, future events included | M | optional — done |
 | **E7** | "New from my partner" — a notice inside the app | S | optional — done |
-| N1 | A folder I share shows on my partner's phone, read-only | L | yes |
-| N2 | Stopping a folder share takes it off my partner's phone | M | yes |
+| **N1** | A folder I share shows on my partner's phone, read-only | L | yes — done (`cloud-share-surfaces-roadmap.md` §15, slice F) |
+| **N2** | Stopping a folder share takes it off my partner's phone | M | yes — done, with N1 |
 | N3 | My partner may edit the notes I share, when I allow it | L | yes |
 | R1 | The database in the European Union — `eur3`, decided; the owner runs the move | S | yes — before the partner's data |
 | **R2** | The app says where synced data lives and who can read it | S | yes — done (§9) |
@@ -157,7 +164,7 @@ build.
 | P3 | Privacy policy, terms, the Play data-safety form | S | no |
 | P4 | Console checks: sign-in open to anyone, the Play signing fingerprint | S | no |
 | P5 | End-to-end encryption | L | no — a decision first |
-| P6 | Push: notified while the app is closed | M | no |
+| **P6** | Push: notified while the app is closed | M | no — built for alerts on shared events (`cloud-shared-freshness.md`); the relay waits for the owner's deploy |
 | P7 | More than one partner | L | no |
 
 **Thirty-one slices.** Sixteen are on the road to the target (D1, D2,
@@ -1335,7 +1342,9 @@ mark, E6, E7 (built for the calendar 2026-11-13, its §15; with a mock).
 One design record before N1, the folder half of the old Phase 03 — the
 same two as group E's: `cloud-sharing-foundations.md` (built) and
 `cloud-share-surfaces-roadmap.md` (the folder menu, the "From …" section,
-the read-only editor; PLAN, 2026-11-12).
+the read-only editor; BUILT 2026-11-13 → 14 — its §6.11–§6.13 are the
+spec, §15 "Slice F" and "After the final reviews" the truth). N1 and N2
+below are done as that record says; N3 is not started.
 
 - **N1 — A shared folder, read-only.** "Share with *partner*" on a folder
   shares its subtree; the partner sees folder, notes and text with an
@@ -1481,8 +1490,14 @@ the read-only editor; PLAN, 2026-11-12).
 - **P5 — End-to-end encryption.** A wire change and a re-upload of every
   space; with sharing, keys must pass between partners. A decision before
   it is a slice.
-- **P6 — Push.** FCM through the Cloudflare Worker of
-  `cloud-sync-connections-design.md`.
+- **P6 — Push.** Built 2026-11-13 → 14 as `cloud-shared-freshness.md`,
+  which replaces the push section of `cloud-sync-connections-design.md`:
+  a data message through a Cloudflare Worker in this repository
+  (`backend/push-relay/`) wakes the partner's phone to read what is
+  shared, and the phone also checks by itself, so alerts on shared
+  events follow changes while the app is closed. It notifies nobody —
+  the message carries no content and shows nothing. Nothing runs between
+  two real phones until the owner's steps of that record's §9.
 - **P7 — More than one partner.** The connections design.
 
 ---

@@ -71,11 +71,11 @@ become the phone's "next alarm".
 
 `packages/alarm/` is a copy of the pub package, referenced from `pubspec.yaml`
 as `alarm: {path: packages/alarm}` exactly like `re_editor`. It keeps the
-plugin's own Pigeon-generated bindings untouched: of its nine patches, seven
-are Android — six inside Kotlin files that generated code never references,
-and one (Patch 5) a single attribute of the library's manifest — and two
-(Patches 7 and 9) are in the plugin's Dart, in files the bindings do not
-generate.
+plugin's own Pigeon-generated bindings untouched: of its ten patches, eight
+touch Android — seven inside Kotlin files that generated code never
+references, and one (Patch 5) a single attribute of the library's manifest —
+and three touch the plugin's Dart (Patches 7 and 9, and the Dart half of
+Patch 10), in files the bindings do not generate.
 
 **Patch 1 — alarm-clock scheduling** (`android/src/main/kotlin/com/gdelataillade/alarm/services/AlarmScheduler.kt`, `setExactAlarm`):
 
@@ -207,6 +207,29 @@ was alive at the held alarm's instant) and cancelled the entry out of the
 queue; `_settlePastFires` now keeps every late row in flight while the
 gateway reports a ring in progress, and a late row is settled by the first
 pass with nothing ringing. Its C34.
+
+**Patch 10 — an engine that is not a presenter** (`alarm/AlarmPlugin.kt`,
+`lib/alarm.dart`, `lib/src/base_alarm.dart`, 2026-11-14; on both sides —
+shared freshness ruling 12, `cloud-shared-freshness.md` §12): the shared
+check runs in a background engine, and with no app alive that engine was
+the only one the host could report a ring to — its silence timer dying
+with it — while `Alarm.init()` re-set every stored future alarm each time a
+run started. `AlarmPlugin` now keeps `presents` per attached engine, true
+until that engine's own Dart says `resign` on a hand-written channel beside
+the generated bindings (`com.gdelataillade.alarm/presenter`), and sets
+resigned engines aside before `presenterOf` picks whom to tell
+(`presenters`). `Alarm.initWithoutPresenting()` says `resign`, opens the
+fork's storage and does nothing else: no `checkAlarm`, no trigger handlers,
+and no fallback timer (`Alarm.presents` gates it). So a ring, a stop and a
+host event reach the app's engine if one lives and otherwise nobody, exactly
+as in a process with no engine, while the run still sets and stops alarms.
+Pinned by `AlarmPluginTest` (four cases), `alarm_non_presenter_test.dart`
+and the app's `test/android/alarm_fork_test.dart`. Not yet seen on a device:
+that `resign` arrives before a ring can be reported, and that a ring during
+a run shows the alarm page from the dead-process path with its
+Silence-after intact. On the Windows machine `AlarmStorageTest` and
+`BootReceiverTest` fail on a DataStore file rename with and without this
+patch; `AlarmPluginTest` and the two compile tasks are the signal there.
 
 **App side of Patch 1.** The show intent is built inside the plugin from
 `packageManager.getLaunchIntentForPackage(packageName)` (explicit component,
@@ -1360,7 +1383,7 @@ Copy the parent's §9 rows and add:
 
 | Risk | Mitigation |
 | --- | --- |
-| A second forked plugin to carry | Nine small patches (§2: six Kotlin, one manifest attribute, two Dart), none touching generated bindings; the upstream PR for the first two is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` prints the diffstat and leaves the branch at the printed path) and needs only a logged-in `gh` to open. Since 2026-10-05 its first commit is no longer Patch 1 alone: it copies `AlarmService.kt` whole, which now carries all of Patch 6 and comments naming Patches 5 and 6 that would be false upstream — so since 2026-10-10 the script itself refuses any run that is not `--dry-run` while that file matches `RingWakeLock` or a "Patch 5)" / "Patch 6)" mention (the alert-surfaces record, §8, B8), and its header says what to do before opening the PR. Patches 3, 4 and 7 to 9 are in no commit of that script: each is upstream-worthy and would need a commit of its own before a merge could let the fork go. |
+| A second forked plugin to carry | Ten small patches (§2: seven Kotlin, one manifest attribute, two Dart, the tenth on both sides), none touching generated bindings; the upstream PR for the first two is prepared as `tool/upstream/alarm_pr.sh` (three commits over `v5.13.2`, the body included; `--dry-run` prints the diffstat and leaves the branch at the printed path) and needs only a logged-in `gh` to open. Since 2026-10-05 its first commit is no longer Patch 1 alone: it copies `AlarmService.kt` whole, which now carries all of Patch 6 and comments naming Patches 5 and 6 that would be false upstream — so since 2026-10-10 the script itself refuses any run that is not `--dry-run` while that file matches `RingWakeLock` or a "Patch 5)" / "Patch 6)" mention (the alert-surfaces record, §8, B8), and its header says what to do before opening the PR. Patches 3, 4 and 7 to 9 are in no commit of that script: each is upstream-worthy and would need a commit of its own before a merge could let the fork go. |
 | `setAlarmClock` on Android 12–13 without the exact-alarm permission | Same fallback as today (inexact); the permission page already explains and links it. |
 | OEM surfaces showing ANTA in their own alarm lists (Samsung Clock, some launchers) | Expected and correct — it *is* the phone's next alarm. The show intent makes the tap land somewhere sensible. |
 | Forty-eight alarm-clock entries | Only the soonest is ever shown; the count is unchanged from today and far under the 500 limit. |

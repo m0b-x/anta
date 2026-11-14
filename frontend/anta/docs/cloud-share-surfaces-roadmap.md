@@ -1,11 +1,14 @@
 # Share Surfaces — ANTA
 
-**Status: BUILT 2026-11-13, the calendar side — slices A, B, C, D, E and G
-COMMITTED (`6f6b8c62` A, `9bb22e4f` B, `da3a892b` C and E, `1e054564` D,
-`7cde4038` G; the closing reviews `3395137f` and `fa3af0ad`); §15 says
-what is built and is the truth over the plan above it. Scope on the
-owner's word of 2026-11-12: slices A–E and G; slice F (folders, the
-partner's notes) is not in this build.** The mock is
+**Status: BUILT 2026-11-12 → 14, whole — the calendar side (slices A, B,
+C, D, E and G: `6f6b8c62` A, `9bb22e4f` B, `da3a892b` C and E, `1e054564`
+D, `7cde4038` G; the closing reviews `3395137f` and `fa3af0ad`), then
+the finishing pass of §16: slice F (folders, the partner's notes), the
+filters and the alerts (H), the check with the app closed (I), the relay
+(J) and the debts (K), committed as they stood at the pause in
+`daa6d9c4`, and the fixes that answered the pass's final reviews and
+what the device found (`7803e07a`), which §16.9 accounts for. §15 says what is built and is the truth over the
+plan above it — a later block over an earlier one.** The mock is
 published (https://claude.ai/artifact/E5Zm8rPv5hGLk2V5fKphPt). Every
 decision is taken (§4): four are the owner's own words, the rest the
 lead's on his delegation of the same day ("make sure that the document is
@@ -2402,11 +2405,11 @@ code, seven from the look.
 
 - *A paired account with nothing shared yet had no "Share with {name}"
   after a cold start*: the look is read only when the census says
-  something is shared. The first folder menu or row sheet of a session
-  now asks once (`PartnerLookReader.resolve`, local reads only) and opens
-  with the entry already in place. An account that never paired is asked
-  once per database, at that first menu — nothing on launch, nothing on a
-  list build.
+  something is shared. The fix of that day asked once before the first
+  folder menu or row sheet opened; the final review found what that ask
+  cost (B3), and it is gone — the census's one statement now also says
+  whether this database is paired ("After the final reviews — the
+  browser and the Sharing page" below is the truth).
 - The share picker offers no recent destinations: a chip could confirm a
   folder that is already shared. In move and copy a shared folder's chip
   wears the sign; the partner's folders never appear.
@@ -2498,17 +2501,634 @@ its probe.
   rides the save event (`UpdateOptimizedNote.current`) to the service,
   which keeps its flags.
 
+### After the final reviews — the data path (2026-11-13 → 14)
+
+The final review of the folder-sharing data path (Fable, with probes)
+found seven defects no test caught, two of them privacy holes (§16.9,
+P1–P7); an eighth was found while they were fixed. One implementer built
+them, each test written first and seen red. Two Fable reviewers then read
+the fixes and found no path around them — and eighteen things, two of
+them real defects; a fix pass of two legs answered those. A closing
+review read that pass and found twelve more, none of them a loss; a
+third leg answered them. What follows is the result of all of it.
+
+**What a person gets.** What {name} un-shares, deletes or takes away with
+the pair leaves this phone whole: search finds nothing of it, and a copy
+of my database that I hand to someone names nothing of {name}'s and tells
+nothing of their days. What I delete on my other device stops being
+shared in the cloud too. And {name}'s phone drops what I take back at its
+next read, also when it could not read one of my documents. A copy of my
+own that I restore on another phone gets back from my space what the
+copy had to leave out — my alerts and marks on {name}'s events.
+
+**The pieces.**
+
+- **A partner's note leaves the search index with the note (P1).**
+  `NoteSearchDao.forgetNotes(ids)` deletes the notes' index rows — found
+  through the ledger, by rowid or by note id, so a row a VACUUM left under
+  an older rowid goes too — and then their ledger rows, in the caller's
+  transaction. `SharedRowDao._remove` calls it for the notes it is about
+  to remove, so `removeAbsent`, `removeAll` and `evict` all carry it. The
+  index first and the ledger last: a delete in the index that fails is
+  logged, does not roll the removal back, and leaves the ledger rows for
+  the indexer's own orphan sweep to find.
+- **A copy that leaves the phone carries no word of a note that is gone
+  (P1).** Two layers. The rows: `_stripShared` drops every ledger row that
+  belongs to no live note and every index row without a ledger row,
+  whether or not a shared owner is set — so the words of a note of my own
+  that I deleted, and that the indexer has not swept yet, do not travel
+  either. The bytes: the index is contentless-delete, so a deleted row's
+  terms stay in its segment blobs until they merge, and `VACUUM INTO`
+  copies blobs as they are. A copy of a database that **may have held
+  {name}'s words** therefore always has its index rebuilt (`optimize`)
+  and is vacuumed again. One statement decides "may have held": the
+  shared owner; the record `shared_ever_held` — "this database has had a
+  partner to read from", written when the reader first begins for one,
+  before any row is held, and again when a partner's rows are removed,
+  and never taken away; or, for a database that paired before that record
+  existed, any `pairing_` settings row — the one writer of the pairing
+  always writes `pairing_ended_notice_pending`. A database that never
+  paired, with its index in step, is still copied byte for byte.
+- **A partner's tombstone keeps none of their words (P4, P8)** — in all
+  six shared tables. When {name}'s row lands as a tombstone over a row
+  this phone holds, what it said is emptied and the row stays, because
+  the reader's count needs it:
+
+  | Table | Emptied | Kept |
+  | --- | --- | --- |
+  | `notes` | title, preview; chunks and search rows removed | id, folder, position, label, stamps, owner |
+  | `folders` | name → its id (the column refuses an empty one) | parent, order, mark, stamps |
+  | `calendar_events` | title, description | category and note ids, dates, the rule and its payload, flags, mark, stamps |
+  | `calendar_event_occurrences` | description | event id, day, stamps |
+  | `calendar_event_skips` | — (no text column) | event id, day, stamps |
+  | `calendar_categories` | name | colour, icon key, order, built-in flag, mark, stamps |
+
+  Ids, dates, a rule, a colour and an icon key are not words. A tombstone
+  followed by a live version of the same row has its words back. A
+  tombstone of my own space keeps everything, as before. **Tombstones
+  stored before this fix** are emptied once per database by the shared
+  reader, inside its own writing context (`SharedRowDao.emptyTombstones`);
+  whether that has run rides the one statement the reader already makes
+  for the waiting notes, so a quiet read costs what it cost.
+- **A handed-out copy names nothing of {name}'s and tells nothing of
+  their days (P6).** Beyond the rows:
+
+  | In the copy | Before | Now |
+  | --- | --- | --- |
+  | The location stack | {name}'s folder titles and ids | emptied whenever it names a folder or note the copy does not hold |
+  | `pairing_*` (pair id, both uids, {name}'s name, the invite code, the ended pair) | all of it | none |
+  | My alerts, presence marks, day rows and alert registrations on {name}'s events | kept — the days and times of their events | stripped |
+  | My counter values on {name}'s notes; `note_position_` and `money_note_currency_` of their notes | kept | stripped |
+  | Hidden categories, folder sorts, `share_sending`, the owed pokes | stripped only with a shared owner | always stripped |
+  | The notices a background check kept ({name}'s event titles and name) | kept | stripped |
+  | The reader's records (`shared_ever_held`, the sweep's mark) | — | stripped |
+  | The `sync_space_*` binding | mine | kept: a restore's heal reads it |
+  | The looks and the alert choice | mine | kept: choices of mine that name nobody |
+  | The pair id in the marks on **my own** rows | mine | kept: a mark is my row's state, and what a restore of my own copy goes on sharing by |
+  | {name}'s category ids inside my filters, saved views, digests and category alerts | mine | kept: a random id of a category the copy does not hold says no word, no time and no person, and each list drops it at its next store |
+
+  "Hangs on {name}'s row" is decided as "names an event or a note the
+  copy does not hold", so it also covers a pair that has ended. The live
+  database keeps all of it — a re-share finds my marks and alerts again;
+  the JSON export already left them out. The whole stack is emptied, not
+  pruned: a stack with a hole is a chain nobody walked, and where the
+  copy is opened the position is worth nothing.
+
+  **What the copy drops of mine comes back.** For each synced table the
+  strip took a hanging row from, the copy also forgets where that table's
+  pull stood (`pull_cursor.`, `pull_settled.`, `pull_seen.`). A restore
+  that keeps the binding then reads the table again from my space, and my
+  alerts, presence marks, day rows, skips and counter values on {name}'s
+  rows return — hanging, as on the phone the copy was made on, until the
+  reader brings their rows back. The scheduler's registrations and the
+  per-note settings are device-local and are not read back. An entry of
+  the outbox whose row the strip took pushes nothing: no document, no
+  delete.
+
+  **A database that never had a partner is not judged for hanging rows.**
+  What hangs on a row the copy does not hold, and a location stack that
+  names one, are looked for only where the database may have held
+  {name}'s rows. Anywhere else such a row is an orphan of my own — a
+  test alarm's registration, an alert pulled before its event, a key the
+  JSON import could not map — and travels as it always did: a
+  never-paired copy costs four reads at most and is byte for byte what
+  `VACUUM INTO` wrote. A test alarm's registration is never taken,
+  paired or not.
+- **A folder tombstone that arrives by merge un-shares what lies under it
+  in the cloud too (P2).** When a merged tombstone lands on a live local
+  folder that was shared, this device's **live** rows under it are queued
+  again, in the merge's transaction, and the pair is owed a normal poke
+  when there is one — before, my phone called those rows private while
+  their documents went on granting them. The other way too: a merge that
+  brings a buried folder back live queues its subtree again when the
+  folder is shared after. Whether any folder is marked rides the read of
+  the local row, so a database that shares nothing pays no statement for
+  it (three for such a merge, as before the fix).
+- **The poke for a note's move is owed in the DAO (P5)** — `moveNote`,
+  `moveNotes` and the re-file repair, each in its own transaction, as the
+  folders' writers always did. Whether any folder is marked rides a read
+  each path already makes, so a database that shares nothing pays no
+  statement more (pinned: seven for a move, as before). **A poke is never
+  sent under a pair that is no longer the active one**: an entry a stale
+  mark left for an ended pair is dropped unsent when pokes are sent. The
+  active pair is the one this phone's stored pairing names now
+  (`SharePartnerSource.localPairId`, no network) — it changes at the
+  moment of pairing, where the pair the shared read last found lags by a
+  read.
+- **One rule for a folder's new parent (P7)**, for `moveFolder` and for
+  `updateFolder` with a move: never into itself, a missing or deleted
+  target, or its own subtree — walked **up** from the target through
+  every row, deleted or not, so a folder stranded under a tombstone
+  cannot hide a cycle. A refused move writes nothing, a rename that came
+  with it included.
+- **The reader accounts for what it does not hold (P3).** A document this
+  phone has seen and does not hold — written by a newer build, unreadable,
+  a note waiting for its text, a row of {name}'s evicted for one of my
+  own — is recorded where the refused ones are, with a value of its own
+  (`u`): counted, never shown as "could not be shown", forgotten when the
+  row is held or when a read from the start no longer meets it. So "the
+  server's count equals what I account for" again means nothing left, and
+  a removal is seen at the next read instead of the next day. A document
+  is counted once whatever records name it — a shared built-in has a
+  record of its own, and counted twice it made every read walk that table
+  from the start for good. A refusal already recorded is never replaced
+  by "not held", and a document met again writes nothing. `countOf` is
+  one statement where it was two: a quiet read costs 277 statements where
+  it cost 283.
+
+**Decided in the build.**
+
+- The live database keeps a removed note's bytes in the index's segments
+  until they merge, as SQLite's free pages keep a deleted row's: nothing
+  of them can be searched and nothing leaves the phone.
+- Once a marked folder was deleted, `_derivePairs` costs eleven statements
+  more per drain (417 → 428 with fifty-one folders), three of them reads
+  of three columns of every folder. Kept: the derive path is the grant's
+  source of truth and the final review read it sound; a rare state does
+  not justify reopening it.
+- A folder **above** the marked one deleted on my other device leaves the
+  marked folder shared — both sides agree — and out of the browser's
+  reach until the existing repair lifts it to the root. Pinned as it is.
+- An evicted row is recorded as not held without asking whether it was
+  live; the next read that meets its document says what it really is.
+- A page that meets a document already recorded still runs its one
+  insert, which writes nothing.
+- With no pairing stored at all — a restored copy before its first
+  sign-in has answered — what is owed is sent as it was owed: the relay
+  refuses a pair the caller is not in.
+- A merged folder tombstone on a database that holds a mark costs what a
+  merged live folder there always cost, one read of the table's ids and
+  parents: five statements for the burial of a private folder, nine
+  inside a shared subtree with a live note under it; eight for a live
+  applied merge, five with no mark anywhere. Pinned.
+- The bulk move keeps a walk of its own — one for the whole selection —
+  equal to the single move's rule, and pinned to stay so.
+- A buried folder with only tombstones under it leaves the cloud granting
+  those tombstones: {name} holds them without words, and they leave when
+  the share ends.
+- A page of documents the reader skipped whose cursor did not move
+  records nothing: the gateway's cursor passes every document it lists
+  at the read that first meets it, and an overlap re-read meets them
+  again, already recorded.
+- `FolderStorageService.moveFolder` still checks the name in the target
+  before the rule is asked: it can only mis-answer for a move no surface
+  offers, and asking first would cost every folder move a read.
+
+### After the final reviews — the filters (2026-11-13 → 14)
+
+The second review of D29 confirmed three defects with a probe; a fourth
+was found while they were pinned. §16.3 says the rules; this is what was
+built.
+
+- **A pick changed to nothing is every category.** "Select none" over a
+  part of mine beside {name}'s group stored {name}'s group alone, and
+  over a category of theirs I had hidden it stored that id alone — an
+  agenda that showed nothing. `fromPicker` now answers the empty list for
+  a pick the person changed into one that ticks none of the listed rows.
+  A Done on a picker nobody touched is no such pick: it keeps what the
+  list meant — the first review's fix — and still writes a whole listed
+  group as its entry.
+- **One reader of a digest's list**, `CategoryAllowlist.forDigest`: a
+  report's own part alone, whatever its stored list still names. The
+  planner's scan, the scheduler's payload, the words and the editor's
+  store all read it. Found on the way: a report digest whose stored list
+  named only {name}'s group was never armed at all, because the planner
+  scanned by the raw list; and under "Category alerts too" a report's
+  span was kept alive by {name}'s events alone. The planner counts none
+  of their events for a report, whatever the setting.
+- **While no category is known nothing is claimed.** A list that holds
+  anything reads as in force, and a label reads "Categories" — never
+  "No categories", never a made-up count (`tickedCount`). For an account
+  that never paired this changes a label for the moment before the first
+  load: a plain list read "No categories" there and now reads its count.
+
+**After the independent review of that pass** (a property sweep over
+sixteen thousand picks; the fixes held, four things were open), a third
+round, each case seen red first:
+
+- **After the pair ends, "Select none" is every category.** With nothing
+  of a partner's known the store took its oldest path and kept
+  {name}'s old id alone — a list that shows nothing. The "changed to
+  nothing" answer now comes before every path.
+- **A Done nobody touched is no store, and {name}'s part changes only
+  when a row of theirs is changed** (§16.3): a look no longer turns a
+  part of their group into the whole of it once the left-out category is
+  hidden, no longer freezes their group into ids when one of theirs
+  arrives while the picker is open, and no longer collapses my group to
+  "all" over an archived category I had left out. `fromPicker` takes
+  what the picker showed when it opened (`CategoryAllowlist.opening`)
+  from each of its four callers.
+- **"Select all" is all**, with one of theirs hidden too, and with none
+  of theirs on offer — the first cut of this round lost the first, and
+  the reviewer's sweeps (a hundred and thirty thousand picks each,
+  catalogue changes during the pick among them, and ten thousand editor
+  cases) found both.
+- **A report digest's editor opens its picker on what its row says**
+  (`forDigest`) and stores the answer over the list as it is held: a
+  list that named {name}'s group alone read "Events" on the row and
+  opened with no row ticked; and their part is carried, so a switch back
+  to Upcoming in the same editing session finds it — the report's
+  reading is applied once, at the save.
+- **A saved view compared in the report is read as the report reads a
+  list** (`forReport`): a view of {name}'s group compared as "none of my
+  events".
+
+Kept as they are: a changed pick that ticks every listed row of mine is
+my whole group, also while an archived category was left out — older
+than sharing, and what "Select all" has always meant; an account that
+never paired stores exactly what it stored before the feature, an
+untouched Done included; a list that names only {name}'s ids reads "No
+categories" after the pair ends, and the report counts nothing by it —
+the filter was "only theirs", and theirs is gone; a category of mine
+that arrives from my other device while a picker is open and is not
+ticked stays out, as one made inside the picker does; "Select all" while
+one of theirs arrives mid-pick stores their part as the ids that were
+shown; and with a left-out category of theirs hidden, a list can show
+every row ticked and still be a filter until a pick changes it ("Select
+none" clears it).
+
+### After the final reviews — no alert goes off unsaid (2026-11-13 → 14)
+
+The second review of D30 found five gaps; D38 was decided beside them.
+
+- **One rule for "armed"**: a pending registration whose time is still
+  ahead (`AlertRegistrationDao.armedEventIds`). The confirmation's count
+  and the leave notice both say by it, so an alert that already rang is
+  never said to go off (A18).
+- **An arrival undone before it could be said is dropped**, at the moment
+  it would be said: a category asked of `partnerSharesCategories` — the
+  catalogue answers for {name}'s own, and one read of the shared
+  built-ins for a built-in of mine, which the catalogue holds as my own
+  row either way — and an event of the calendar. Nothing left, nothing
+  said; never "{name} shares Other with you".
+- **A held hide bar** keeps to the database it was made in, and is
+  dropped when the category shows again before it could be said.
+- **The confirmation's wait has one deadline.** It already had: the outer
+  bound wraps both reads. The finding was a misreading, and the claim is
+  now a test.
+- **What may ring belongs to the pair (D38).** Adopting another pair puts
+  "Alerts for shared events" back at "Only alerts I add", whatever stood
+  — "Off" included: each pair chooses again, and under that choice
+  nothing rings that the person did not add themselves. The choice is
+  written **in the pair's own write** — both or neither
+  (`SettingsService.setPairingSettings(startAlertsAt:)`): a pair can
+  never be stored with the old pair's choice standing, and a write that
+  fails fails the adoption, which the next reconcile tries again. After
+  a reset that changed the value the alert pass a change by hand runs is
+  run, so nothing armed under the old choice outlives it. **The same
+  pair found again keeps its choice**: the last pair this database was
+  in is remembered (`pairing_last_pair`, a pairing row like the others —
+  in no export, in no handed-out copy), so a pair lost locally while the
+  server could not be asked, and adopted again under the same id, is not
+  "another pair" — or a glitch would silently take "Category alerts too"
+  away. A real re-pair, with the same person too, has a new id and
+  resets. A database whose pairing was forgotten in between — a restore,
+  another account signed in — counts as another pair.
+
+**After the independent review of those fixes** (five ordering defects in
+the listener, each reproduced by a probe; a run's kept notices hidden
+from a live app; the reset not atomic with the pair), a second leg:
+
+- **A bar names only arrivals it has just asked about.** What lands
+  while the check waits stays held for a turn of its own, which checks
+  it — never one bar that mixes checked and unchecked arrivals.
+- **No wait before a bar is unbounded** (`shareNoticeCheckLimit`, three
+  seconds each). A leave needs only the share service; an arrival's
+  check that does not answer is skipped and the arrival said as held —
+  a check can cost an undone arrival being said, never a leave. The
+  listener's turn is released on every path.
+- **"Dealt with" lasts as long as the store's forget, and no longer.** A
+  kept notice said once is said again when a later run keeps the same id
+  anew; a notice said live has its kept copy forgotten unsaid.
+- **A notice belongs to the opening of the database it was made or read
+  under** — kept, live, or a hide, which is stamped at the act. A switch
+  during a read drops the result and forgets nothing in the other
+  database's store.
+- **A notice a run kept behind a live app is seen.** Where a run can
+  exist the list of databases that keep notices is read from the
+  platform's store, not from this isolate's copy, at start and at each
+  return; and after a catch-up (the freshness record's H2) the listener
+  reads again at once. An install where no run can exist makes no
+  platform call, runs no statement and looks for no file.
+- **Leaves under different names are separate bars**, oldest first; a
+  kept leave carries its own name.
+- **An arrival in a category hidden on this phone is dropped unsaid**: a
+  person is not told of an event they chose not to see.
+
+### After the final reviews — the browser and the Sharing page (2026-11-13 → 14)
+
+The final review of the browser and the Sharing page found seven things
+(§16.9, B1–B7), two of them reproduced; a pass of pins the outage had cut
+was finished first. One worktree, the implementers one after another;
+each fix has a test seen red, or shown able to fail by a mutation that
+was then restored byte for byte. An independent code review of those
+fixes then confirmed all seven and found two things more — a stack of
+pages where a share ending said nothing, and a search that outlived a
+database switch — and a further leg answered them.
+
+**What a person gets.** A partner's folder never opens writable, by any
+door, for any frame. When a share ends under me one bar says so,
+whichever page I am on. The ⋮ button of a folder page is the button it
+always was — its ripple, its tooltip, its badge — and opens on one tap,
+paired or not. A failure is said once, by the sheet that asked. The share
+picker's search knows what is shared now.
+
+**The pieces.**
+
+- **One voice when a share ends — decided by who leaves.** One leave
+  says one bar: the front-most page that leaves says it, and a leave
+  under pages that all stay is said at once, over them
+  (`ShareLeaveVoice`). Every folder page and editor takes its place as it
+  opens and hands the voice a probe — "is my own row gone?", the same
+  predicate it closes by. A page's leave is silent only when a page in
+  front of it leaves too: it has already spoken, is still asking, or its
+  probe says gone. The probe is asked only at a leave, after the sync
+  run's hooks, when every removal of that run is in the database; one
+  that throws counts as "stays" — two bars are better than none. A page
+  that never learned whose its row was — an editor opened over cold
+  caches — says the share's words when a leave under it was silenced for
+  it, never "deleted on another device". A page of mine in front that
+  loses its own row in the same run speaks in its own words. The registry
+  is emptied when the database switches, and a page that spoke closes by
+  pops and removals no `PopScope` can refuse. The first form of this rule
+  silenced a leave whenever a page *known to be {name}'s* stood in front;
+  its review found the stack where that page stays — {name}'s folder, a
+  page of mine, their other folder still shared — and nothing was ever
+  said. An account that never paired pays one list entry and one closure
+  per open page: no read, no notify, no rebuild.
+- **The editor's return asks the database nothing about notes, folders or
+  sharing** — only the settings re-read that lets a setting edited above
+  apply on the way back. Pinned over a counted twin of the database file
+  (`openCountedTwin`, test support).
+- **A share act across a database switch writes nothing.** The folder
+  menu's toggle checked the switch only after the write; a switch while
+  the share service resolved handed back the new database's service and
+  the act went into it. The fence now stands before the write too.
+- **A look read that fails no longer blanks the page (B1); a share
+  service that cannot be built is not asked once per frame (B2).**
+  `PartnerLookReader`: the first failed read ends the hold, the hold is
+  bounded at two seconds (`AppConstants.partnerLookHoldLimit`), and a
+  failed start is tried again only by something outside the reader — a
+  start under the same asker, pairing and database is a no-op. And the
+  hold no longer blanks anything: while the look is out the page draws
+  its bar — back, search, ⋮ — and leaves out only the partner line and
+  the rows, which then appear under a bar that does not move. Every
+  writing entry is off there (the page is read-only), so nothing can be
+  done wrong in those two seconds.
+- **The ⋮ button asks nothing before it opens (B3).** The overlay
+  (`_OpensWhenReady`), the pre-open ask and `PartnerLookReader.resolve`
+  are gone. The share census's one statement also reads the stored pair
+  id (`ShareSnapshot.paired`); a pairing write that changes the stored
+  pair id forgets the census — only that, not a name refresh or a
+  dismissed notice (`PairingService.writes`, a static relay — no hook of
+  the container can see an instance the pairing bloc or the sync hooks
+  built before its first write); a page starts its look reader from that. No statement
+  more for anyone, pinned in `query_count_test`; an account that never
+  paired builds no share service and has the exact button of before the
+  feature. On a cold process a paired account's first folder page shows
+  the share entry a few milliseconds after its first frame, when the
+  share service answers.
+- **A share act reaches the picker's search (B4), and the search follows
+  the database.** `FolderNameIndex` is marked dirty by
+  `FolderRepository.shareFactsChanged`. Lazy: nothing is read until the
+  next search. Both repositories' share-facts streams are one helper
+  (`ShareCensus.forgottenAcross`): resubscribed when the database is
+  rebound, and the rebind itself told as a forget — so after a switch the
+  pickers no longer search the previous database's folder names (older
+  than this pass, found by its review), and a page that outlives a switch
+  still hears the new database's census. A build of the index that a
+  dirty mark overtook does not publish.
+- **One height for the picker's reason (B5).** In the share pick the
+  slot under the path is always there, searching included — the button
+  still confirms the folder the crumbs are in — and is laid out for two
+  lines (`FormCaptionSlot`); a longer reason is cut with an ellipsis, the
+  crumbs carry the name in full and the semantics read the whole line.
+  The literal sizes became role-named metrics on `FormMetrics`:
+  `pickerReasonPadding`, `pickerReasonLines`, `pickerChevronSize`,
+  `buttonGlyphSize`, `menuRowGap`.
+- **An outcome belongs to the sheet that asked (B6).** A share act
+  carries its asker (`ShareActEvent.asker`, by identity, outside the
+  event's equality) and its outcome names it; a sheet answers only its
+  own, and the Sharing page speaks for every act no sheet asked for —
+  its own, and an Undo tapped after its sheet had gone, whose failure
+  used to go unsaid while another list sheet was open.
+- **Smaller (B7).** One reload per share act — the census's forget
+  reloads the page, the act no longer does it a second time, so the page
+  that acted shows the sign after the same 120 ms as every other open
+  page. A disabled action of a row sheet is one node, a button that is
+  off. The Sharing page holds only the route its opener really pushed
+  (the top route before against after). And **the cold door**: the
+  folder cache outlives the census, which many ordinary events let go,
+  so a way back to {name}'s folder when it was not on the stack — a
+  restored note, a chain of wiki links — could open it writable. Every
+  door that reads the folder now hands over whose it is
+  (`AppNavigator.popToFolder` / `popToAncestor`, the replacement page,
+  the launch restore).
+
+**Checked and found sound, now pinned:** the picker's path row four long
+German names deep at text scale 2.0 in all three picks; a partner's
+folder page four long names deep at 2.0 (the bar's eyebrow, title and
+line keep their order and clear the toolbar).
+
+**After the second design review** (the editor, the Sharing page and the
+Linked note row judged whole; round one's findings rechecked, with real
+fonts at 360 wide, light and dark, 1.0 / 1.3 / 2.0):
+
+- **No label of the two ⋮ menus is cut at German, text scale 2.0.** A
+  label wraps, three lines at most (`FormMetrics.menuLabelLines` — "In
+  meine Notizen kopieren" needs three in the room a 2.0 menu leaves), and
+  a row with a value — a note's folder, the folder menu's Sort — puts the
+  value under its label when both do not fit. At 1.0 every row is the 44
+  dp it was; at 1.3 the rows that used to be cut now wrap and grow.
+- **The picker's reason says why first** — "Already shared: {folder}", a
+  key of its own — so a long name is what the two lines cut, not the
+  reason; the two snackbars keep the sentence. While searching the slot
+  keeps its height and says nothing: the crumbs it would speak of are
+  hidden, and each result carries its own reason.
+- **The picker's title cannot starve its list**: clamped like every kit
+  dialog's (`FormMetrics.dialogTitleMaxTextScale`). At German 2.0 the
+  share pick's list held one whole row; it holds three, the move and
+  copy picks four.
+- **The Linked note row stands from the first frame**, empty and inert
+  while its title loads, so the sheet's top does not jump when it lands.
+  A link to a note that is not shared still removes the row once.
+- **The editor names {name} from its first frame** where the pairing is
+  already known in memory — it used to say "your partner" and then the
+  name.
+
+**After the re-check of the last two legs** (the same reviewer; the
+stack that said nothing and the index that served another database were
+closed, five narrower findings were not — all closed since):
+
+- **A probe that never answers holds nothing.** A leave asks every page
+  in front of it "is your row gone too?"; each ask is bounded by a second
+  (`AppConstants.shareLeaveProbeLimit`) and a probe that has not answered
+  counts as "stays", like one that throws. A read that stalled used to
+  leave that leave pending for good, its page counted as leaving, and
+  every later leave under it silenced.
+- **A leave speaks only for the database it began under.** It takes the
+  database generation when it begins; moved by the time the asks return —
+  a switch, a restore — nothing is said over the new database.
+- **A search never answers from an emptied index.** A build the
+  generation overtook is run once more; overtaken a second time in a row
+  the search serves what the last build read rather than "no folders" —
+  at worst, for one keystroke, the names of the database that just
+  closed.
+- **The Linked note row cannot be left empty and inert**: a tap that
+  finds the note gone while a re-read is in flight clears the loading
+  mark with the note, and the row goes.
+- `shareFolderAlready` is the sentence it was ("{folder} is already
+  shared") for the two snackbars and a search result's subtitle; the
+  picker's reason slot reads `pickShareAlready`.
+
+Kept as they are, by ruling: two bars rather than none when a probe
+throws; an editor disposed before its folder's leave lands; a ⋮ row
+with a value that grows at 1.0 when the label and a long value do not
+fit (it used to overflow or cut); the confirm button off with no reason
+beside it while searching — each result says its own.
+
+**After the last review** (an independent read of that leg, then a
+verification of what answered it; nothing severe):
+
+- **One bar, whoever closes what while a leave asks.** A leave is
+  silenced only by a page in front that has left or is still there to
+  leave, and is said after all when none of them is left to speak. Four
+  sequences ended wrong and are that one rule now. A page that left
+  stays counted while any leave is still asking: the note that spoke and
+  was disposed before the folder's ask ended cost a second bar. A
+  probe's "gone" counts only for a page still open when the answers are
+  used: one the person closed meanwhile will never speak, and the folder
+  under it said nothing. A leave silenced for a page that then goes
+  without leaving — popped by the person before its own leave landed —
+  is kept with that page and said after all, once, in the words it had,
+  never across a database switch. And with three pages open — an outer
+  folder, a folder, a note — the kept leave moves on to the next page
+  that silenced it before it is said, so the folder speaks once where
+  the outer folder and the folder each spoke.
+- **A tap on the Linked note row opens only what the event links now.**
+  While a re-link's lookup is out the row still shows the old note: a
+  tap then opens nothing, and a tap whose own read returns after the
+  re-link changes nothing of the row. The leg before removed the row
+  there although the event linked a note that exists.
+- **The picker's search never serves another database's names, nor an
+  older read**: whatever the index holds — published or the fallback —
+  is stamped with the repository binding it was read under
+  (`FolderRepository.bindings`, a count of rebinds) and the order it
+  was read in, and is not served under another. The database generation
+  could not be that stamp: it moves when a switch begins, before the
+  repository is rebound, so a build in between was stamped new and read
+  old.
+- **A share pick whose folder is gone by then says the change failed**;
+  it used to close in silence.
+- The editor's partner group no longer passes by margin
+  (`ShareLeaveVoice.probeLimit`, set long where a suite's fake clock
+  outruns real reads); `shareFolderAlready`'s description names its
+  three readers.
+- **Identifiers for the device flows** — nothing a person sees, hears
+  or taps changed: the folder page's ⋮ (`folder-more`), the entries of
+  a note row's and a folder row's long-press sheet (`row-action-…`),
+  the folder picker's search field, confirm, cancel, up arrow and rows
+  (`folder-picker-…`), the editor ⋮'s folder entry
+  (`editor-menu-folder`). The device pass had tapped these by screen
+  coordinates, which no flow in the repository does.
+
+Kept, by ruling: a probe that answers "gone" after its bound, whose page
+then leaves, gives two bars — the bound's price; a rename of the open
+database, or a failed download that switches out and back, moves the
+database generation though what the person sees does not change — a
+leave asking in that instant says nothing; an editor whose row went
+and which keeps the typed text as a new note never leaves, so a leave
+kept with it is said when the person closes it — late, and still true.
+
+Kept by the lead, **open for the owner**: the share sign beside a note's
+title in the editor's bar costs a title of seven to nine characters its
+last letters (the bar leaves the title 75 dp; the sign and its gap take
+22). It stays, because it is the one cue on that screen that {name} can
+read what is being written; the option not taken is a sign that yields
+to a short title. Recorded: the read-only line is 123 dp tall at German
+2.0 with a long name (as specified); the share entry is taller than the
+spec measured and cuts nothing; `FormPickerRow` carries no button flag —
+an app-wide primitive, not this pass's.
+
+### Found on a device (2026-11-14)
+
+The pass's own device flows found five things no suite had, each fixed
+where it was and proven on the guests again:
+
+- **A QA build's run without the app could not start** — a fix leg had
+  put the alarm-presenter resign ahead of the QA build's preference
+  namespacing, which the plugin refuses once the preferences were
+  opened. Production was never affected; the device proof of the whole
+  check was red. `cloud-shared-freshness.md` §12, "Found by the device
+  pass", has the cause and the rule it leaves.
+- **A share mark outlived its pair in the app's own lists** (D39, §16.2).
+  As built: `SettingsService.setPairingSettings(…, clearMarksOfOtherPairs:)`
+  clears them inside the pairing's own transaction
+  (`FolderDao.clearSharesExcept(pairId)`, after one statement that says
+  whether any mark stands), `PairingService` asks for it at every
+  adoption of a pair other than the cached one, and
+  `ShareService.afterMarksClearedElsewhere` tells the folder cache, the
+  event and category caches and the calendar — with or without a share
+  service built, since the calendar and the folders hold their flags
+  without one. An adoption with no mark is one statement; the same pair
+  again asks nothing.
+- **"Sharing ended" named nobody** when the partner had deleted their
+  account while paired: `" ended sharing. …"`. A blank name is no name
+  now, decided where the state is made (`PairingEnded.from`), and the
+  Sync page's line and its notice choose their words in one place — "Your
+  partner ended sharing. …". Older than this pass; the case had not been
+  walked on a device before.
+- **Leftovers that read as a regression.** A pass that aborts leaves
+  alerts armed on a guest, and one kind the QA reset's quiet could not
+  reach: an alarm named only by its notice, or held in the alarm
+  plugin's own list with a payload the alert tier does not read. It
+  stayed armed through every reset, a reinstall and a cold boot — the
+  plugin arms what its own store holds — so every later pass on that
+  guest went red wherever a flow expected none armed, on a build that
+  armed nothing. The tell: the pair was already armed right after
+  pairing on a fresh suite, in a pass that had armed nothing yet. The QA
+  quiet now reads the pending notices and the plugin's own list too
+  (`lib/core/qa/qa_alert_quiet.dart`, QA builds only), and the harness
+  has a plugin-level recovery for a guest that already holds such an
+  entry (`qa platform-alerts --native`, fleet guests only).
+- **The harness** — every verb on a guest took seconds after a work had
+  started that guest's process (the connection fell to adb), and a
+  control with no identifier could only be tapped by its coordinates.
+  The harness finds a process no launch started, an `id:` target may end
+  in `*` for an id keyed by a row minted at import, and the folders'
+  surfaces carry identifiers (the browser block above).
+
 ---
 
 ## 16. The finishing pass (2026-11-13)
 
-**Status: BUILT AND PAUSED 2026-11-13, not committed.** The tree holds
-slices F, H, I, J and K as §15 says, with analyze clean, the whole suite
-green and the rules suite green on it. The pass's final reviews then
-found more; their findings are decided (D38, §16.3, §16.4) but only
-partly built, and none of that is in the tree. **§16.9 lists every open
-item** — read it before trusting a sentence of §16.2–§16.4 as built. §15
-is the truth for what the tree does.
+**Status: BUILT AND REVIEWED 2026-11-13 → 14.** Slices F, H, I, J and K
+were built and committed at the pause (`daa6d9c4`). The pass's final
+reviews then found more; every finding is decided (D38, §16.3, §16.4)
+and built, each stream read again by a reviewer who had not built it
+until its findings ran out. **§16.9 says where each finding was closed,
+what was proven on a device and what stays open** — for the owner, or
+for two real phones. §15 is the truth for what the tree does.
 
 ### 16.1 Scope — the owner's words
 
@@ -2540,7 +3160,8 @@ taken is named so it can be chosen instead.
 | D35 | **Who ended the pair is known** (`PairRecord.endedBy`): the leave notice names {name} when they ended it and is not said when I did (D30). | "Your partner no longer shares…" after my own Unpair was wrong twice. | Lead |
 | D36 | **R9 stays** — an event shared alone from a category that is not shared draws as Other. | The fix sends that category's name, colour and icon with the event; a person who shares one appointment has not said the name of its category may travel. It errs private until the owner says otherwise (§13). | Lead |
 | D37 | **A partner's folders are opened from the Sharing page** by a tap on their row; my shared folders are stopped there with ✕ and added with "Share a folder". | The same list shape as the events' (§6.2), with the tap D33 gives events. | Lead |
-| D38 | **What may ring belongs to the pair.** "Only alerts I add" / "Category alerts too" goes back to the shipped choice when another pair is adopted; the same pair adopted again — a reconcile at launch — keeps it. | Found by the pass's final review: the choice was stored with the database and outlived the pair, so "Category alerts too", chosen for one person, armed my alerts on a built-in the next person shares without my having chosen that for them — against S7 ("nothing is carried over; each chooses again") and against "nothing arms that the person did not ask for". What shows already went with the rows. Not taken: keeping it as a setting of the app — quieter to build, and wrong the first time it rings for someone I never chose it for. | Lead |
+| D38 | **What may ring belongs to the pair.** "Alerts for shared events" goes back to the shipped choice, "Only alerts I add", when another pair is adopted — from "Category alerts too" and from "Off" alike; the same pair adopted again — a reconcile at launch, or a pair lost locally and found again under the same id — keeps it. | Found by the pass's final review: the choice was stored with the database and outlived the pair, so "Category alerts too", chosen for one person, armed my alerts on a built-in the next person shares without my having chosen that for them — against S7 ("nothing is carried over; each chooses again") and against "nothing arms that the person did not ask for". What shows already went with the rows. Not taken: keeping it as a setting of the app — quieter to build, and wrong the first time it rings for someone I never chose it for. **Open for the owner — "Off":** it is reset too, so the alerts I add on the new partner's events ring; not taken: keeping "Off" across pairs, under which those alerts would stay silent by a choice made for someone else. | Lead |
+| D39 | **A mark of another pair is never a share.** When the stored pair becomes another pair, every share mark set under any other pair — on folders, events and categories — is cleared in the write that stores the new one: stamped and queued, so those rows are sent private by the next drain, and every cache that holds a share flag is told. Not at an unpair and not while the pair is merely lost locally: there the shared reader clears, when the server says there is no pair, and the same pair found again keeps its marks. | Found on a device by this pass's own flows: after "un-pair, pair again" a folder shared under the ended pair read "Shared with {name}" at once, and a tap on it "stopped" a share nobody had made — against S7 ("nothing is carried over; each chooses again"). The wire was sound and was checked first: a stale mark names the ended pair, which nobody can read, and no path writes the new pair's id from it. But every list of the app's own — the browser's census, the event's and the category's switch, the Sharing page — asked only whether a mark stood, never whose, until the new pair's first shared read cleared it: seconds, or as long as the phone stayed offline. Not taken: teaching each reader to compare the mark with the stored pair — five readers and every one after them; the write makes the stale state not exist. | Lead |
 
 ### 16.3 The allowlist, exactly (D29)
 
@@ -2570,14 +3191,51 @@ compares ids by itself any more.
   hidden here; it filters again when one is listed.
 - **A saved view syncs** with its entries as two more strings of the same
   list; nothing else about its payload changes.
-- **Nothing ticked is every category.** A pick that ticks none of the
-  rows the picker listed stores the empty list, whatever the list carried
-  for rows it could not show — a hidden category's id, the other group's
-  entry. A carried part rides along only with a pick that ticks something.
+- **A pick changed to nothing is every category.** A pick the person
+  changed into one that ticks none of the rows the picker listed —
+  "Select none", or the last row un-ticked — stores the empty list,
+  whatever the list carried for rows it could not show: a hidden
+  category's id, the other group's entry, the id of a category that is
+  gone (the picker hands back what it has no row for). A carried part
+  rides along only with a pick that ticks something. This holds for an
+  account that never paired too — the one case where it stores other
+  bytes than before the feature: a list holding a deleted category's id,
+  "Select none", stored that id alone and showed nothing.
+- **A Done on a picker nobody touched is no store.** Each sheet hands the
+  store what its picker showed when it opened — the rows listed and the
+  rows ticked (`CategoryAllowlist.opening`) — so "untouched" is judged
+  against what the person saw, not against a catalogue that moved
+  meanwhile. An answer equal to what opened, with no row that was not
+  there at the opening, gives the list back as it is: never widened,
+  narrowed or rewritten by a look. {name}'s group alone, opened where
+  this picker cannot list it, stays {name}'s group alone — reading "No
+  categories" there, and meaning theirs again once the setting lists
+  them. The one Done that changes no tick and still stores is the one
+  after a category was made inside the picker and left un-ticked: it
+  stays out, as it always did.
+- **A pick changed into every row on offer is every category** — the
+  empty list: "Select all" means all, also while a category of {name}'s
+  is hidden on this phone, and where none of theirs is on offer at all
+  (every one hidden, or a surface that lists none). It is the one place
+  a part of theirs the picker could not show is not carried.
+- **{name}'s part changes only when a row of theirs is changed.** Only
+  they can add to their group, so while no row of theirs was touched the
+  list keeps exactly what it held of them — the whole group where it held
+  the whole group, the same ids otherwise: a category of theirs that
+  arrives while the picker is open is not left out by a pick nobody made,
+  and one I had left out and hidden since is not taken in by ticking the
+  rows beside it. Once a row of theirs is changed, every row of theirs on
+  offer ticked is their group, and a part is its ticked ids beside the
+  hidden ones the list held. My own group is read from the answer as it
+  came: whole, it is its entry; a category I make inside the picker and
+  leave un-ticked stays out.
 - **A report holds no part of {name}'s** (the report's D15): `forReport`
-  is applied where a list reaches a report — the page, a report digest at
-  its store and again where the scheduler reads it, since a list can
-  arrive from my other device.
+  is applied where a list reaches a report — the page, a saved view the
+  report compares with, and for a report digest at its store, where the
+  planner scans its span, where the scheduler folds and names it and
+  where its editor opens its picker (`forDigest`, one reader for all of
+  them), since a list can arrive from my other device. Their events never
+  keep a report's span alive, whatever "Alerts for shared events" says.
 - **While no category is known at all** — the moment after a database
   switch, before the first load — a list that holds an entry reads as in
   force, as `admits` treats it: nothing is claimed about what it covers.
@@ -2589,9 +3247,10 @@ compares ids by itself any more.
 - **A list stored by the builds of 12–13 November stays the list it was.**
   Those builds stored "only mine" as that day's ids. No migration: a list
   cannot say whether it was meant as "all of mine", and those builds ran
-  on the development phones alone. Opening that filter and pressing Done
-  once stores the group — unless a category was made in between, which
-  then shows un-ticked and is ticked by hand.
+  on the development phones alone. Such a list becomes the group at the
+  first pick that changes it and leaves every row of that group ticked —
+  un-tick one row, Done, tick it again, Done; a Done on it untouched
+  stores nothing, like every untouched Done.
 
 ### 16.4 Cases added to §8
 
@@ -2717,76 +3376,115 @@ Not taken — **fj** (both folder sheets inside `share_events_sheets.dart`):
 the frame the list sheets share moves to a file of its own and the folder
 sheets get theirs, so no file named for events holds folders.
 
-### 16.9 Open at the pause (2026-11-13)
+### 16.9 After the pause — where every open item went (2026-11-14)
 
-The session was cut by an outage while eight agents worked; the owner
-said to stop and resume later. The tree was left at the last state that
-passed the whole gate. Everything below is **not in the tree**. Work that
-had been started is saved as patches outside the repository
-(`C:\Users\mobx3\.claude\projects\d--Alex-Programare-repos-anta\handover-2026-11-13\`,
-with a README that gives the order); each patch is unfinished and
-unverified — read it, do not apply it blind.
+The session of 2026-11-13 was cut by an outage while eight agents
+worked. The owner committed the tree as it stood at the last whole gate
+(`daa6d9c4`) and asked for the pass to be finished: "Quality is the
+focus", at most three agents at a time, no commit, push or deploy. This
+section listed every item open at that pause. All of them are closed,
+and the table says where each is written down as built. The fixes are in
+the tree on top of `daa6d9c4`, COMMITTED `7803e07a`.
 
-**Found by the final review of the data path (Fable, probes) — nothing
-started.** Two are privacy holes.
-
-| # | What is wrong | Where | The fix decided |
-| --- | --- | --- | --- |
-| P1 | A partner's note text stays in the search index after the note is removed, and leaves the phone in "Share database". | `SharedRowDao._remove` (`shared_row_dao.dart:743`), `DatabaseManager._stripShared` (`database_manager.dart:884`) | Every removal of a partner's note removes its search rows in the same transaction; a copy that leaves drops every index and ledger row that belongs to no note, shared owner or not. |
-| P2 | A folder tombstone merged from my other device ends the grant of the live rows under it; nothing re-sends them, so my phone says private while the cloud still grants them. | `folder_dao.dart:1664` (`if (!live) return outcome;`) | A merged folder tombstone re-queues this device's rows under it and owes the pair a poke, in the merge's transaction. |
-| P3 | The partner's phone misses a removal for up to a day when the giver holds any document it knows of and does not hold (a newer wire, a note waiting for its text, a malformed one, an evicted one). | `sync_shared_reader.dart:444`, `SharedRowDao.countOf` | The count is compared with everything the phone can account for: such documents are recorded by key like the refused ones. |
-| P4 | A partner's deleted note keeps its title and preview here while its tombstone stays granted. | `note_dao.dart:1050` | A partner's tombstone holds no content: title, preview, search rows emptied when it lands. |
-| P5 | The poke for a note's move is owed by the service, outside the move's transaction. | `note_storage_service.dart:649, 662` | Owed in the DAO's transaction, like the folders'; nothing for a database that shares nothing. |
-| P6 | A copy that leaves the phone can still name the partner: the location stack holds folder titles; unchecked — the pairing keys, the kept notices, the looks. | `_stripShared`, `last_location_stack` | The copy names nothing of the partner's; each of those checked and stripped. |
-| P7 | `updateFolder` with a move checks neither a live target nor a descendant. | `folder_dao.dart:429` | One rule for both doors, as `moveFolder` has. |
-
-**Found by the review of the browser and the Sharing page — nothing
-started.** B1 and B2 were reproduced.
-
-| # | What is wrong | The fix decided |
+| Open at the pause | Closed in | Read by |
 | --- | --- | --- |
-| B1 | A look read that fails leaves a partner's folder page on a blank ground for good (`partner_look_reader.dart:151`, `pending`). | The first failed read ends the hold; the hold is bounded. |
-| B2 | When the share service cannot be built the folder page retries once per frame (`start()` from the builder, re-armed by the reader's own notify). | A failed start is tried again only by something outside the reader. |
-| B3 | The ⋮ button's pre-open ask (`_OpensWhenReady`, `folder_overflow_menu.dart`) changes an account that never paired: no ripple, no tooltip, the badge out of semantics — and can leave the menu dead when the ask never answers, or open it over a page that is leaving. | **The overlay and the ask go.** The share census's one statement also answers "is this database paired" (the pairing key, in the same statement; forgotten when the pairing is written); a page starts its look reader from that. No new statement for anyone, today's exact tree for an account that never paired. |
-| B4 | The share picker's search reads a `FolderNameIndex` that a share act never marks dirty: it can offer a folder that is already shared and refuse one that no longer is. | A share act reaches the index. |
-| B5 | The picker's "already shared" slot is as tall as the current folder's name and disappears while searching; four literal sizes in the new menu and picker code. | One height; role-named metrics. |
-| B6 | A list sheet reopened at once after a dismissal with an act running can take the old act's outcome for its own (`share_list_frame.dart:66`). | An outcome belongs to the sheet that asked. |
-| B7 | Smaller: a share act reloads the page twice; a disabled sheet tile without an identifier may not be its own node; `_opened` trusts that a route is pushed synchronously; a cold folder cache can still open a partner's page writable for a frame. | Each pinned, then fixed. |
+| The data path — P1 a partner's note text left in the search index and in "Share database", P2 a merged folder tombstone ending a grant unsaid, P3 a removal missed for a day, P4 a tombstone keeping title and preview, P5 a move's poke outside its transaction, P6 a copy that leaves naming the partner, P7 `updateFolder`'s move unchecked | §15 "After the final reviews — the data path" | a Fable reviewer in three parts, then a closing review of the fixes and a last leg on what it found |
+| The browser and the Sharing page — B1 a failed look read leaving a blank page, B2 a retry per frame, B3 the ⋮ button's pre-open ask, B4 the picker's stale search, B5 the reason slot's height and literal sizes, B6 an outcome taken by the wrong sheet, B7 the smaller four | §15 "After the final reviews — the browser and the Sharing page" | a reviewer four times (the fixes, the re-check, the last leg, a verification of what answered it) and the lead's own read of the two files rewritten last; a design reviewer twice |
+| The filters (`allowlist-fix.patch`) | §15 "After the final reviews — the filters"; §16.3 is the rule as it stands | a reviewer three times, each with a sweep over every pick a person can make (16,374, then 130,312 picks) |
+| The notices and D38 (`notices-fix.patch`) | §15 "After the final reviews — no alert goes off unsaid"; §16.2 D38 | a reviewer, then a second leg on its findings |
+| One voice when a share ends, the read-only pins (`browser-pins-leg2.patch`) | the same browser block — `ShareLeaveVoice` | with the browser's reviews |
+| The background check's rulings 3–14, B13, the kept notice (`slice-i-leg6-rulings-3-7.patch`) | `cloud-shared-freshness.md` §12: "After the review of the check", then H1–H11, R1–R9, K1–K8 | a Fable reviewer four times (the handshake; what a run arms and reads; the closing review; a second look) |
+| "A Fable review of the background check and push once their rulings are in" | `cloud-shared-freshness.md` §12 "After the review of the push client" | a Fable reviewer four times (the client; a second look; the last leg; a verification of what answered it) |
+| The second design review | the browser block, "After the second design review" | — |
+| The harness fix (`device-harness-fix.patch`) and the device flows | "On a device", below; §15 "Found on a device" | — |
 
-**Started, unfinished — a patch each, unverified.**
+**The gate on the last code** (2026-11-14, the merge of every stream).
+`dart analyze lib test tool` and the alarm fork clean; `untranslated.txt`
+empty; the whole suite 18,407 passed, 17 skipped, none red — the
+services 3,453, the other directories but the widgets 8,363, the widgets
+3,179 and 3,233, the editor 139 and 40; the fork's own Dart suite 129.
+No stream of this pass touches `firestore.rules`, the indexes or
+`backend/push-relay`: the rules suite (177) and the relay's suite stand
+as on the commit. A signed release build (`release build --arm64`) was
+made from this tree.
 
-| Patch | Holds | Left |
-| --- | --- | --- |
-| `allowlist-fix.patch` | §16.3's "nothing ticked is every category", `forReport` where the scheduler reads a report digest, the empty-catalogue rule. | Finish; the tests seen red; R19. |
-| `notices-fix.patch` | A leave counts only alerts still ahead (A18); an arrival undone before it is said is dropped. | D38 itself (not started: `PairingService._adopt`), the held hide bar's database guard, one deadline for the confirmation, two comments about a TTL policy that does not exist. |
-| `browser-pins-leg2.patch` | The Sharing page's list pinned read-only from the first frame; the partner note's ⋮ menu no longer overflows at German 2.0 (a real defect, fixed in `note_overflow_menu.dart`); the one-voice rule being rebuilt on presence instead of a frame (`share_leave_voice.dart`). | Finish the presence rule and its six cases; the editor's "no statement on return" pin; the database-switch fence; the long breadcrumb at 2.0. |
-| `slice-i-leg6-rulings-3-7.patch` | The background check's review rulings 3–7, mid-way (the arm context stored for the run, the "database being replaced" marker, three pings, a run that does not steal the name, retry on a transient end). | Finish 3–7; then 8–14 (`slice-i-review-rulings-3-14.txt` beside the patches) and two more: a forwarded message read carries its pair (B13), and a kept notice is cleared only once it was said. |
-| `device-harness-fix.patch` | The harness fix for the slow verbs after a guest's app is relaunched mid-suite (`tool/qa/qa.dart`, a test). | Never run on a device: `qa pass share` must end 19/19 with it, twice. |
+**On a device** — two fleet guests, Android API 36; the share suite on
+the cloud-define QA build against the local Firebase emulator suite, a
+freshly started suite for every pass:
 
-**Not started.**
+- On the fixed code the share suite ran green twice, 23 flows each: the
+  19 of the commit and four new ones — a folder shared from its menu and
+  read on the other phone, read-only, with "Copy to my notes"; notes
+  moved in and out of it, edited and deleted, and the partner's search
+  finding none of what left; every door into a partner's folder
+  read-only; a folder stopped from the Sharing page, heard once. `04k`,
+  the check with the app closed — the event moved by {name}, the job
+  run, both tiers of the alert an hour later — is green in both.
+- Four more flows, each green twice: "only mine" kept across a new
+  shared category (D29); the hide bar and what it disarms; the alert
+  choice per pair (D38); the pair ended with a folder shared. And the
+  account deleted with a folder shared, folded into the suite's last
+  flow.
+- On the final build the whole suite, 27 flows, ran green twice more
+  (610 s each). Right after "un-pair, pair again" a folder shared under
+  the ended pair read "Share with" at once (D39), and after the partner
+  deleted their account the notice read "Your partner ended sharing.
+  Your notes and events stay on this device."
+- `sync` 5 of 5 and `browser` 3 of 3 on the final build. And the QA
+  quiet proven: a guest left with sixteen entries armed, as an aborted
+  pass leaves it, was clear after one fresh launch.
+- `alerts` 5 of 5, `alerts_pair` 1 of 1, `settings` 21 of 21 and
+  `calendar` 35 of 35, on the plain QA build of the merge before the
+  last fix legs, which touch none of those areas.
+- Not walked on a device: "Share database" holding nothing of the
+  partner's — pinned byte for byte by `database_manager_test`; a flow
+  needs a harness verb that pulls the snapshot off the guest. And
+  nothing that needs a message to arrive: a QA build receives none.
 
-- The device flows this pass promised (§16.7) and the ones the data
-  review found missing: a folder shared from its menu and read on the
-  other phone; a partner's note read-only and copied; a note moved in and
-  out, edited, deleted; the folders stopped from the Sharing page; the
-  pair ended and the account deleted with a folder shared; "Share
-  database" holding nothing of the partner's; "only mine" across a new
-  category; the hide bar and its Undo. Then `calendar`, `alerts`,
-  `alerts_pair`, `browser`, `settings`, `sync`.
-- The second design review (the editor read-only, the Sharing page, the
-  Linked note row, and the fixed items again). A Fable review of the
-  background check and push once their rulings are in. A release build.
-- The as-built text for all of the above, the skills' references, the
-  roadmap's status lines.
+What those passes found in the app, and where each went: §15 "Found on
+a device".
+
+**Decided in the finishing pass and open for the owner** — each is built
+one way and can be turned:
+
+- D38 resets "Off" too when another pair is adopted (§16.2).
+- The share sign beside a note's title in the editor's bar costs a short
+  title its last letters (§15, the browser block).
+- The pair's document shows {name} how many devices I have, their sync
+  ids and their push addresses (`cloud-shared-freshness.md` §12, "What
+  the pair's document shows the partner").
+- With the app in front a change waits a minute at most to be read —
+  there is no urgent bypass; one would need a field on the wire and a
+  relay deploy (same record, "Receiving").
+- A message's work that still owes its read is tried three times back to
+  back and then ends; one plain retry kept for a maintenance window is
+  the option not taken (same record, "Receiving").
+- Not of this pass, found by it: Android's backup restores the alarm and
+  notification plugins' own stores onto a new phone, where nothing is
+  armed; and the alarm fork reloads its copy of the preferences at every
+  foreground and background change (same record, "Recorded, not
+  changed").
+- Not of this pass, read on the way and not verified on a device:
+  "Delete all data" removes every database and takes nothing off the
+  platform. The next launch's sweep cancels the entries of the database
+  it opens and skips those whose payload names another database — so
+  alerts armed for a second database stay armed for data that no longer
+  exists (`AppDatabase.deleteAllData`; the stray sweep's database filter
+  in `alert_scheduler.dart`). And no sweep can cancel a notice whose
+  alarm went outside the gateway; a notice ends at its alarm's instant.
+
+**Only two real phones and the deployed relay can show** — the lists
+"Only a device can show" and "Still owed" of `cloud-shared-freshness.md`
+§12, after the owner's steps of its §9. The rules are live since
+2026-11-14 (the indexes were already); left: the relay deployed,
+`config/push` written, this build on both phones.
+
+**Not built, by decision**: the partner never edits (E5, N3); presence
+on a shared event (§13); R9 (D36); the partner's counters and currency
+on a shared note (F7); the items "kept, each for a reason" of §16.5.
 
 **Decided and needing no code** (§16.3, §16.4): a list stored by the
 builds of 12–13 November is not migrated; `*partner` is the partner of
 the moment; changing "Alerts for shared events" says nothing more;
 `CalendarBloc` keeps its own queue; two bars for two visible closings
 when a partner's note leaves before its folder.
-
-**The share suite's one red** (`06_delete_account`, "Account deleted" not
-seen) is the harness, not the app: after `04k`/`04l` restart the
-partner's app every command on that guest takes 2–4 s, and the bar lasts
-four. The app's own logic was read and holds for both orders of its two
-events.

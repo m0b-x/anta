@@ -1,10 +1,15 @@
 # Shared Freshness — ANTA
 
-**Status: BUILT AND PAUSED 2026-11-13, not committed, nothing deployed —
-slice I (the check) and slice J (the relay) of
-`cloud-share-surfaces-roadmap.md` §16. §12 says what is built and is the
-truth over the plan above it; its last block, "Open at the pause", says
-what the review of the check still asks for.** This is the design
+**Status: BUILT AND REVIEWED 2026-11-13 → 14, COMMITTED `7803e07a`; the
+rules are live since 2026-11-14, the relay is not deployed — slice I
+(the check) and slice J (the relay) of
+`cloud-share-surfaces-roadmap.md` §16, and the finishing pass that
+answered five reviews of them. §1–§11 are the plan; §12 says what is
+built, block by block in the order it was built, and is the truth over
+the plan above it — a later block over an earlier one. Its last blocks
+say what is not promised and what only a phone or the deployed relay can
+prove ("Still owed"); §9 is what the owner does before any of it can
+run between two real phones.** This is the design
 record for one promise: an alert of mine on something my partner shares
 follows their changes while ANTA is closed. It replaces the push section
 of `cloud-sync-connections-design.md` (2026-08, three pairing moments and
@@ -132,6 +137,16 @@ WorkManager when the process starts, on every install, paired or not, and
 its manifest adds the short-service foreground permission that work asked
 to run at once needs.
 
+**As built, this section is superseded in four places** (§12): the check
+stands under two unique names, one at a time, and a message's work under
+a third ("Two slots", "A message's work stands in neither slot"); what
+keeps a check alive and what makes a message's run read are two notions,
+not one ("Two notions of depends"); the plan is remembered across
+isolates and believed only where the platform agrees, and a pass with no
+read never pushes a standing check later (R2 and its table, K1); a run's
+ends and which of them retry are one table ("The ends of a run, as they
+stand").
+
 ## 5. One isolate holds the database
 
 Two names in the process's port registry (`IsolateNameServer`):
@@ -156,6 +171,19 @@ database and answers. The app then opens it and loads fresh: nothing a
 run wrote can be older than what the app holds.
 
 A process that dies takes both names with it.
+
+**As built, the protocol is wider than this** (§12): `anta.app` is taken
+before the database opens and again on every resume, and the launch's
+wait is bounded ("The handshake differs from §5 in three ways"); a live
+app never gets a second writer — three pings over six seconds before its
+name is called stale, the name taken again every ten seconds in front —
+and a restore, an import or a download stands a marker every run
+respects (ruling 4, H6); a run never takes the name over a live run
+(ruling 6, with the table of who asked whom to give way); two
+connections can still coexist for a bounded moment, so every connection
+waits for a lock instead of failing, a name taken back is followed by a
+catch-up, a step cannot hold the name past its limit, and a dead run's
+name costs a launch one second, once (H1–H4).
 
 ## 6. The run without the app
 
@@ -184,6 +212,18 @@ The alert pass arms through the same gateway as the app: reminders through
 `flutter_local_notifications`, alarms through the owned `alarm` fork. Both
 must work from an engine with no activity; the device flow proves each
 tier (§12).
+
+**As built, the steps differ** (§12): a whole alert pass comes before
+the read — it plans the successor and decides "wanted" — and the run's
+dependencies are a registration of their own ("The run differs from §6
+in two"); the run does none of the launch's repairs, opens an existing
+file only and never creates the device id (ruling 5, N1); what it arms
+is what the app would arm, and it is never the place a ring is shown —
+its engine resigns as an alarm presenter first (rulings 3 and 12, R7);
+"retry" is answered only for a cause that heals by itself, and a
+message's work that asked three times in a row ends (ruling 7, R3); a
+run whose read finds the pair ended gives the install's push address up
+("After the review of the push client").
 
 ## 7. The relay — the wire
 
@@ -286,8 +326,10 @@ After slice J is on both phones; none of it blocks slice I.
    role "Firebase Cloud Messaging API Admin" and nothing else; its JSON
    key → `npx wrangler secret put FCM_SERVICE_ACCOUNT`. The project's id →
    `wrangler.toml`.
-3. The rules deploy (it carries `push` and `config/push`):
-   `firebase deploy --only "firestore:rules,firestore:indexes" --project alexs-note-tracking-app`.
+3. The rules deploy (it carries `push` and `config/push`) — DONE
+   2026-11-14, the rules alone, the rules suite green on them first (177):
+   `firebase deploy --only firestore:rules --project alexs-note-tracking-app`.
+   The indexes were live already and have not changed.
 4. In the Firebase console: the document `config/push` with one field,
    `relay`, the Worker's URL.
 5. Both phones opened once while paired. Then: one changes a shared event
@@ -607,39 +649,729 @@ dry run accepts it; if the deploy refuses it, delete the `[[ratelimits]]`
 block and the in-memory limits remain), `waitUntil` on the real edge,
 FCM accepting the message, the service account's role.
 
-### Open at the pause (2026-11-13)
+### After the review of the check — rulings 3 to 14 (2026-11-13 → 14)
 
-The session was cut by an outage; the tree was left at the last state
-that passed the whole gate. What follows is **not in the tree**. The
-unfinished work is saved as patches outside the repository (the share
-record's §16.9 names the folder).
+A Fable reviewer read legs 1–3 and ruled fourteen things; 1 and 2 are
+"two slots" and the forgotten work above. One Fable implementer built 3
+to 14 in six legs, each ruling pinned by a test shown able to fail.
+Where this differs from §4–§6 and from the blocks above, this is the
+truth.
 
-A Fable reviewer read legs 1–3 of the check and ruled fourteen things.
-The first two are built and proven above (the forgotten work, two
-slots). The other twelve are decided and not built — a patch holds 3 to
-7 mid-way, unverified:
+**What a run arms is what the app would arm (3).** The Android binding's
+arm facts — the ring volume's bucket, the resolved language, the 24-hour
+clock, whether reminders are grouped, the pixel ratio — are stored by the
+app's own pass whenever it computes them (`AlertArmFacts`, one
+`sync_metadata` row; an identical one costs no write). A pass away from
+the app (`AlertScheduler.awayFromApp`) adopts the stored facts instead of
+asking an activity that is not there. With none stored or readable the
+pass is refused: the run plans no successor, reads nothing and ends
+`noArmContext`, no retry — the app's next pass stores them and plans the
+check. Away, no late fire is settled: nothing is marked or shown
+"missed", and no delivery evidence is taken. Pinned: over an unchanged
+calendar, with every activity-only call failing, a pass away makes no
+platform call and writes no registration.
 
-| # | Ruling |
-| --- | --- |
-| 3 | What the run arms is byte-identical to what the app would arm, and it does nothing that needs the app: the app stores its arm context whenever its own pass computes it, the run arms with the stored one, and with none stored it runs no alert pass. The run never marks or shows "missed". Today the run's engine has no activity, so it loses the ring-volume floor, the 24-hour words and the reminders' grouping, and re-arms every standing entry. |
-| 4 | A live app never gets a second writer beside it: three pings over six seconds before its name is called stale; the app takes its name again on a timer while in front; one marker both isolates read for "a database is being replaced" (a restore, an import, a download). |
-| 5 | The run does none of the launch's repairs: it reads the active database's name read-only, and a download marker ends it. |
-| 6 | A second run asks a live one to end and waits for it before it takes the name — with messages, two runs are ordinary. A message's run schedules with no slot, so no check may still be running when it does. |
-| 7 | An end that leaves no next chance answers "retry": Firebase that failed to come up, an account not restored in time, a read that failed offline. Never for a cause that cannot heal by itself. |
-| 8 | The never-started engine honours a stored quota pause; an away read merged into a pull that is cut is reported as not read. |
-| 9 | A forwarded read that gave up is dropped, not run later. |
-| 10 | The two lines at the top of `main()` are guarded; `anta.app` is removed when the engine detaches. |
-| 11 | A pass that came with no shared read may bring the check nearer, never later. |
-| 12 | `Alarm.init()` in the run re-sets every stored alarm, and a ring during a run is presented to the run's isolate: the owned fork needs a way to set and stop alarms from an engine that is no presenter. The pair's ending is a one-shot read in the run. The entry returns at once off Android. |
-| 13 | A kept notice is cleared only once it was said (the reviewer of the notices found the same: an app closed before saying it loses it); taking it and dropping the database's name are one step; an event that left and came back is said as neither; a name whose database is gone is pruned. |
-| 14 | The suites that are missing, and five tests that pass with the behaviour removed. |
+**A live app never gets a second writer (4).** Three pings over six
+seconds before `anta.app` is called stale. The app takes its name again
+on every resume and every ten seconds while it is in front, and a
+re-take asks a run in flight to end. And one marker both isolates read —
+`DatabaseReplacing`, in the preferences beside the download marker: a
+restore, an import and a download stand it for their length; a trigger
+asks it after its preferences are namespaced and before the database's
+file is looked at, ends `suspended`, and never clears it. No retry for
+that end: a marker a dead process left would loop until the next launch,
+whose `main()` clears it.
 
-Two more, from where the check and the relay met: a forwarded message
-read carries its pair, and the app reads only when it is the open
-database's (case B13 holds today only for a run without the app); and a
-message's run beside a live check's run (ruling 6).
+**The run does none of the launch's repairs (5).** It reads the active
+database's name without the manager's recovery, and
+`DatabaseManager.recoversAtStart` is false in the run's isolate from
+before it builds anything — or a download marked between the marker
+check and the open would be "recovered" by a background isolate.
+
+**A run never takes the name over a live run (6).** A free name is taken
+in the caller's turn. A held one is pinged: a live holder is asked to
+give way and waited for, five seconds at most; a dead one's name is
+removed. Still held, the trigger ends `busy` (retry) and opens nothing.
+The run's port answers pings. So a message's run beside a live check's
+run begins only after the first has stopped its read and closed — no
+check's work is running when it schedules.
+
+**Who asks a run to give way decides how it ends.** Two verbs: `yield`
+is the app's (a launch, or its name taken back), `yield-to-run` a later
+run's; the app asking at any moment wins.
+
+| Asked by | The run was | Ends | Retry |
+| --- | --- | --- | --- |
+| the app | either | `yielded` | no — the app reads |
+| a run | the check's | `gaveWay` | no — its successor is planned |
+| a run | a message's | `gaveWayOwed` | yes — or the change that started it waits for the app |
+
+A message's work gives way three times in a row at most
+(`kSharedRefreshGiveWayAttempts`), counted in the preferences: the
+`workmanager` plugin hands no attempt count to Dart. Any other end of a
+message's run clears the count; a count that cannot be kept is no retry.
+A check's run never retries, so two works cannot keep ending each other.
+
+**"Retry" only for a cause that heals by itself (7).** Firebase that did
+not come up, or an account not restored in time, is `sharingUnknown`
+(retry) and no longer "not sharing". A read is *owed* — `readFailed`,
+retry — for offline, a spent quota or an unknown failure, and for a run
+skipped by a restore, a stopped engine, a pause, a pending first merge or
+a rebind. Signed out, another account, unbound, an outdated app, no
+access, a deleted space, a refusal by the rules and malformed data end as
+a read: a retry would loop (`healsByItself` on both enums, exhaustive,
+with a table test over every value). The engine holds "owed" from the
+asking until the reader lowers it in its `finally`, so a read merged into
+a queued pull that a leave cut — never made, with nothing wrong reported —
+is still owed. Only the run that carries the away read lowers it.
+
+**The stored quota pause holds for a run too (8).** An engine that was
+never started answers an away read `paused` (owed) while the stamp holds
+— the engine's own rule, an hour at most — and only reads the stamp.
+
+**A forwarded read that gave up is dropped (9).** The app counts the
+asker's patience by the trigger's own limit, sixty seconds; a read still
+waiting for the launch when it is over is never begun.
+
+**The launch's step cannot fail the launch (10).** `beginLaunch` never
+throws: a failure is logged, the port dropped, no name held. `anta.app`
+is given up when the engine detaches and taken again if it comes back.
+The step is four synchronous registry calls.
+
+**A pass with no read never pushes the check later (11).** With a check
+standing ahead, such a pass may bring it nearer; `readMade()` is spent
+by one pass. A check whose time has come is planned again — which is
+what keeps the chain alive when a work was consumed without telling the
+app.
+
+**A message's forwarded read carries its pair (B13).** The read message
+is `[verb, reply, slot word, pair]`. The app reads only when the open
+database is in the named pair — the rule the run's own `shares()` asks —
+and otherwise answers "done": nothing read, no pass, no retry.
+
+**A run is never the place a ring is shown (12).** With no app alive the
+run's engine was the only one a ring could be reported to — its silence
+timer dying with it — and `Alarm.init()` re-set every stored future
+alarm each time a run started. The owned fork gains its tenth patch:
+each attached engine carries `presents`, true until that engine's own
+Dart says `resign` on a small channel beside the generated bindings, and
+resigned engines are set aside before the host picks whom to tell
+(`AlarmPlugin.presenters`). The run starts the fork with
+`Alarm.initWithoutPresenting()`: it resigns, opens the fork's storage and
+does nothing else — no check of stored alarms, no trigger handlers, no
+fallback timer. So a ring, a stop and a host event reach the app's
+engine if one lives, and otherwise nobody, exactly as in a process with
+no engine; the run still sets and stops alarms. The gateway is built
+with `presentsAlarms` true at launch and false in the run; the scheduler
+does not know. The pair's ending is asked in the run as a one-shot read
+(`PairingService.endingRead`), with no pairing service built and no
+listener attached. Off Android the entry returns at once.
+
+**A kept notice is cleared only once it was said (13).** Reading the
+kept notices clears nothing. The listener reads them at start and on
+each return and tells the store what it has said — and what it dropped
+as undone at the moment of saying, which will never be said; only that
+is forgotten, by kind and id, and what a run kept in between stays for
+its own turn. An app closed before the bar could show, under a dialog or
+an alert, says it at the next start. A notice still waiting when the app
+returns is not said twice. The row and the list of names can no longer
+drift apart: a run names the database before its row and again after it,
+and taking a name off looks at the row once more. An event that left
+with my alert and came back before anyone was told is in neither list.
+A name whose database is gone is pruned at a read. An install that never
+kept a notice still runs no statement, opens no database and looks for
+no file at start or on return (pinned).
+
+**The suites the review asked for (14)** exist: the run's real steps
+taken to their end with and without a stop
+(`shared_refresh_run_steps_test.dart`), a launch and a run that start
+together in both orders, what `main.dart` calls
+(`shared_refresh_wiring_test.dart`), the app's own read with a message's
+pair, and each of the five tests that passed with the behaviour removed
+now fails without it.
+
+**Only a device can show**, and none has yet: that a closed-app check
+over an unchanged calendar re-arms nothing on a 24-hour phone with a
+quiet alarm stream; that an alarm stopped natively is not posted as
+"Missed" by a run; that a ring during a run shows the alarm page with
+its Silence-after intact; that a main isolate stalled for a few seconds
+still gets the forward; that a marker the app wrote is read by the
+worker's isolate; a check forced mid-restore ending `suspended`; two
+real works overlapping; airplane mode during a message's run; whether
+Android delivers `detached` before the engine goes; an app killed while
+a kept notice waits saying it at the next launch.
+
+### After the review of the handshake — H1 to H11 (2026-11-14)
+
+A second Fable reviewer read the two isolates' handshake as built
+(rulings 4, 5, 6, 9, 10 and the give-way) and found sixteen things: no
+lost data, but windows in which two connections write side by side, a
+name held by something that will never answer, and ends that stop the
+chain. Eleven rulings answer them, built by the same implementer, each
+pin shown able to fail. Where this differs from the block above, this
+is the truth.
+
+**Two connections can coexist for a bounded moment, so every connection
+waits (H1).** `PRAGMA busy_timeout`, five seconds
+(`AppConstants.sqliteBusyTimeout`), in `configureSqliteConnection` — the
+app's connection, the run's, every isolate's. A writer that met another's
+lock used to fail at once. Nothing else of the connection changed.
+Pinned by a second writer in another isolate that waits for the first's
+commit and then writes.
+
+**A name taken back is followed by a catch-up (H2).** When a resume or
+the ten-second tick takes `anta.app` again and really took it — the app
+had lost it, called stale during a stall — a run may have written behind
+the app. The app waits for a run in flight to close, then reloads
+wholesale (`AppSyncApplyHooks.afterWritesBehindTheApp`: the note and
+folder caches dropped, the share marks, the whole event store with the
+alert services, one alert pass), reads the share on its own engine and
+runs a quiet pass: once, each step in its own guard. The same after an
+engine that detached came back. A tick with the name standing is still
+one registry lookup and nothing else.
+
+**A step cannot hold the name past its limit (H3).** At the limit, or
+when the platform stops the work, the trigger arms a grace of five
+seconds (`kSharedRefreshAbandonGrace`). A step that is still not back is
+left where it is: the database is closed under a bound of two seconds
+(`kSharedRefreshAbandonCloseBound`), the name is given up, and the work
+ends `abandoned` (retry). A step that returns after it was left takes no
+writing step more. Before, a native call that never returned kept
+`anta.refresh` for the life of the process and every later run ended
+`busy`.
+
+**A dead run's name costs a launch one second, once (H4).** The launch
+pings and asks in the same turn. A holder that has not answered the ping
+in a second (`kSharedRefreshDeadRunAfter`) is a dead run: its name is
+removed and the launch goes on. One that answers is waited for as
+before, five seconds at most.
+
+**A check's run cut before its plan stood is retried (H5).** Asked to
+give way before its alert pass returned, a check's run has planned no
+successor: it ends `gaveWayOwed` (retry) under a count of its own, three
+in a row at most (`shared_refresh_check_gave_way`), then `gaveWay`. The
+message's work counts in another key, so one work's ordinary end cannot
+clear the other's row.
+
+**The marker (H6).** It is cleared on a resume too, when nothing of the
+app's own is in flight (`DatabaseReplacing.clearLeftBehind`) — a marker
+a crashed import left no longer suspends every run until the next cold
+start — and a clear the store refused is owed and tried again. A store
+that cannot be read says neither "standing" nor "clear": the run ends
+`replacingUnknown` (retry), apart from `suspended`.
+
+**The ten-second tick runs only where a trigger can exist (H7).** A
+check was ever planned (`sharedRefreshPlanned`) or a push address is
+held; an account that never paired runs no timer. Planning the first
+check starts it. A store that cannot be read keeps the name, the safe
+side.
+
+**Every other end clears the count (H8)** — a forwarded read and `busy`
+included. It costs each trigger end one load of the preferences in the
+trigger's own isolate.
+
+**The active name is re-read (H9).** `peekActiveDatabaseName` reloads
+the preferences first: a switch the app made after this isolate's first
+read is seen.
+
+**The rest of the handshake (H10).**
+
+- The marker is asked three times: at the first look, before the alert
+  pass, and before the read. Found later, the run ends `suspended` as at
+  the first look; the replacing app's own pass plans the check.
+- The run opens **existing only** (`AppDatabase.opensExistingOnly`): it
+  never creates and never migrates. Drift opens SQLite itself, so the
+  refusal stands at the two places app code is in front of it — the
+  look for the file in the turn before the connection is made, and both
+  migration callbacks, which Drift calls before it writes anything. The
+  run ends `noDatabase` or `schemaMismatch`. A file removed between the
+  look and the open is created by SQLite as an empty database and left
+  so: nothing is created in it, and the app's own open treats it as it
+  treats any new file.
+- Taking the name answers what the registry answered: a name the
+  registry refused was not taken.
+- The platform stopping the work during a forward ends the wait at once
+  (`cut`, retry); the app goes on reading for itself.
+- The app stops counting a forwarded asker at fifty-five seconds
+  (`kSharedRefreshForwardPatience`), five under the asker's own limit,
+  so the two cannot disagree about a read that began in the last second.
+
+**Only a device can show**, beyond the list above: that WorkManager gets
+its answer and tears the engine down after `abandoned` with a native call
+still hung, and whether two seconds close a database that is the thing
+hung; a live run whose isolate is blocked for over a second losing its
+name while it holds the database — the launch then opens beside it,
+covered only by the busy timeout; whether five seconds are enough under
+real contention on device storage; what a person sees of the reload,
+read and pass after a real stall of the main isolate; no timer on an
+install that never paired; a store that really refuses a remove.
+
+### After the review of what a run arms and reads — R1 to R9 (2026-11-14)
+
+The other half of that review: what a run arms, reads and plans. No lost
+data and no "Missed" from a run; what was wrong was in the plan and in
+the ends — one end stopped the chain silently, the plan's memory held
+only inside one isolate, and several retrying ends had no bound. Nine
+rulings and one more, the same implementer, each pin shown able to fail.
+
+**The plan is remembered across isolates (R2).** What stands — per slot,
+the instant it is due — is kept in the preferences
+(`SharedRefreshMemory`, one key per slot, re-read each time) and written
+at every schedule, every cancel and every work consumed; every isolate
+plans against it. Before, the memory was one isolate's: each cold launch
+planned from now and replaced a nearer check — opened every eight hours
+with nothing read, the app starved the check for good — and a check that
+was due and waiting for the network was cancelled by the next pass that
+came with no read, minutes before the ring it was for.
+
+| A pass finds | and would plan | It does |
+| --- | --- | --- |
+| a check standing ahead | a later one, no read made | keeps the standing one; no platform call |
+| a check standing ahead | an earlier one | replaces it by the nearer |
+| a check that is due and has not run | anything, or none | leaves it: it runs the moment its constraint is met. Cancelled only for cause — the database no longer shares |
+| anything, after a read was made | — | plans from now |
+
+A store that cannot be read plans as a first one: a nearer check may be
+replaced once, and the chain goes on. Not taken: registering a due check
+again under a "keep" policy at each pass, to restore a work the platform
+lost — WorkManager re-enqueues its works after a force stop by itself.
+An install that never paired is not asked the memory at all; one that
+shares pays one read of the platform's store per alert pass (K3 below
+says how it is read, K1 when the platform itself is asked).
+
+**"Wanted but nothing stands" is not "not wanted" (R1).** A check's run
+whose pass found a need and whose successor does not stand — the
+platform refused the registration, or the pass never reported — ends
+`failed` (retry). `notWanted` is only a pass that reported no need.
+
+**Bounds (R3).** A message's work counts every retrying end, three in a
+row at most, then ends `retriesSpent` (no retry): the unique work no
+longer stays enqueued for good with later messages waiting behind it.
+The check's work counts give-ways only — its retry chain and its
+successor replace each other, and WorkManager's back-off bounds the
+rest. A first merge still pending is not owed by an engine that was
+never started (`SyncRunSkip.healsFor`): the app's launch completes it. A
+binding that presents nothing and did not come up adopts nothing: the
+pass is refused and the run ends `noArmContext`.
+
+**Each ask answers for its own read (R4).** The engine raises a token
+per away read and lowers only what the run carried; the answer travels
+in the asker's own report (`SyncRunReport.awayReadOwed`). One away
+read's run can no longer lower the flag another raised.
+
+**The forwarded path reports its pass (R5).** On the app's side a pass
+that fails answers the asker "failed" (retry), and the read is spent in
+a `finally`, so no later unrelated pass moves the check on its strength.
+
+**An account that never paired pays nothing for the arm facts (R6).**
+They are worked out, read and stored — and the SDK level asked on a
+pass — only where a run can exist
+(`SharedRefreshAvailability.runsCanExist`: a check was ever planned, or
+a push address is held). They are stored when the first check is planned
+and as the app leaves the front, so a run does not find them missing.
+
+**The ring's snapshot is fresh, and the work resigns first (R7).** An
+away pass asks which alarms sound right after it adopts its context, not
+at the run's start; the work resigns as a presenter first thing in its
+entry, before Firebase and the database, so no ring is reported to an
+engine that will not show it.
+
+**A forwarded message read asks the worth first (R9).** With the app
+alive and not in front it reads only when the last pass found a message
+worth a read, as a run does; in front, or before any pass has reported,
+it reads.
+
+**A run never creates the device id (N1).** Under the existing-only open
+a missing `device_id` ends the open as `noDatabase`, and the look comes
+before anything that could write.
+
+**The tests the review asked for (R8).** The fork's three Kotlin cases
+go through the one function the getter is (`presenterAmong`); the
+adoption pins the language and the pixel ratio; the review's four probes
+are suite cases (`shared_refresh_memory_test.dart`).
+
+**Recorded, not changed.** A facts write that failed, and an update that
+changes the arming grammar, make one run re-arm every standing entry —
+what the app would arm. Late rows stay pending while the app stays
+closed; the next open issues one cancel per row older than a day. "No
+platform call over an unchanged calendar" holds over the test gateway: a
+real run's start makes about ten (the resign, the ring lookup, the
+plugin's start, the channels), and each away pass one ring lookup.
+
+**The ends of a run, as they stand.**
+
+| End | Retry | When |
+| --- | --- | --- |
+| `read`, `notWanted`, `forwarded` | no | the work was done, was not needed, or the app did it |
+| `yielded` | no | the app asked; the app reads |
+| `gaveWay` | no | a run asked a check's run whose plan stood, or the check's give-way count is spent |
+| `gaveWayOwed` | yes | a run asked a message's run, or a check's run before its plan stood |
+| `retriesSpent` | no | a message's work asked for a retry three times in a row |
+| `busy` | yes | another run holds the name and did not give way in time |
+| `cut` | yes | the limit or a platform stop, the step back within the grace |
+| `abandoned` | yes | the same, the step not back |
+| `readFailed`, `forwardFailed`, `failed` | yes | a read that is owed; the app's read or pass failed; a step threw, or a needed check does not stand |
+| `sharingUnknown`, `replacingUnknown` | yes | Firebase or the account not up yet; the marker's store unreadable |
+| `suspended`, `notSharing`, `noArmContext`, `noDatabase`, `schemaMismatch` | no | nothing a retry would change before the app is opened |
+
+**Only a device can show**: that WorkManager holds a due work for the
+network and re-enqueues it after a force stop; a run's writes to the
+plan's memory read by the app's next pass, and the reverse; the resign
+at the entry closing its window; `retriesSpent` followed by the next
+message's work; the facts stored as the app leaves the front on a
+freshly paired phone.
+
+### After the closing review of the check — K1 to K8 (2026-11-14)
+
+A third Fable reviewer read the two fix passes as new code. No lost data
+and no way for a run to create or migrate a database; four things to fix
+before the phones, the rest low. Eight rulings and three follow-ups, the
+same implementer. Where this differs from the blocks above, this is the
+truth.
+
+**The plan's memory is believed only where the platform agrees (K1).**
+The memory could say "a check stands" with no work behind it — and under
+R2's own rule a check that is due is never replaced, so no check would
+ever be planned again. The ways there: Android's backup and device
+transfer restore the preferences file onto a new phone (only `device_id`
+is left out) and never WorkManager's works; a work served by an app in
+which sync did not come up was written off only in that isolate; a work
+the platform lost. So before a standing entry is the reason to schedule
+nothing, the scheduler is asked whether the platform holds that work
+(`SharedRefreshScheduler.stands`, WorkManager's
+`isScheduledByUniqueName`: enqueued or running) — once per isolate for an
+entry ahead, once more when it is first found due. "No" drops the entry
+and the pass plans as a first one; "cannot tell" trusts the memory. An
+entry this isolate scheduled itself is not asked about, and an install
+that never paired asks nothing.
+
+**Every shared read made to its end is a read made (K1) — for the pass
+that follows it.** In front, forwarded, or a run's own: the reader says
+so (`SyncEngine.onSharedReadCompleted`) and a pass within two minutes of
+it (`kSharedRefreshReadPassWindow`) plans from now — R2's fourth rule
+now holds in every isolate. A read that failed, was cut or was skipped
+is not one. Later than that the read counts for nothing: a read that
+changed nothing is followed by no pass, and its flag, left standing,
+made the next morning's resume replace a check that was due and waiting
+for the network by one twelve hours out.
+
+**A run never works out or stores arm facts (K2).** A message's run that
+planned the install's first check stored the facts of its own headless
+engine over the app's — no volume bucket, the dispatcher's clock style —
+and every later run re-armed everything under them. The quiet store does
+nothing away from the app; a run only adopts.
+
+**No preference is re-read by reloading (K3).** The plugin's `reload()`
+awaits the platform's map and then replaces the whole cache, so a write
+the app made meanwhile was gone from its own copy: a restore's marker
+left standing after it ended, the active database's old name read back.
+A key another isolate may write is read **fresh from the platform's
+store, the cache untouched**, through one helper
+(`lib/services/fresh_preferences.dart`) — the plan's memory, the marker,
+the counts, the active name's peek, the kept notices' names — in both
+isolates; no `reload()` is left in `lib/`. The marker's scope removes it
+unconditionally at its end. For this the app depends on
+`shared_preferences_platform_interface` directly (it was a test
+dependency).
+
+**A wrong "dead" verdict is harmless (K4).** The one-second bound of H4
+stays, and with it the chance that a live run, busy for longer, loses
+its name while it holds the database. So a launch — or a re-take — that
+took a holder for dead on silence alone owes one catch-up (H2) once the
+old patience has passed, four seconds later; a holder that answered, or
+none, owes nothing. A run gives `anta.refresh` up only while the name is
+still its own port, so a run declared dead never removes a later run's
+name; it ends at its next step boundary and takes no writing step more.
+For the length of the step in flight the busy timeout (H1) is what
+stands between the two writers.
+
+**A step that returns after it was left cleans up (K5).** An open that
+lands after `abandoned` closes what it opened and writes nothing off in
+the memory: the end was a retry.
+
+**The rest (K6–K8).** A binding that did not start refuses the pass on
+the nothing-to-arm path too (`noArmContext`, not a throw). The catch-up
+does nothing while a database is being replaced and never runs twice at
+once; an engine that detached is not in front. The timer's tests go
+through an open gate.
+
+**Follow-ups.** The count of a message's retries is
+`shared_refresh_message_retries` (the old key, a transient count on
+development builds, is not read). The arm facts are stored the moment an
+address is first held (`FirebasePushAddressSource.onAddressFirstHeld`),
+so the first message's run finds them. The Kotlin mutation turned two of
+the fork's three cases red; the third cannot fail on the filter — the
+app's engine holds an activity there and is picked by order.
+
+**Recorded, not changed.** A write-off can land after another isolate's
+schedule into the same slot: the memory then says none while a work
+stands, and the next pass plans a first one, once. The run's ring lookup
+only adds — an alarm that sounded and was stopped before the pass is not
+armed over by that run. An install that never paired pays two or three
+in-memory checks at launch, on resume and per alert pass: no statement,
+no platform call, no timer.
+
+**Only a device can show**: a phone set up from another's backup
+dropping the restored entry at its first pass and planning a check;
+whether a live run ever misses the one-second answer at a launch, and
+the catch-up making good what it wrote; the engine's teardown after
+`abandoned` with an open still in flight; what the app's own writes do
+when the busy timeout expires.
+
+### After the review of the push client (2026-11-14)
+
+The receiving half of the client, its fix pass and everything built
+since had been read by nobody but their builder. A Fable reviewer read
+all of it — the phone's side, the seam with the check, the relay where
+the client relies on it. No lost data; one stuck state, one promise not
+kept across processes, and nothing on the phone that bounded what a
+message costs. One implementer fixed the client; the check's implementer
+built the seam. Both reviewers then read the fixes: most of their
+findings were closed, one ruling of the lead's was taken back — the
+minute's floor between a pair's runs with the app closed, below — and a
+leg answered the rest. That leg was read once more: a work the platform
+runs again comes back plain and held everything behind it, which a
+final leg answered; and the device pass found what no suite could — a
+QA build's run that could not start (the last paragraph of this block).
+Where this differs from §7 and from "Slice J", this is the truth.
+
+**The address.**
+
+- **Its end is bounded** (`kPushEndDeadline`, thirty seconds):
+  `unregister()` and the installation's delete each have a deadline; a
+  delete that is not confirmed stays owed. A platform call that never
+  answered used to stall the registry's one chain for the life of the
+  process — no address registered again until a relaunch.
+- **A later pair always carries a new address, across processes too
+  (decision n).** The give-up looked only at what this process
+  remembered; a phone that slept through the end of one pair and woke in
+  another wrote the old address into the new pair and left its entry in
+  the ended one, where the former partner could go on waking it. Now the
+  pair `push_written` names is compared with the pair heard: the address
+  is given up — made owed first, so a process that dies there still ends
+  it — and the earlier entry removed, before anything is registered.
+  "Owed" is read off the store wherever it is acted on — at launch,
+  before a registration, at a give-up — because another isolate may have
+  written it since this one loaded its copy; an app that had loaded its
+  preferences before a run's give-up used to register with the delete
+  still owed, and the next launch deleted the installation in use. Two
+  orders stay as they were, recorded: ending the pair myself and signing
+  out remove the entry before the give-up (a sign-out's token goes in
+  five seconds). A process that dies between the two and then hears a
+  new pair before any "no pair" writes the old address into the new
+  pair; the old entry is gone, and the handler's drop of other pairs
+  bounds what a former partner could do with what they know.
+- **"Holds an address" means exactly that.** An owed delete alone
+  attaches no listener and hands no handler over.
+- **A run gives the address up when its pair has ended.** The run without
+  the app has no registry by design, so nothing ended an address while
+  the app stayed closed: for the day the relay still serves an ended
+  pair, the former partner could wake the phone. A read the server
+  answers "no pair" on a database that says it is paired
+  (`SyncEngine.sharedReadFoundNoPartner`) now makes the run give the
+  install's address up at the platform, and each later such run asks a
+  delete that is still owed again. The app's next open removes the entry
+  from the pair's document and clears `push_written` whether or not an
+  address is still held. The rules let a device leave an ended pair — a
+  member's own entry may go, never be added or changed
+  (`rewritesOwnPush`; the rules suite's "an ended pair refuses an added
+  or changed device and lets one leave"). A removal answered "not
+  permitted" all the same clears the key too, so no later open asks
+  again; an offline or unknown failure keeps the key and is asked again.
+  The rules give "not permitted" for three causes the phone cannot tell
+  apart: the pair's document went with a deleted account, its entries
+  with it; the caller was signed out by the time the removal was asked;
+  another account is signed in on this phone. In the last two the entry
+  stays in the document, naming an address that was given up — dead, or
+  its delete owed. An owed delete is paid at every launch, by a run
+  whose read finds the pair ended, by a message's run that finds the
+  database not sharing (that one pays what is owed and touches no held
+  address — the open database may simply be another than the paired
+  one), and before any registration. The run binds
+  the address source for this and nothing else of push. A run that reads
+  nothing — no alert of mine depends on what {name} shares — never
+  learns the pair ended: there the handler's drop of other pairs and the
+  relay's one day are the bound.
+
+**Sending.**
+
+- **A held poke goes only under the account it was asked under**, or is
+  dropped with a line; a leave and an account closure flush what is held
+  before the token goes (`PairedAccountCloser.beforeAccountGone`).
+- **The relay's answers are told apart, each as wide as its cause.**
+  403: that pair is not poked again under that account for an hour
+  (`kPushRefusalHolds`) — the relay's own refusal is stable, an edge in
+  front of it may not be. 429 and 503: `Retry-After` is honoured up to an
+  hour (`kPushRetryAfterCeiling`) for that account, and pokes inside the
+  pause are dropped — the other phone has its own check. 401: logged. No
+  queue, no retry.
+
+**Receiving.**
+
+- **The handler.** Its isolate — the messaging plugin keeps one for the
+  life of the process, with every plugin attached — first resigns as an
+  alarm presenter, so a ring with no app alive is never reported to an
+  engine that shows nothing: asked once per isolate, and until the host
+  has answered each message waits on that one ask, two seconds at most
+  (`kPushResignBound`). Then it checks the pair's shape, and reads what
+  the app stored once, off the store (`FreshPreferences`).
+- **A message for another pair costs one read of the store.** The
+  handler compares the pair with the one this install's address was
+  written for: any other is dropped there — no work, no engine, no
+  database. With nothing written the hand-over goes on and the run's own
+  check stands.
+- **Not in front, one work per pair at most, the newest.** The handler
+  notes a waiting work before the hand-over (`SharedRefreshMessageGate`,
+  one preference key per pair, device state) and schedules nothing while
+  a note younger than ten minutes stands: five messages before the work
+  starts are one run. Every start of a message's work takes the note off
+  before its first step, so a message that comes once the work has
+  started hands over again — and that hand-over takes the place of
+  whatever message's work stands: waiting, held on a back-off, or
+  running. The stopped run hands nothing over, counts nothing and clears
+  nothing; the newer run reads everything. The note is bounded in age
+  and not checked with the platform.
+- **Nothing spaces those runs.** A minute's floor between a pair's
+  message runs was built and taken out again: the sender spaces its
+  pokes exactly a minute apart, so an honest correction started inside
+  the floor and was deferred as a plain delayed work — which a sleeping
+  phone holds while the alert rings at the old time. What bounds a
+  pair's messages is the one work, the drop of other pairs and the
+  relay's rate. There is no backlog.
+- **A message's work is never delayed and never comes back plain.** It
+  is expedited where the platform allows that without a notification,
+  else plain; a failed expedited hand-over is asked once more, plain.
+  WorkManager never expedites a work it runs again after a retry, and
+  the plugin's `update` and `append` both queue a new work behind what
+  stands (read in the plugin's source and in WorkManager's bytecode) —
+  so one retrying end on a sleeping phone left a plain work on its
+  back-off, and every later message's expedited work waited behind it
+  for a maintenance window. Two changes, one sentence — a message's work
+  is always a fresh one. The handler's hand-over replaces what stands
+  (above). And a message's work never asks the platform to run it again:
+  an end that still owes the read hands a fresh work over behind the
+  running one — the one policy that does not cancel the work that asks —
+  a first attempt again, expedited as stored, and answers "done". Three
+  such ends in a row end `retriesSpent` and hand nothing over; only when
+  that hand-over itself fails is the platform asked to retry. The
+  check's own work is untouched: its retry stays the platform's. Not
+  taken: one plain retry kept as a last rung for a maintenance window —
+  the check is that net.
+- **In front, at most one read a minute** (`kPushReadFloor`, the
+  receiver's, counted from when a read was asked): the first message in
+  a quiet minute reads at once, and what arrives inside the minute
+  becomes one read at its end. §7's "the engine's own one-a-minute
+  floor" never existed; this is it. A read that fails there is not
+  retried — the engine's own poll is the net. There is no urgent bypass:
+  the message carries no urgency a phone can read — only FCM's priority —
+  so an urgent change waits a minute at most. A bypass would need a
+  field on the wire and a relay deploy; not taken.
+- **What is not promised.** "The last change is never left unread" is
+  not true as an absolute: a message's work that owed its read three
+  times in a row ends (`retriesSpent`) and nothing stands for it — the
+  check, the next message or the next open reads. Those three attempts
+  now come back to back, where the platform's back-off used to space
+  them by half a minute and more: a cause that outlasts a few seconds —
+  the server unreachable though the network is up, the account not
+  restored — outlasts all three. A hand-over the
+  platform lost is covered again only when its note is ten minutes old
+  and another message comes, else by the check or the next open; a work
+  with no expedited allowance — Android 11 and older, the quota spent —
+  waits out Doze; a message that arrives while a work runs starts the
+  read over.
+
+**Device state does not outlive the device.** Android's backup and
+device transfer restore the whole preferences file onto a new phone;
+only `device_id` is left out of them. So the preferences that describe
+this install — the plan's memory and its gate, both counts, the
+replacing marker, the four push keys, and the waiting notes, one key per
+pair — are listed in one place (`DeviceState.keys` and `.prefixes`) and
+stamped with the install's device id (`device_state_of`). The launch,
+right after the database opens, clears them when the stamp names another
+device, and stamps when there is none — so a backup made before this
+build ever ran carries no stamp and is not cleared, which only the
+development phones of these days can have; "Delete all data" takes the
+stamp off with the id. Before, a restored
+"delete owed" made a new phone unregister and delete its own fresh
+installation at first launch, and a restored "address held" attached the
+listener and ran the ten-second tick on a phone with no address. Not
+device state, and left alone: the active database, the download marker,
+the sync registry and its pending deletions, the kept notices' list, the
+relay's cached address. (The keys' own doc lines say "never in a
+backup"; that is true of the app's backup — the system's restores them.)
+
+**What the pair's document shows the partner** — said here because §7
+did not: how many devices I have, their sync device ids, their FCM
+installation ids and when each was last written. The relay needs the
+ids there to send; nobody but the two members and the relay can read
+them, and an installation id is of no use without the project's own
+credentials. **Open for the owner**: moving the addresses to a place
+only their owner and the relay can read would hide them from the
+partner, at the cost of a new rule, a relay change and a deploy.
+
+**Recorded, not changed.** FCM may deprioritise high-priority data
+messages that never show a notification — only real traffic shows
+whether urgent pokes arrive in Doze. With the app in front the gate is
+the open pair id alone; the engine's own gates then skip a read that
+should not run. The address is install-wide and a leave is per open
+database: with two databases the paired one's entry can name a dead
+address until it is opened again. After two failures in a row — a
+removal the earlier pair refused and a first write that timed out here
+and landed later — `push_written` names the old pair while the entry
+names the new, and the handler drops the new pair's messages until the
+next answer in an open app rewrites it. The stored plan's question to
+the platform that could not be answered is asked again at the next pass.
+**Open for the owner, outside this record:** Android's backup also
+restores the plugins' own stores — the alarm fork's stored alarms, the
+notifications plugin's pending list — onto a new phone, where nothing is
+armed; the alert pass's fast path trusts that list, so reminders on a
+restored phone may not fire until it is rebooted. Older than sharing,
+not traced here. And the alarm fork reloads its whole copy of the
+preferences at every foreground and background change, in every isolate
+that starts it (`packages/alarm/lib/service/alarm_storage.dart`) — the
+hazard `FreshPreferences` exists for: a key written around a resume can
+be missing from that isolate's copy until the next reload. Nothing in
+`lib/` reloads; changing the fork is an eleventh patch, and the owner's
+call.
+
+**Found by the device pass, not by a suite: a QA build's run could not
+start.** The work's entry resigns as an alarm presenter first (R7) —
+which opens the alarm fork's storage, the isolate's first
+`SharedPreferences.getInstance()` — and the run's first step then
+namespaced the QA build's preferences, which the plugin refuses once
+`getInstance()` has been called: the run ended `failed` before it read
+anything, and three callers the fix legs had added threw the same in the
+app's own isolate, so a QA build never wrote the plan's memory.
+`QaMode.enabled` is a compile-time constant that no suite and no
+production build turns on: production was never affected, and only the
+share suite's `04k` on a guest showed it — red twice on the merged code,
+green on the committed build. Now the namespacing is once per isolate
+(`QaBootstrap.prefixOnce`) and comes first in both entries, before the
+resign. The rule this leaves: **in an isolate that starts with no app,
+nothing touches the preferences before the namespacing — and a change to
+an entry's first lines is proven on a device, not in a suite.** Proven
+so on 2026-11-14, on two fleet guests with a QA build of the fixed code:
+the share suite green twice, 23 flows each, `04k`'s forced works ending
+`forwarded`, `read`, `read` — the run without the app reads again, and
+both tiers of the alert move — with none of those lines in the guests'
+logs.
+
+**Only a device or the deployed relay can show**: a real registration
+and its end, the deletion yielding a new installation id, the background
+isolate's hand-over to WorkManager, the expedited quota, Doze, the
+relay's real 403/429/503 and `Retry-After`, a phone set up from
+another's backup clearing its device state before the push objects read
+it, a run's give-up really stopping messages, the resign's channel
+answering in the messaging plugin's engine and how long it takes, that a
+replace cancels a running work and its stop reaches Dart, that a work
+appended from inside the running one starts as a first attempt and
+expedited, the superseded run winding down beside the new one — and the
+premise under K1, that WorkManager's "replace" leaves no earlier record
+under a slot's name (plan a check, let it run, plan again, log the
+answer).
+
+### Still owed (2026-11-14)
 
 Not proven anywhere: a message arriving at all (a QA build receives
-none), the expedited work in Doze, the relay on the real edge. A Fable
-review of the receiving side and of rulings 3–14, once built, is owed
-(§16.7 of the share record).
+none), the expedited work in Doze, the relay on the real edge, and every
+line of the "only a device can show" lists.

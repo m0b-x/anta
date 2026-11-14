@@ -51,9 +51,10 @@ Nothing in the app sets the mark yet: the two service calls that do
 Left for the surface slices: the switch in the event editor and the folder
 menu, the owner's mark on a row, the read-only editor, "new from my
 partner", a place for shared folders in the browser. Their plan is
-`cloud-share-surfaces-roadmap.md` — the calendar's surfaces built
-2026-11-13, its §15 — which also makes a category a third thing that can
-be shared (its §7).
+`cloud-share-surfaces-roadmap.md` — every one of them built 2026-11-12 →
+14, the calendar's first and the folders' with its finishing pass, its
+§15 — which also makes a category a third thing that can be shared (its
+§7).
 
 ## 2. Decisions (lettered)
 
@@ -746,6 +747,24 @@ better; its link to a note the partner was not given is inert.
   §15, "The review of the data layer"). And the export lists of presence
   marks and alerts leave out a row of mine that names a partner's event,
   as they leave out the event.
+  **Since 2026-11-14 the strip goes further** (the share record's §15,
+  "After the final reviews — the data path", which has the whole table):
+  every search row that belongs to no live note, and — for a database
+  that may have held a partner's words — the index rebuilt so no segment
+  keeps a removed note's terms; every row of mine that hangs on an event
+  or a note the copy does not hold (alerts, presence marks, day rows,
+  alert registrations, counter values, the per-note settings), because
+  those give the days and times of the partner's events; the pairing
+  settings, the location stack when it names a row that is gone, the kept
+  notices, the owed pokes and the reader's records. What hangs, and the
+  stack, are judged only where the database may have held a partner's
+  rows — a database that never paired is copied byte for byte, its own
+  orphans included — and for each synced table that lost such a row the
+  copy forgets where its pull stood, so a restore that keeps the binding
+  reads those rows of mine back from my own space. It keeps the
+  `sync_space_*` binding a restore's heal reads, the looks and the alert
+  choice, the pair id in the marks on my own rows, and the opaque ids of
+  the partner's categories inside my own filters.
 - A restore already unbinds, which removes what was shared (§6); the
   next bind lets the space win what it holds (D15), and the marks come
   back from there, never from a file.
@@ -1227,6 +1246,20 @@ themselves state.
   never day rows. A built-in category id is always refused: the partner's
   events in it resolve to the reader's own. A category id the reader's own
   events or templates name is the reader's, with or without a row under it.
+  **Since 2026-11-14** a document the reader has seen and does not hold —
+  written by a newer build, unreadable, a note waiting for its text, a
+  row evicted for one of the person's own — is recorded under the same
+  keys with the value `u`: counted, never shown as refused, never
+  replacing a refusal, and a document is counted once whatever records
+  name it. Two more records stand beside them: `shared_ever_held` —
+  "this database has had a partner to read from", written when the
+  reader first begins for one and when a partner's rows are removed, and
+  never taken away (what a handed-out copy's strip asks) — and
+  `shared_tombstones_emptied`, the
+  mark of the one-time sweep that empties the words of tombstones stored
+  before the fix. A partner's tombstone holds no words in any of the six
+  tables (the share record's §15, "After the final reviews — the data
+  path").
 - **§7, read-only.** The fences cover categories; four more by hand keep
   an event or a template of the person's own from taking a partner's
   category, and the writers refuse first, by name. A row of the person's

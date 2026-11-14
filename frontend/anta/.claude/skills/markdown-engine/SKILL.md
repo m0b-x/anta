@@ -79,6 +79,13 @@ Per save and per pause (scalability S5, 2026-11-08):
 - `NoteRepository`'s content cache is weighted (`LruCache` `maxWeight`/`weigh`): `AppConstants.maxContentCacheCodeUnits` (8 Mi code units) beside the 50-entry cap, the newest entry never evicted; `didHaveMemoryPressure` in `main.dart` calls `invalidateAll()`.
 - A first load above `AppConstants.asyncLineBuildThreshold` (256 K code units) builds its lines with the fork's `codeLinesAsync` (a failed split falls back to the synchronous load); a remote merge announced during that await is remembered and replayed through the normal remote path once the load lands.
 
+## A partner's note is read-only (sharing, 2026-11-13 → 14)
+
+- **The editor never edits a note the partner shares, and never tries to save one.** `_readOnly` on the editor page is set from the metadata the page is opened with (`NoteMetadata.fromPartner` — every door hands it flagged, so the first frame is already right; the load sets it once more) and is never cleared. It turns everything off together: `ModernEditorWrapper.readOnly` (no keyboard, no caret edit; selection and copy stay; a task box does not toggle — `onReadOnlyTaskTap` says `sharedNoteReadOnly` once per visit), no `MarkdownBar`, no vocabulary bar, and `NoteSaveCoordinator` / auto-save never started. The database refuses a write of a partner's row (`SharedRowException`), so **any new path that writes a note from the editor is gated on `_readOnly`** — a save that reaches the DAO there is a "save failed" on a note the person cannot change.
+- **It follows the note and leaves with the share.** A change by the partner redraws the text in place, the scroll kept (there is no local edit to protect). When the note leaves, `_leaveRemotelyDeleted` closes the page — it waits while the page is covered (`_deletedWhileCovered`) and speaks through `ShareLeaveVoice`, which says one bar per leave whatever stands in front. A new door into the editor hands `fromPartner` over; a new page that can stand over or under it and close on a share's end registers with `ShareLeaveVoice`.
+- **"Copy to my notes"** (`copySharedNoteToMine`, `lib/controllers/shared_note_copy.dart`) is the one act on such a note: a note of my own, stamped now, in a folder I pick. The line under the bar is `SharedReadOnlyLine` (`content_rows.dart`).
+- Facts and the whole rule of the surfaces: `anta-context/references/sync-and-accounts.md`, "Sharing, the folders' and notes' surfaces"; record `docs/cloud-share-surfaces-roadmap.md` §6.13 and §15.
+
 ## References
 
 | File | Holds | Read when |
