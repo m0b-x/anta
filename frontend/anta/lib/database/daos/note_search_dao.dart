@@ -225,6 +225,66 @@ class NoteSearchDao {
     });
   }
 
+  /// The rowids of the [_orphans], for a statement that runs where this DAO
+  /// cannot — `DatabaseManager`'s strip of a copy, on a connection of its
+  /// own — so the two never disagree about what belongs to no note.
+  static const String orphanRowids = _orphans;
+
+  /// Drops the projections and ledger rows of the notes under [ids], in the
+  /// caller's transaction: a partner's notes leaving this database, or a
+  /// tombstone of theirs landing (share surfaces P1, P4). The drain would
+  /// drop them only at its next run, and a copy made meanwhile would carry
+  /// their words. Matched by id as well as by the note's rowid, so a
+  /// projection a `VACUUM` left under an older rowid goes too. Call it while
+  /// the note rows are still there. Nothing for no ids; the ledger read alone
+  /// when none of them was indexed.
+  ///
+  /// The index rows go first and the ledger rows only once they went (review
+  /// A4): an index that cannot be cleared here — a ledger carried to a
+  /// SQLite that cannot open it — leaves its ledger rows standing, which the
+  /// drain's orphan sweep ([removeOrphans]) finds once the note is gone.
+  ///
+  /// The deletion is logical: the index is contentless, so a deleted rowid's
+  /// trigrams stay in its segment blobs on this phone until they merge, as a
+  /// deleted row's bytes stay in SQLite's free pages. Nothing of them leaves
+  /// it: a copy that leaves is rebuilt (`DatabaseManager._stripShared`).
+  Future<void> forgetNotes(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final places = List.filled(ids.length, '?').join(', ');
+    final indexed = await _db
+        .customSelect(
+          'SELECT note_rowid FROM note_search_ledger WHERE note_rowid IN '
+          '(SELECT rowid FROM notes WHERE id IN ($places)) '
+          'OR note_id IN ($places)',
+          variables: [
+            for (final id in ids) Variable<String>(id),
+            for (final id in ids) Variable<String>(id),
+          ],
+        )
+        .get();
+    if (indexed.isEmpty) return;
+    final rowids = [for (final row in indexed) row.read<int>('note_rowid')];
+    final at = List.filled(rowids.length, '?').join(', ');
+    final variables = [for (final rowid in rowids) Variable<int>(rowid)];
+    try {
+      await _db.customUpdate(
+        'DELETE FROM note_body_fts WHERE rowid IN ($at)',
+        variables: variables,
+        updateKind: UpdateKind.delete,
+      );
+    } catch (e) {
+      // Failing would keep the partner's notes: the ledger rows stay for the
+      // drain instead.
+      debugPrint('[NoteSearchDao] body index not cleared: $e');
+      return;
+    }
+    await _db.customUpdate(
+      'DELETE FROM note_search_ledger WHERE note_rowid IN ($at)',
+      variables: variables,
+      updateKind: UpdateKind.delete,
+    );
+  }
+
   /// Advances the ledger of every note whose stamp moved while its title and
   /// body stayed put — a label, a move, a reorder — in one statement and
   /// without reading a body. Returns how many notes it settled.

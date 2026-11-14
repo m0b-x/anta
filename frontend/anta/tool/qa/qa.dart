@@ -189,6 +189,7 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(SetCommand());
     addCommand(ShareCommand());
     addCommand(MoveEventCommand());
+    addCommand(PlatformAlertsCommand());
     addCommand(KillAppCommand());
     addCommand(WorkCommand());
     addCommand(ArmedCommand());
@@ -355,6 +356,12 @@ class QaContext {
   /// process: a `pass` or `steps` with `--via auto` on some steps would
   /// otherwise pay the 2 s probe on every one of them.
   UiDriver? _autoDriver;
+
+  /// The VM URI recorded when `auto` fell to adb (null for none), and
+  /// whether it fell: a URI recorded since then makes the choice again
+  /// ([autoRedecides]).
+  String? _autoFellOn;
+  bool _autoFell = false;
 
   /// The fleet's view of this host; a test's context hands back one over a
   /// fake runner, so no verb under test reaches a real emulator.
@@ -681,7 +688,10 @@ class QaContext {
     } else if (via == ViaMode.auto) {
       _driver = null;
     }
-    if (dev.nativeDriver != null) _autoDriver = adopted;
+    if (dev.nativeDriver != null) {
+      _autoDriver = adopted;
+      _autoFell = false;
+    }
     return _agent = adopted;
   }
 
@@ -694,6 +704,49 @@ class QaContext {
     _agent = null;
     if (_driver is AgentClient) _driver = null;
     if (_autoDriver is AgentClient) _autoDriver = null;
+  }
+
+  /// Makes the agent of an app `launch` found already running the driver
+  /// `auto` uses. A process the system started by itself — scheduled work
+  /// after `kill-app` — announces its VM service on a port no launch
+  /// forwarded, while the recorded URI is the killed process's; left alone,
+  /// `auto` settled on adb for the rest of the pass and every verb on that
+  /// guest cost 2–4 s (the share pass, 2026-11-13). Only where `auto` has an
+  /// adb fallback to get stuck on: elsewhere [agent] searches the log by
+  /// itself. Null when no agent answers, recorded or announced.
+  Future<AgentClient?> rejoinAgent() async {
+    final dev = await device();
+    if (dev.nativeDriver == null) return null;
+    final recorded = await recordedVmUri();
+    final answering = recorded == null
+        ? null
+        : await _agentIfAnswering(recorded);
+    if (answering != null) {
+      if (_autoDriver != answering) {
+        _autoDriver = answering;
+        if (via == ViaMode.auto) _driver = null;
+      }
+      return answering;
+    }
+    // When the work and the launch start the process together the
+    // announcement can trail the `pidof` that sent us here.
+    final vm = await pollUntil<VmServiceClient>(
+      timeout: const Duration(seconds: 10),
+      interval: const Duration(milliseconds: 500),
+      probe: () => _discoverAgent(dev, recorded),
+    );
+    if (vm == null) return null;
+    // The activity was only now brought up: its `main` may register the
+    // driver extension after the VM service already answers.
+    vm.driverWait = const Duration(seconds: 15);
+    final agent = await adoptAgent(vm);
+    try {
+      await agent.info(refresh: true);
+      return agent;
+    } on QaException {
+      await forgetAgent();
+      return null;
+    }
   }
 
   /// Empties the agent's error buffer when an agent is already connected;
@@ -772,6 +825,7 @@ class QaContext {
     if (_autoDriver case final AgentClient auto when auto.vm.isClosed) {
       _autoDriver = null;
     }
+    await _redecideAfterFall();
     final existing = _driver;
     if (existing != null &&
         !(existing is AgentClient && existing.vm.isClosed)) {
@@ -811,12 +865,35 @@ class QaContext {
           vmRecorded: recorded != null,
           agentAnswers: answering != null,
         );
-        if (choice == ViaMode.agent) return _autoDriver = answering!;
+        if (choice == ViaMode.agent) {
+          if (_autoFell) {
+            _autoFell = false;
+            notice?.call(autoRejoinNote(deviceId: dev.id, vm: recorded!));
+          }
+          return _autoDriver = answering!;
+        }
         notice?.call(
           autoFallbackNote(vmRecorded: recorded != null, deviceId: dev.id),
         );
+        _autoFell = true;
+        _autoFellOn = recorded;
         return _autoDriver = native;
     }
+  }
+
+  /// Takes back an `auto` fall to adb once a VM URI was recorded since it:
+  /// the next choice probes the agent on it again.
+  Future<void> _redecideAfterFall() async {
+    if (!_autoFell || via != ViaMode.auto) return;
+    final native = (await device()).nativeDriver;
+    if (native == null || !identical(_autoDriver, native)) return;
+    final now = await recordedVmUri();
+    if (!autoRedecides(onNative: true, fellOn: _autoFellOn, recordedNow: now)) {
+      return;
+    }
+    _autoFellOn = now;
+    _autoDriver = null;
+    _driver = null;
   }
 
   /// Settles the `auto` choice from an `info` round trip a verb already made
@@ -2227,6 +2304,7 @@ mixin InstalledLaunch on QaCommand {
     out('launched: ${launch.description}');
     final startedAt = DateTime.now();
     final VmServiceClient vm;
+    var anotherStart = false;
     try {
       vm = await waitForVmService(
         launch.vmServiceUri,
@@ -2236,7 +2314,17 @@ mixin InstalledLaunch on QaCommand {
               const Duration(seconds: 6)) {
             return true;
           }
-          return await device.appPid() != null;
+          if (await device.appPid() == null) return false;
+          // The process the activity landed in may be one the scheduled
+          // work had just started: its log names its VM service, on a port
+          // of its own, and the port asked for here will never answer.
+          if (device.nativeDriver == null) return true;
+          final announced = await device.discoverVmServiceUri();
+          anotherStart = announcedByAnotherStart(
+            announced: announced,
+            requestedPort: port,
+          );
+          return !anotherStart;
         },
       );
     } on DeviceFailure catch (e) {
@@ -2246,6 +2334,17 @@ mixin InstalledLaunch on QaCommand {
       await ctx.forgetAgent();
       // A cancelled step tells nothing about the build: no diagnosis.
       if (e is Cancelled) rethrow;
+      if (anotherStart) {
+        final rejoined = await ctx.rejoinAgent();
+        if (rejoined != null) {
+          out(
+            'agent: vm=${await ctx.recordedVmUri()}  (the process was already '
+            'up — the work started it first; its VM service, found in its '
+            'log, is not on port $port)',
+          );
+          return rejoined;
+        }
+      }
       if (device.nativeDriver != null) {
         warn(
           'warning: the VM service never answered on port $port (${e.message}) '
@@ -2726,8 +2825,17 @@ class LaunchCommand extends QaCommand with PostActions, InstalledLaunch {
     final device = await ctx.device();
     await ctx.requireInstalled(device);
     if (await device.appPid() != null) {
+      final recorded = await ctx.recordedVmUri();
       await device.bringToFront();
       out('brought ${device.packageId} to the front on ${device.label}');
+      if (await ctx.rejoinAgent() != null) {
+        final now = await ctx.recordedVmUri();
+        if (now != recorded) {
+          out(
+            'agent: vm=$now  (a process no launch started — found in its log)',
+          );
+        }
+      }
     } else {
       await launchInstalled(ctx);
     }
@@ -7867,6 +7975,80 @@ class MoveEventCommand extends QaCommand {
   }
 }
 
+class PlatformAlertsCommand extends QaCommand {
+  PlatformAlertsCommand() {
+    argParser
+      ..addFlag(
+        'cancel',
+        negatable: false,
+        help: 'Cancel every entry listed (a QA guest only).',
+      )
+      ..addFlag(
+        'native',
+        negatable: false,
+        help:
+            'Also empty the plugins\' own stores — the alarm fork\'s '
+            'stop-all and the notifications plugin\'s cancel-all — which '
+            'reach an entry a QA reset orphaned (a QA guest only).',
+      );
+  }
+
+  @override
+  String get name => 'platform-alerts';
+
+  @override
+  String get description =>
+      'List what the platform holds for the app — every alert entry, '
+      'whatever database its payload names, which the QA reset\'s quiet '
+      'leaves alone — and with --cancel cancel them all; --native also '
+      'empties the plugins\' own stores.';
+
+  @override
+  Future<int> run() async {
+    final cancel = argResults!['cancel'] as bool;
+    final native = argResults!['native'] as bool;
+    final device = await context.device();
+    if ((cancel || native) &&
+        !isFleetGuest(device.id, context.fleetHost().createdIndices())) {
+      throw UsageFailure(
+        'platform-alerts --cancel/--native acts only on a fleet guest '
+        '(anta_qa_*): elsewhere the install is shared with the owner\'s '
+        'databases',
+      );
+    }
+    final agent = await context.agent();
+    final result = await agent.op(AgentOps.platformAlerts, {
+      AgentKeys.clear: cancel,
+      AgentKeys.native: native,
+    });
+    final entries = (result['entries'] as List?) ?? const [];
+    out('platform-alerts: ${entries.length} held');
+    for (final raw in entries) {
+      final entry = Map<String, Object?>.from(raw as Map);
+      final fireAt = entry['fireAtMs'] as int?;
+      final at = fireAt == null
+          ? '?'
+          : DateTime.fromMillisecondsSinceEpoch(
+              fireAt,
+              isUtc: true,
+            ).toIso8601String();
+      out(
+        '  #${entry['osId']}  ${entry['mode']}  at=$at  '
+        'database=${entry['database']}  event=${entry['eventId']}  '
+        'alert=${entry['alertId']}  "${entry['title']}"',
+      );
+    }
+    if (cancel) out('platform-alerts: cancelled ${result['cancelled']}');
+    if (native) {
+      out(
+        'platform-alerts: the alarm fork stopped all, the notifications '
+        'plugin cancelled all',
+      );
+    }
+    return 0;
+  }
+}
+
 class KillAppCommand extends QaCommand {
   @override
   String get name => 'kill-app';
@@ -7989,27 +8171,31 @@ class WorkCommand extends QaCommand {
       warn('work: nothing scheduled to run');
       return 2;
     }
-    final stamp = (await adb.shell([
-      'date',
-      "'+%m-%d %H:%M:%S.000'",
-    ])).trim();
-    final job = jobs.first;
-    final ran = await adb.shellLenient([
-      'cmd',
-      'jobscheduler',
-      'run',
-      '-f',
-      if (job.namespace case final namespace?) ...['-n', namespace],
-      device.packageId,
-      '${job.id}',
-    ]);
-    out('work: ran #${job.id}  ${ran.trim()}');
+    Future<String> runFirst(List<AppJob> scheduled) async {
+      final stamp = (await adb.shell(['date', "'+%m-%d %H:%M:%S.000'"])).trim();
+      final job = scheduled.first;
+      final ran = await adb.shellLenient([
+        'cmd',
+        'jobscheduler',
+        'run',
+        '-f',
+        if (job.namespace case final namespace?) ...['-n', namespace],
+        device.packageId,
+        '${job.id}',
+      ]);
+      out('work: ran #${job.id}  ${ran.trim()}');
+      return stamp;
+    }
+
+    var stamp = await runFirst(jobs);
     final awaited = argResults!['await'] as String?;
     if (awaited == null) return 0;
     final deadline = DateTime.now().add(
       Duration(seconds: intOption('timeout') ?? 120),
     );
     String? ending;
+    var ranAgain = false;
+    var lastLog = '';
     while (ending == null && DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(seconds: 2));
       final log = await adb.raw([
@@ -8021,11 +8207,45 @@ class WorkCommand extends QaCommand {
         stamp,
         '-s',
         'flutter:V',
+        'WM-ForceStopRunnable:D',
+        'WM-SystemJobService:D',
       ], timeout: const Duration(seconds: 60));
       ending = lastSharedRefreshEnding(log.combined);
+      lastLog = log.combined;
+      if (ending != null ||
+          ranAgain ||
+          !forcedRunStoppedByReconcile(log.combined)) {
+        continue;
+      }
+      // The process is up now, so a second forced run meets no reconcile.
+      final again = parseAppJobs(
+        await adb.shell(['dumpsys', 'jobscheduler', device.packageId]),
+        device.packageId,
+      );
+      if (again.isEmpty) continue;
+      warn(
+        'work: WorkManager stopped the forced run at its start-up reconcile '
+        '("Found unfinished work" → onStopJob) — running it once more',
+      );
+      ranAgain = true;
+      stamp = await runFirst(again);
     }
     if (ending == null) {
       warn('work: the check logged no ending within the timeout');
+      // What the two reads saw, so a run that never ended says why.
+      final wm = lastLog
+          .split('\n')
+          .where((line) => line.contains('WM-'))
+          .toList();
+      warn(
+        'work: the filtered log since the run held ${wm.length} WorkManager '
+        'line(s)${wm.isEmpty ? '' : ':\n${wm.join('\n')}'}',
+      );
+      final now = parseAppJobs(
+        await adb.shell(['dumpsys', 'jobscheduler', device.packageId]),
+        device.packageId,
+      );
+      warn('work: jobs now: ${describeAppJobs(now)}');
       return 2;
     }
     out('work: the check ended: $ending');

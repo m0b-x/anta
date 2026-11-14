@@ -12,6 +12,7 @@ import '../crdt/crdt_write.dart';
 import '../crdt/merge_outcome.dart';
 import 'content_chunk_dao.dart';
 import 'folder_dao.dart';
+import 'note_search_dao.dart';
 import 'sync_dao.dart';
 
 part 'note_dao.g.dart';
@@ -1048,6 +1049,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
             }
           }
           if (body == null) {
+            // A partner's tombstone stays while it is granted — the reader's
+            // count needs the row — but its words go: the title, the preview,
+            // the text (above) and the search rows (share surfaces P4). Its
+            // folder, position, label, lengths and stamps stay.
+            if (shared) await NoteSearchDao(db).forgetNotes([remote.id]);
             await (update(notes)..where((n) => n.id.equals(remote.id))).write(
               NotesCompanion(
                 hlcTimestamp: Value(remote.hlcTimestamp),
@@ -1057,6 +1063,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
                 deletedAt: Value(remote.deletedAt),
                 updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
                 ownerId: Value(remote.ownerId),
+                title: shared ? const Value('') : const Value.absent(),
+                preview: shared ? const Value('') : const Value.absent(),
               ),
             );
           } else {
@@ -1299,7 +1307,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           '  up.depth + 1 '
           '  FROM folders f JOIN up ON f.id = up.parent_id '
           '  WHERE up.depth < ${FolderDao.maxFolderDepth}'
-          ') SELECT id, parent_id, is_deleted, hlc_timestamp '
+          ') SELECT id, parent_id, is_deleted, hlc_timestamp, '
+          '${_anyFolderMark.content} AS marked '
           'FROM up ORDER BY depth',
           variables: [Variable<String>(folderId)],
           readsFrom: {db.folders},
@@ -1344,6 +1353,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         version: Value(version + 1),
       ),
     );
+    // Under a tombstone the note was private; under its live ancestor it may
+    // be shared again.
+    if (rows.first.read<bool>('marked')) {
+      await _owePokesForMoves({noteId: folderId}, liveAncestor ?? '');
+    }
     return true;
   }
 
@@ -1460,7 +1474,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       final now = DateTime.now();
       final stamp = await db.stampLocal(notes, id);
 
-      final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
+      final maxPosQuery = selectOnly(notes)
+        ..addColumns([notes.position.max(), _anyFolderMark]);
       maxPosQuery.where(notes.folderId.equals(targetFolderId));
       maxPosQuery.where(notes.isDeleted.equals(false));
       final maxPosResult = await maxPosQuery.getSingle();
@@ -1476,9 +1491,45 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           version: Value(existing.version + 1),
         ),
       );
+      if (maxPosResult.read(_anyFolderMark) ?? false) {
+        await _owePokesForMoves({id: existing.folderId}, targetFolderId);
+      }
 
       return getNoteById(id);
     });
+  }
+
+  /// Whether any folder carries a share mark, as a column added to a read a
+  /// note's move makes anyway: the move then owes its poke at no statement
+  /// of its own in a database that shares nothing (share surfaces P5).
+  static const CustomExpression<bool> _anyFolderMark = CustomExpression<bool>(
+    'EXISTS(SELECT 1 FROM folders WHERE shared_pair IS NOT NULL)',
+  );
+
+  /// Owes a normal poke to each pair whose share a move changed: [moved] are
+  /// note ids by the folder each left, all now live in [target]
+  /// (`docs/cloud-shared-freshness.md` §7). In the move's own transaction,
+  /// as every folder writer owes its own, so neither a caller that goes
+  /// straight to the DAO nor a kill after the commit loses it — a note that
+  /// left a share sends a document that names no pair, and nothing else
+  /// would tell the partner's phone. Asked only once a mark exists.
+  Future<void> _owePokesForMoves(
+    Map<String, String> moved,
+    String target,
+  ) async {
+    // One walk for both ends: the target under a key no note id can be.
+    final pairs = await db.folderDao.sharedPairsOfNotes([
+      (id: '', folderId: target, isDeleted: false),
+      for (final MapEntry(key: id, value: folder) in moved.entries)
+        (id: id, folderId: folder, isDeleted: false),
+    ]);
+    final into = pairs[''];
+    final owed = <String?>{};
+    for (final id in moved.keys) {
+      final from = pairs[id];
+      if (from != into) owed.addAll([from, into]);
+    }
+    await db.syncDao.oweSharePokes(owed, urgent: false);
   }
 
   /// Moves a whole selection of notes into [targetFolderId] in one
@@ -1549,10 +1600,12 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       final moved = plan.moved;
       if (moved.isEmpty) return plan;
 
-      final maxPosQuery = selectOnly(notes)..addColumns([notes.position.max()]);
+      final maxPosQuery = selectOnly(notes)
+        ..addColumns([notes.position.max(), _anyFolderMark]);
       maxPosQuery.where(notes.folderId.equals(targetFolderId));
       maxPosQuery.where(notes.isDeleted.equals(false));
-      var last = (await maxPosQuery.getSingle()).read(notes.position.max());
+      final maxPosResult = await maxPosQuery.getSingle();
+      var last = maxPosResult.read(notes.position.max());
 
       final stamp = db.newStamp();
       await batch((b) {
@@ -1572,6 +1625,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         }
       });
       await db.enqueueMany(notes, moved.keys, stamp.hlc);
+      if (maxPosResult.read(_anyFolderMark) ?? false) {
+        await _owePokesForMoves({
+          for (final MapEntry(key: id, value: from) in moved.entries) id: ?from,
+        }, targetFolderId);
+      }
       return plan;
     });
   }

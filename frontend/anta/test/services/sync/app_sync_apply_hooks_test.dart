@@ -665,6 +665,30 @@ void main() {
         });
       });
 
+      test('the app\'s read: an alert whose time has passed, its row not '
+          'swept yet, is armed no more; one still ahead is', () async {
+        Future<void> arm(String eventId, int osId, DateTime fireAt) =>
+            db.alertRegistrationDao.put(
+              AlertRegistrationsCompanion.insert(
+                osId: Value(osId),
+                alertId: 'a$osId',
+                eventId: eventId,
+                day: 0,
+                fireAt: fireAt.millisecondsSinceEpoch,
+                backend: 'fake',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+        final wall = DateTime.now();
+        await arm('rang', 1, wall.subtract(const Duration(hours: 1)));
+        await arm('ahead', 2, wall.add(const Duration(hours: 1)));
+
+        expect(await AppSyncApplyHooks.armedEventsIn(db, {'rang', 'ahead'}), {
+          'ahead',
+        });
+      });
+
       test('with no alert armed on any, nothing is said', () async {
         await sharing.afterRun(calendar, shared: left);
 

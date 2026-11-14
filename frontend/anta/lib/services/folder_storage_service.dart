@@ -70,6 +70,11 @@ class FolderStorageService {
   FolderStorageService({required FolderRepository repository})
     : _repository = repository;
 
+  /// [FolderRepository.bindings]: a reader that awaits a load takes it
+  /// before and compares it after, to tell whether what it read is still
+  /// the open database's.
+  int get repositoryBindings => _repository.bindings;
+
   Future<void> initialize() async {
     if (_isInitialized) return;
     _isInitialized = true;
@@ -163,9 +168,13 @@ class FolderStorageService {
   Future<model.Folder?> getFolderById(
     String folderId, {
     bool includeDeleted = true,
+    bool forceRefresh = false,
   }) async {
     await initialize();
-    final folder = await _repository.getFolderById(folderId);
+    final folder = await _repository.getFolderById(
+      folderId,
+      forceRefresh: forceRefresh,
+    );
     if (folder == null) return null;
     if (!includeDeleted && folder.isDeleted) return null;
     return _toModel(folder);
@@ -255,6 +264,14 @@ class FolderStorageService {
     // is being touched there's nothing to validate.
     if (name != null || parentId != null) {
       final existing = await getFolderById(folderId);
+      // A move the one rule refuses is answered as the DAO answers it, null,
+      // before a clash of names it would never make (review B5).
+      if (existing != null &&
+          parentId != null &&
+          parentId != existing.parentId &&
+          await _repository.refusesParent(folderId, parentId)) {
+        return null;
+      }
       if (existing != null) {
         final effectiveName = name ?? existing.name;
         final effectiveParent = parentId ?? existing.parentId;
@@ -514,6 +531,11 @@ class FolderStorageService {
   /// for it, and the next load answers again after a write let it go.
   bool get holdsShared => _repository.shareCensus.known?.isEmpty == false;
 
+  /// Whether the census held now says a pair is stored — from memory,
+  /// false while none is held: what a browser page starts its look reader
+  /// by, so a folder's share entry is in place before any menu opens.
+  bool get holdsPair => _repository.shareCensus.known?.paired ?? false;
+
   /// Whether the folder [id] is the partner's, from memory alone — the
   /// census and the folder cache, both warm after the list that showed it
   /// — or null when either is cold: what a page opened with no word from
@@ -525,8 +547,8 @@ class FolderStorageService {
     return shares.isPartner(row.ownerId);
   }
 
-  /// Whether a census is held now, so [holdsShared] answers for this
-  /// database rather than for "not read yet".
+  /// Whether a census is held now, so [holdsShared] and [holdsPair] answer
+  /// for this database rather than for "not read yet".
   bool get censusKnown => _repository.shareCensus.known != null;
 
   /// [holdsShared], reading the census when none is held — one statement,
@@ -535,6 +557,11 @@ class FolderStorageService {
       !(await _repository.shareCensus.read()).isEmpty;
 
   Stream<FolderChange> get changes => _repository.folderChanges;
+
+  /// Every time the share facts the folders are flagged with may have
+  /// changed — a share act, a merge, the shared reader, a pairing write
+  /// ([FolderRepository.shareFactsChanged]).
+  Stream<void> get shareFactsChanged => _repository.shareFactsChanged;
 
   Stream<FolderChange> changesForParent(String? parentId) =>
       _repository.folderChangesForParent(parentId);

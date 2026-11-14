@@ -174,12 +174,12 @@ DigestNotificationContent _reportContent(
       // A report lists none of the partner's (D15), whatever the setting.
       categories:
           CategoryAllowlist.filtersNothing(
-            digest.categoryIds,
+            CategoryAllowlist.forDigest(digest.cadence, digest.categoryIds),
             partnerListed: false,
           )
           ? null
           : digestCategoriesLabel(
-              digest.categoryIds,
+              CategoryAllowlist.forDigest(digest.cadence, digest.categoryIds),
               strings,
               categoryLabel: categoryLabel,
             ),
@@ -397,7 +397,7 @@ String digestTitleOf(
   final name = digest.name.trim();
   if (name.isNotEmpty) return name;
   return digestCategoriesLabel(
-    digest.categoryIds,
+    CategoryAllowlist.forDigest(digest.cadence, digest.categoryIds),
     strings,
     categoryLabel: categoryLabel,
     partnerListed: digestListsPartner(digest.cadence, shareAlerts),
@@ -421,13 +421,17 @@ String digestCategoriesLabel(
   )) {
     return strings.digestAllCategories;
   }
-  // With no catalogue published nothing is listed, and the list's own ids
-  // are all a label can know.
+  // With no catalogue published nothing is listed: a plain list's own ids
+  // are all a label can know, and an entry has no true count.
+  if (CategoryAllowlist.tickedCount(
+        categoryIds,
+        partnerListed: partnerListed,
+      ) ==
+      null) {
+    return strings.calendarCategories;
+  }
   final named = CalendarCategories.all.isEmpty
-      ? [
-          for (final id in categoryIds)
-            if (!CategoryAllowlist.isEntry(id)) id,
-        ]
+      ? categoryIds.toList()
       : [
           for (final category in CategoryAllowlist.tickedListed(
             categoryIds,

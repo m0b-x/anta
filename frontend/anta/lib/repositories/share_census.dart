@@ -1,24 +1,35 @@
 import 'dart:async';
 
+import 'package:stream_transform/stream_transform.dart';
+
 import '../database/database.dart';
 import '../models/folder.dart' show FolderShare;
+import '../utils/restartable_stream.dart';
 
 /// What the rows of folders and notes are flagged against
 /// (`docs/cloud-share-surfaces-roadmap.md` §6.1): whose a row is and which
 /// folder's mark shares it, answered from memory for every row of a load.
 class ShareSnapshot {
-  const ShareSnapshot(this.owner, this._outermost);
+  const ShareSnapshot(this.owner, this._outermost, {this.paired = false});
 
   static const ShareSnapshot nothing = ShareSnapshot(null, {});
 
   /// The account whose shared rows this database holds, or null for none.
   final String? owner;
 
+  /// Whether this database stores a pair — whichever account it belongs
+  /// to: what a browser page starts its look reader by, so a folder's
+  /// share entry is in place before its menu opens, without a statement
+  /// of its own.
+  final bool paired;
+
   /// Every live folder of the person's own that a mark shares, to the
   /// folder carrying the outermost mark at or above it.
   final Map<String, String> _outermost;
 
   /// No shared row and no mark: every row is private and the person's own.
+  /// Whether a pair is stored is apart from it — no write of the person's
+  /// own folders changes that ([ShareCensus.forgetIfShared]).
   bool get isEmpty => owner == null && _outermost.isEmpty;
 
   /// Whether a row carrying [ownerId] is the partner's.
@@ -43,7 +54,9 @@ class ShareSnapshot {
 /// A database that holds no mark and no shared row keeps that answer
 /// through every write of the person's own ([forgetIfShared]): no create,
 /// rename, move or delete can bring a mark or a partner's row. Only a share
-/// act, a merge, the shared reader and a rebind can, and each [forget]s.
+/// act, a merge, the shared reader and a rebind can, and each [forget]s;
+/// so does every write of the pairing (`PairingService.writes`, wired in
+/// `injection.dart`), since the snapshot also says whether a pair is stored.
 class ShareCensus {
   ShareCensus._(this._db);
 
@@ -73,9 +86,15 @@ class ShareCensus {
   Future<ShareSnapshot> _load(int generation) async {
     try {
       final census = await _db.folderDao.shareCensus();
-      final snapshot = census.owner == null && census.outermost.isEmpty
+      final paired = census.pairId != null;
+      final snapshot =
+          census.owner == null && census.outermost.isEmpty && !paired
           ? ShareSnapshot.nothing
-          : ShareSnapshot(census.owner, Map.unmodifiable(census.outermost));
+          : ShareSnapshot(
+              census.owner,
+              Map.unmodifiable(census.outermost),
+              paired: paired,
+            );
       if (generation == _generation) _known = snapshot;
       return snapshot;
     } finally {
@@ -89,6 +108,20 @@ class ShareCensus {
   final StreamController<void> _forgotten = StreamController<void>.broadcast();
 
   Stream<void> get forgotten => _forgotten.stream;
+
+  /// [forgotten] of the census of whichever database [database] answers
+  /// now, followed across a repository's [rebinds]: resubscribed on each,
+  /// and each told as a forget too — a switch changes every fact at once,
+  /// and the forget the rebind made reached the new census before anyone
+  /// listened to it. The one stream both repositories hand out, so a page
+  /// or an index that outlives an in-process switch is never deaf.
+  static Stream<void> forgottenAcross({
+    required AppDatabase Function() database,
+    required Stream<void> rebinds,
+  }) => restartableStream<void>(
+    source: () => of(database()).forgotten,
+    restarts: rebinds,
+  ).merge(rebinds);
 
   /// Drops what is held: marks or shared rows may have changed.
   void forget() {

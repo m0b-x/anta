@@ -14075,7 +14075,14 @@
   },
   "shareFolderAlready": "{folder} is already shared",
   "@shareFolderAlready": {
-    "description": "Snackbar when the folder picked to share is shared already, on its own or through a folder it lies in",
+    "description": "The sentence for a folder that is shared already, on its own or through a folder it lies in. Said by two snackbars (a share from the folder page's menu, a pick in the Sharing page's folders sheet) and shown as the subtitle of a refused row in the share picker's search results, under the folder's name",
+    "placeholders": {
+      "folder": { "type": "String", "example": "Lisbon" }
+    }
+  },
+  "pickShareAlready": "Already shared: {folder}",
+  "@pickShareAlready": {
+    "description": "The share picker's two-line reason slot under its list, when the folder the picker is in is shared already, on its own or through a folder it lies in: why the Share button is off. The why comes first and the name last: a long name is cut at the slot's second line, and the why must survive",
     "placeholders": {
       "folder": { "type": "String", "example": "Lisbon" }
     }

@@ -45,6 +45,9 @@ dependencies:
   # Utilities
   uuid: ^4.5.2
   shared_preferences: ^2.5.4
+  # The store under the plugin, asked directly for a key another isolate
+  # writes (lib/services/fresh_preferences.dart).
+  shared_preferences_platform_interface: ^2.4.2
   table_calendar: ^3.2.1
   
   drift: ^2.30.0
@@ -115,7 +118,6 @@ dev_dependencies:
   args: ^2.7.0
   xml: ^7.0.1
   image: ^4.9.2
-  shared_preferences_platform_interface: ^2.4.2
 
 # App icon generation: `dart run flutter_launcher_icons`. Source art lives in
 # assets/icon/ (source.png = original; the rest are derived — see

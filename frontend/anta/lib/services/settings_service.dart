@@ -2595,8 +2595,48 @@ class SettingsService {
   /// Transactional on purpose: these rows are one value. A partial write
   /// (a `pairId` without the account it belongs to) is exactly the state
   /// [PairingSettings] exists to make unrepresentable.
-  Future<void> setPairingSettings(PairingSettings settings) {
-    return _db.transaction(() async {
+  ///
+  /// [startAlertsAt] is what may ring on the partner's events, set back in
+  /// the same transaction when the pair stored is another one than this
+  /// database was last in (share surfaces D38): both are written or
+  /// neither, so no pair ever stands under the choice made for another —
+  /// written apart, one failed write carried the old pair's choice to the
+  /// new one for good, since no later reconcile saw another pair again.
+  /// Published once it is stored, as a read of it would be.
+  ///
+  /// A pair stored is also remembered as the last one
+  /// ([SettingsKeys.pairingLastPair]), past its end.
+  ///
+  /// [clearMarksOfOtherPairs]: the pair stored is another than the one that
+  /// stood, so every share mark set under any other pair is cleared in this
+  /// same transaction — stamped and queued, so its rows are sent private by
+  /// the next drain (`FolderDao.clearSharesExcept`). A pair's id never
+  /// comes round again, so such a mark can never be valid again; left to
+  /// the pair's first shared read, it read as a share with the new partner
+  /// in every list of the app's own until then — seconds, or as long as
+  /// the phone was offline. A database with no mark pays the one statement
+  /// that says so. Returns how many marks were cleared.
+  Future<int> setPairingSettings(
+    PairingSettings settings, {
+    ShareAlerts? startAlertsAt,
+    bool clearMarksOfOtherPairs = false,
+  }) async {
+    var cleared = 0;
+    await _db.transaction(() async {
+      if (clearMarksOfOtherPairs &&
+          settings.pairId != null &&
+          await _db.syncDao.anyShareMark()) {
+        cleared = await _db.folderDao.clearSharesExcept(settings.pairId);
+      }
+      if (startAlertsAt != null) {
+        await _db.userSettingsDao.setValue(
+          SettingsKeys.shareAlerts,
+          startAlertsAt.name,
+        );
+      }
+      if (settings.pairId != null) {
+        await _write(SettingsKeys.pairingLastPair, settings.pairId);
+      }
       await _write(SettingsKeys.pairingPairId, settings.pairId);
       await _write(SettingsKeys.pairingAccountUid, settings.accountUid);
       await _write(SettingsKeys.pairingPartnerUid, settings.partnerUid);
@@ -2612,7 +2652,16 @@ class SettingsService {
       );
       await _write(SettingsKeys.pairingEndedPair, settings.endedPairId);
     });
+    if (startAlertsAt != null) EventAlerts.configureShareAlerts(startAlertsAt);
+    return cleared;
   }
+
+  /// The last pair this database was in, standing or ended; null when it
+  /// never was in one, or its pairing rows were stripped — a restore, a
+  /// handed-out copy.
+  Future<String?> getLastPairId() async => _nonEmpty(
+    await _db.userSettingsDao.getValue(SettingsKeys.pairingLastPair),
+  );
 
   /// The space this database is bound to, or null unless the space, its
   /// owner and the binding account are all stored.

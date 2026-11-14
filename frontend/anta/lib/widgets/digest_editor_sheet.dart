@@ -270,7 +270,8 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
       anchor: _anchor,
       minute: _minute,
       leadDays: _leadDays,
-      categoryIds: _categoryIds,
+      // A report stores its own part alone (D15).
+      categoryIds: CategoryAllowlist.forDigest(_cadence, _categoryIds),
       includeEmpty: _includeEmpty,
       enabled: initial?.enabled ?? true,
       sortOrder: initial?.sortOrder ?? 0,
@@ -386,18 +387,28 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   /// whole group is then stored as the group, and where they are not
   /// offered the partner's part of the list is carried as it stood
   /// ([CategoryAllowlist.fromPicker]).
+  ///
+  /// It opens on the list as this cadence reads it
+  /// ([CategoryAllowlist.forDigest]) — what the row above says: a report
+  /// whose stored list still names the partner's part, written on another
+  /// device, read "Events" on the row and opened with no row ticked. The
+  /// answer is stored over the list as it is held, not as the report reads
+  /// it: the partner's part is carried, so switching the cadence back in
+  /// the same editing session finds it, and the report's reading is applied
+  /// once, at the save.
   Future<void> _pickCategories() async {
     if (_pickerOpen) return;
     _pickerOpen = true;
     _blur();
     try {
       final partnerListed = _partnerListed;
+      final opening = CategoryAllowlist.opening(
+        CategoryAllowlist.forDigest(_cadence, _categoryIds),
+        partnerListed: partnerListed,
+      );
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: CategoryAllowlist.ticked(
-          _categoryIds,
-          partnerListed: partnerListed,
-        ),
+        selected: opening.ticked,
         partner: partnerListed
             ? CalendarCategories.partnerShown
             : const <CalendarCategory>[],
@@ -408,6 +419,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
         CategoryAllowlist.fromPicker(
           _categoryIds,
           picked,
+          opening: opening,
           partnerListed: partnerListed,
         ),
       );
@@ -617,7 +629,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
         identifier: SemanticsIds.digestCategories,
         label: l10n.calendarCategories,
         value: digestCategoriesLabel(
-          _categoryIds,
+          CategoryAllowlist.forDigest(_cadence, _categoryIds),
           l10n,
           categoryLabel: (id) => _categoryLabel(id, l10n),
           partnerListed: _partnerListed,
@@ -805,7 +817,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
                           controller: _nameController,
                           // The title the digest takes while it has no name.
                           hint: digestCategoriesLabel(
-                            _categoryIds,
+                            CategoryAllowlist.forDigest(_cadence, _categoryIds),
                             l10n,
                             categoryLabel: (id) => _categoryLabel(id, l10n),
                             partnerListed: _partnerListed,

@@ -1,0 +1,116 @@
+# "Only mine" stays true across a new category (D29). The partner filters
+# its Upcoming list to its own categories as a group: every row of its
+# own ticked, nothing of "From …" (Stretching unticked). The owner then
+# makes a NEW category, Recovery, shared from its editor, with "Foam
+# rolling" in it. After a sync each the event is on the partner's phone
+# (its day's marker names it), yet the filtered list has no Recovery card
+# and the filter's summary reads as before — the partner's own names,
+# never Recovery. Un-filtered (Select all, "All"), the card is there.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-categories --settle 1000
+-d emulator-5558 wait id:category-pick-done
+-d emulator-5558 tap "Stretching"
+-d emulator-5558 tap id:category-pick-done
+-d emulator-5558 wait id:category-pick-done --gone
+-d emulator-5558 expect id:agenda-filter-categories "Gym" "Cardio +7 more" --absent "Stretching"
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap id:calendar-categories-open
+wait id:category-add
+tap id:category-add
+wait id:category-editor-name
+type "Recovery"
+scroll-to id:category-editor-share --in id:category-editor-form
+tap id:category-editor-share
+expect id:category-editor-share "New events are shared"
+tap id:category-editor-save
+wait id:category-editor-save --gone
+expect "Sharing Recovery with qa2@example.com" --timeout 10
+key back
+wait id:calendar-categories-open
+key back
+wait id:calendar-add-event
+tap id:panel-mode-day --settle 1000
+tap id:calendar-add-event
+wait id:event-title
+type "Foam rolling"
+tap id:event-category
+wait id:category-pick-gym
+scroll-to "Recovery"
+tap "Recovery"
+wait id:event-save
+expect id:event-category "Recovery"
+tap id:event-save
+wait id:calendar-add-event
+expect "Foam rolling" --timeout 10
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Foam rolling" --timeout 30
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+# The grid's day marker names every title of the day: the list's absence
+# is read on its cards, which name their category. The bar that says
+# Recovery arrived names it too, and leaves first.
+-d emulator-5558 expect id:agenda-card-days-category-cardio --absent "Recovery" --timeout 20
+-d emulator-5558 shot only-mine-filtered
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 expect id:agenda-filter-categories "Gym" "Cardio +7 more" --absent "Recovery"
+-d emulator-5558 tap id:agenda-filter-categories --settle 1000
+-d emulator-5558 wait id:category-pick-done
+-d emulator-5558 tap id:category-pick-select-all
+-d emulator-5558 tap id:category-pick-done
+-d emulator-5558 wait id:category-pick-done --gone
+-d emulator-5558 expect id:agenda-filter-categories "All"
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 expect "Recovery" --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

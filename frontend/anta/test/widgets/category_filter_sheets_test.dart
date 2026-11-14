@@ -1855,6 +1855,54 @@ void main() {
         expect(lists(applied.value, myEvent('c5')), isFalse);
       });
 
+      /// A pick that ticks none of the listed rows is every category,
+      /// whatever the list carried for a row the picker could not show
+      /// (share surfaces §16.3) — here a category of theirs hidden on this
+      /// phone. "Select none" used to store that hidden id alone: an agenda
+      /// that showed nothing, with no row left to un-tick.
+      testWidgets('R19: two of mine and a hidden one of theirs, Select none: '
+          'every category again', (tester) async {
+        seedWithPartner(3, partnerHidden: {'p-choir'});
+        final applied = await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(categoryIds: {'c0', 'c1', 'p-choir'}),
+        );
+
+        expect(categoriesValue(tester), 'Cat0, Cat1');
+
+        await openPicker(tester);
+        expect(pickerRow('Choir'), findsNothing);
+        await tapAndSettle(tester, find.text('Select none'));
+        await tapAndSettle(tester, pickerApply());
+
+        expect(categoriesValue(tester), 'All');
+
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, isEmpty);
+        expect(lists(applied.value, myEvent('c2')), isTrue);
+        expect(lists(applied.value, partnerEvent('p-night')), isTrue);
+      });
+
+      testWidgets('a hidden one of theirs still rides with a pick that ticks '
+          'a row', (tester) async {
+        seedWithPartner(3, partnerHidden: {'p-choir'});
+        final applied = await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(categoryIds: {'c0', 'c1', 'p-choir'}),
+        );
+
+        await openPicker(tester);
+        await tapAndSettle(tester, pickerRow('Cat1'));
+        await tapAndSettle(tester, pickerApply());
+
+        expect(categoriesValue(tester), 'Cat0');
+
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {'c0', 'p-choir'});
+      });
+
       testWidgets('my group reopens with every row of mine ticked and none '
           'of theirs', (tester) async {
         seedWithPartner(2);

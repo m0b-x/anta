@@ -35,6 +35,26 @@ class AppConstants {
   /// it — so it must be read first, and stays as long as any bar may.
   static const Duration shareNoticeDuration = snackbarActionMaxDuration;
 
+  /// How long a share notice waits for each thing it asks before it is
+  /// said: the share service, and — for an arrival — whether what arrived
+  /// is still here. Past it an arrival is said as held, unchecked, and a
+  /// turn that got no service is given up for the next notice or return to
+  /// take: a check that never answered held every later notice for good,
+  /// the leaves included.
+  static const Duration shareNoticeCheckLimit = Duration(seconds: 3);
+
+  /// How long a partner's folder page holds its first frame for the
+  /// partner's name and face: a local read that normally lands within a
+  /// frame or two, so a read still out by then is not coming soon, and a
+  /// page without its line beats a blank one.
+  static const Duration partnerLookHoldLimit = Duration(seconds: 2);
+
+  /// How long a share leave waits for a page in front to answer whether it
+  /// leaves too: the answer is a keyed local read, so one still out by then
+  /// is a read that stalled, and its page counts as staying — a leave held
+  /// for good would silence every later leave under it.
+  static const Duration shareLeaveProbeLimit = Duration(seconds: 1);
+
   /// What a bar spends off its own time: a bar that replaces another waits
   /// out that one's exit, then its own entrance (250 ms each in
   /// `material/scaffold.dart`), before its duration starts. A caller that
@@ -90,6 +110,20 @@ class AppConstants {
   /// reaches between automatic checkpoints, so ordinary writing never pays
   /// for a truncate and a regrow.
   static const int sqliteJournalSizeLimitBytes = 8 * 1024 * 1024;
+
+  /// How long a connection waits for another connection's write before it
+  /// fails with "database is locked" (`PRAGMA busy_timeout`). SQLite's
+  /// default is not to wait at all.
+  ///
+  /// The app holds one connection, and the shared check that runs with the
+  /// app closed opens its own in another isolate
+  /// (`docs/cloud-shared-freshness.md` §5). A handshake keeps the two from
+  /// writing together, but it is bounded: a launch goes on after five
+  /// seconds of waiting for a run, a name that missed its pings is taken
+  /// for a dead isolate's. In those windows the second writer met a refusal
+  /// within a millisecond — a failed run, or a thrown write in the app.
+  /// With this it waits its turn, for as long as the launch itself waits.
+  static const Duration sqliteBusyTimeout = Duration(seconds: 5);
 
   /// How many ids one `IN (?, …)` statement binds when a DAO takes an
   /// unbounded id list. SQLite refuses a statement over

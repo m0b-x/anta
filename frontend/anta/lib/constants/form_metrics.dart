@@ -395,6 +395,41 @@ abstract final class FormMetrics {
   static const double menuIconSize = 20;
   static const double menuRadius = 12;
 
+  /// Between a menu row's glyph, its label and a trailing value, in a menu
+  /// that draws its own rows (the note's ⋮) — the space `FormMenuItemRow`
+  /// keeps.
+  static const double menuRowGap = 12;
+
+  /// The lines a label or a trailing value of the ⋮ menus' own rows wraps to
+  /// before it is cut: at German 2.0 one line kept only the first word or
+  /// two ("In meine N…"), and "In meine Notizen kopieren" needs three in the
+  /// 180 dp the menu leaves it. A folder's long name stops there.
+  static const int menuLabelLines = 3;
+
+  /// The folder picker's reason line under its list — why the share pick's
+  /// button is off: on the dialog's 24 dp title and action inset.
+  static const EdgeInsets pickerReasonPadding = EdgeInsets.fromLTRB(
+    24,
+    8,
+    24,
+    0,
+  );
+
+  /// The lines the picker's reason slot is laid out for, at the locale and
+  /// scale in use and whatever the folder's name wraps to: entering and
+  /// leaving a shared folder, or typing a search, changes the text, never
+  /// where the list ends. A longer reason is cut there — the address bar
+  /// above names the folder in full, and the line's semantics read it whole.
+  static const int pickerReasonLines = 2;
+
+  /// The picker's drill-in chevron, at a list tile's scale beside its 24 dp
+  /// folder glyph rather than the language rows' [chevronSize].
+  static const double pickerChevronSize = 22;
+
+  /// The glyph in a dialog's filled button: Material's own size for an icon
+  /// beside a button's label.
+  static const double buttonGlyphSize = 18;
+
   /// Above and below a menu item that carries a caption under its label —
   /// the Sharing page's Alerts menu — so the two lines read as one choice
   /// with air between choices, where the one-line row's 44 dp has none.

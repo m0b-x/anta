@@ -432,6 +432,43 @@ void main() {
       );
     });
 
+    // Review 11 (B6), the events' twin of the folders' case: the sheet
+    // reopened at once answers only for its own ✕.
+    testWidgets('reopened while the dismissed sheet\'s ✕ runs: the old '
+        'failure said once, past it; the new ✕\'s row stays out', (
+      tester,
+    ) async {
+      await openMine(tester);
+      final hold = service.hold = Completer<void>();
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      await tester.tap(sheetClose());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(unshare('lunch'));
+      await settle(tester);
+
+      hold.completeError(StateError('disk'));
+      await settle(tester);
+
+      expect(find.text(en.shareChangeFailed), findsOneWidget);
+      expect(
+        find.widgetWithText(SnackBar, en.shareChangeFailed),
+        findsOneWidget,
+        reason: 'the app messenger\'s, for the sheet that is gone',
+      );
+      expect(service.eventShares, [('dinner', false), ('lunch', false)]);
+      expect(
+        find.descendant(
+          of: find.byType(MySharedEventsSheet),
+          matching: find.text('Lunch'),
+        ),
+        findsNothing,
+      );
+    });
+
     testWidgets('a ✕ refused after the sheet was dismissed says why on the '
         'app\'s messenger', (tester) async {
       await openMine(tester);

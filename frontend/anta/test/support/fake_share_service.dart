@@ -171,6 +171,21 @@ class FakeShareService implements ShareService {
   Future<bool> isFromPartner(String table, String id) async =>
       partnerRows.contains('$table/$id');
 
+  /// The built-ins of mine the partner shares: none unless a test says so,
+  /// as a database with no shared built-in answers. A default of "all of
+  /// them" let an arrival of a built-in nobody shares be said, which the
+  /// real service drops.
+  Set<String> sharedBuiltIns = {};
+
+  /// The real rule over the published catalogue: one of their own it holds,
+  /// or a built-in of mine in [sharedBuiltIns].
+  @override
+  Future<Set<String>> partnerSharesCategories(Set<String> ids) async => {
+    for (final id in ids)
+      if (CalendarCategories.byId(id) case final category?)
+        if (category.fromPartner || sharedBuiltIns.contains(id)) id,
+  };
+
   /// Every [setCategoryShown] as `(id, shown)`, in order.
   final List<(String, bool)> shownSets = [];
 
@@ -195,6 +210,10 @@ class FakeShareService implements ShareService {
     shownSets.add((id, shown));
     final wasHidden = hidden.contains(id);
     hidden = shown ? (Set.of(hidden)..remove(id)) : {...hidden, id};
+    // As the service does once the choice is stored, and before it says
+    // anything: the catalogue is what a notice's listener asks whether the
+    // category still stands hidden.
+    CalendarCategories.updatePartnerHidden(hidden);
     final armed = shown || wasHidden ? 0 : armedByCategory[id] ?? 0;
     // The service's own contract: a hide that took alerts off is said once
     // it is written.

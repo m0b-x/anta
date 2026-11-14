@@ -7,6 +7,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/all_notes_page.dart';
+import 'package:anta/pages/optimized_folder_content_page.dart';
 import 'package:anta/pages/optimized_note_editor_page.dart';
 import 'package:anta/models/restore_location_mode.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -256,6 +257,39 @@ void main() {
     );
     expect(page, isA<OptimizedNoteEditorPage>());
     expect((page as OptimizedNoteEditorPage).metadata!.fromPartner, isTrue);
+
+    await teardownApp(tester);
+  });
+
+  // Leg 6's door left unpinned: the page is handed whose the folder is from
+  // the restore's own read — a cache let go before its first frame must not
+  // draw one writable frame of hers (the frames themselves are pinned on
+  // the popToFolder door in browser_partner_rows_test).
+  testWidgets("a restored partner's folder hands the page its whose-it-is", (
+    tester,
+  ) async {
+    final theirs = await folders.createFolder(name: 'Theirs');
+    await settings.saveLastLocationStack([
+      NavDestination.folder(folderId: theirs.id, title: 'Theirs'),
+    ]);
+    await db.customStatement(
+      "UPDATE folders SET owner_id = 'partner' WHERE id = ?",
+      [theirs.id],
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    folders.invalidateCache();
+
+    await pumpApp(tester);
+    observer.clear();
+
+    await restore(tester);
+
+    final page = pageOf(
+      observer.pushed.single,
+      AppNavigator.navigatorKey.currentContext!,
+    );
+    expect(page, isA<OptimizedFolderContentPage>());
+    expect((page as OptimizedFolderContentPage).fromPartner, isTrue);
 
     await teardownApp(tester);
   });

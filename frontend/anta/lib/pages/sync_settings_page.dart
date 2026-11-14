@@ -1883,47 +1883,43 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// Destructive, the page's one such dialog: the copy in the account is
   /// gone for good, and the body says what stays — and, while an alert of
   /// mine is armed on something the partner shares, that it goes off (D30).
-  Future<void> _deleteCloudCopy(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) => _askDeletion(
-    context,
-    l10n,
-    body: l10n.syncDeleteCloudConfirmBody,
-    ask: (content) => AppDialogs.confirm(
-      context,
-      title: l10n.syncDeleteCloudConfirmTitle,
-      content: content,
-      confirmText: l10n.syncDeleteCloudConfirmAction,
-      icon: Icons.delete_forever_outlined,
-      isDestructive: true,
-      confirmIdentifier: SemanticsIds.sharingSyncDeleteConfirm,
-    ),
-    request: const DeleteCloudCopyRequested(),
-  );
+  Future<void> _deleteCloudCopy(BuildContext context, AppLocalizations l10n) =>
+      _askDeletion(
+        context,
+        l10n,
+        body: l10n.syncDeleteCloudConfirmBody,
+        ask: (content) => AppDialogs.confirm(
+          context,
+          title: l10n.syncDeleteCloudConfirmTitle,
+          content: content,
+          confirmText: l10n.syncDeleteCloudConfirmAction,
+          icon: Icons.delete_forever_outlined,
+          isDestructive: true,
+          confirmIdentifier: SemanticsIds.sharingSyncDeleteConfirm,
+        ),
+        request: const DeleteCloudCopyRequested(),
+      );
 
   /// Destructive, and asked every time — from the Account section's row
   /// and from "Finish deleting account" alike: finishing marks whatever
   /// cloud copies the account has by then, so the same words hold. Google's
   /// own prompt follows the confirm.
-  Future<void> _deleteAccount(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) => _askDeletion(
-    context,
-    l10n,
-    body: l10n.syncDeleteAccountConfirmBody,
-    ask: (content) => AppDialogs.confirm(
-      context,
-      title: l10n.syncDeleteAccountConfirmTitle,
-      content: content,
-      confirmText: l10n.syncDeleteAccount,
-      icon: Icons.person_remove_outlined,
-      isDestructive: true,
-      confirmIdentifier: SemanticsIds.sharingDeleteAccountConfirm,
-    ),
-    request: const DeleteAccountRequested(),
-  );
+  Future<void> _deleteAccount(BuildContext context, AppLocalizations l10n) =>
+      _askDeletion(
+        context,
+        l10n,
+        body: l10n.syncDeleteAccountConfirmBody,
+        ask: (content) => AppDialogs.confirm(
+          context,
+          title: l10n.syncDeleteAccountConfirmTitle,
+          content: content,
+          confirmText: l10n.syncDeleteAccount,
+          icon: Icons.person_remove_outlined,
+          isDestructive: true,
+          confirmIdentifier: SemanticsIds.sharingDeleteAccountConfirm,
+        ),
+        request: const DeleteAccountRequested(),
+      );
 
   /// A deletion's confirmation, with the sentence D30 adds while an alert
   /// of mine is armed on something the partner shares. A second tap while
@@ -2181,10 +2177,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
     return switch (state) {
       PairingInviting(:final code) => PairingService.formatCode(code),
-      PairingEnded(:final partnerName) =>
-        partnerName == null
-            ? l10n.pairingEndedByPartner
-            : l10n.pairingEndedBy(partnerName),
+      PairingEnded() => _pairingEndedWords(l10n, state),
       // What is shared, so a bare "Paired with X" never reads as everything
       // moving.
       PairingPaired() => pairedSummary,
@@ -2377,9 +2370,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     await AppDialogs.action(
       context,
       title: l10n.pairingEndedTitle,
-      content: state.partnerName == null
-          ? l10n.pairingEndedByPartner
-          : l10n.pairingEndedBy(state.partnerName!),
+      content: _pairingEndedWords(l10n, state),
       actionText: l10n.close,
       icon: Icons.link_off_rounded,
       actionIdentifier: SemanticsIds.sharingEndedNoticeClose,
@@ -2389,6 +2380,15 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       },
     );
   }
+}
+
+/// What the page says of a pair its partner ended — in the notice and in
+/// the row's line, chosen here for both: by name, or "your partner" when
+/// the state names nobody (`PairingEnded.from` hands a blank name on as
+/// none).
+String _pairingEndedWords(AppLocalizations l10n, PairingEnded state) {
+  final name = state.partnerName;
+  return name == null ? l10n.pairingEndedByPartner : l10n.pairingEndedBy(name);
 }
 
 /// A description slot as tall as the tallest of [templates] at its width,

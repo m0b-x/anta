@@ -11,7 +11,8 @@ import 'push_messaging.dart';
 /// What a relay message does with the app in front
 /// (`docs/cloud-shared-freshness.md` §7, "The message"): one that names the
 /// open database's pair asks for the shared read now, a burst of them as one
-/// read a moment later; any other message is ignored. The open calendar and
+/// read a moment later, and never more than one read a [kPushReadFloor];
+/// any other message is ignored. The open calendar and
 /// a partner's open note then follow by the paths a read already takes.
 ///
 /// Listens, and hands the background handler over, only once this install
@@ -26,14 +27,23 @@ class PushReceiver {
   final Future<int?> Function() _sdkLevel;
   final Future<SharedPreferences> _prefs;
   final Duration _coalesce;
+  final Duration _floor;
+  final DateTime Function() _clock;
 
   StreamSubscription<Map<String, dynamic>>? _listening;
   final Set<String> _heard = {};
+
+  /// The gather, or the wait for the floor's end: while it stands, a
+  /// message only joins what it will read.
   Timer? _gathering;
 
+  /// When a message last asked for the shared read.
+  DateTime? _readAt;
+
   /// [openPair] answers the open database's pair; [readShared] asks the
-  /// engine for the shared read now — the engine's own floor, never the
-  /// Sharing page's, since a message means something changed. [sdkLevel]
+  /// engine for the shared read now, past its own interval, since a message
+  /// means something changed — so this receiver's [floor] is what bounds
+  /// what messages cost in front. [sdkLevel]
   /// answers the phone's Android API level, kept in [prefs] for the
   /// background handler ([SettingsKeys.pushExpeditedWork]).
   PushReceiver({
@@ -44,7 +54,11 @@ class PushReceiver {
     required Future<int?> Function() sdkLevel,
     required Future<SharedPreferences> prefs,
     Duration coalesce = kPushMessageCoalesce,
-  }) : _messaging = messaging,
+    Duration floor = kPushReadFloor,
+    DateTime Function() clock = DateTime.now,
+  }) : _floor = floor,
+       _clock = clock,
+       _messaging = messaging,
        _addresses = addresses,
        _openPair = openPair,
        _readShared = readShared,
@@ -114,6 +128,13 @@ class PushReceiver {
   }
 
   Future<void> _read() async {
+    final readAt = _readAt;
+    final since = readAt == null ? null : _clock().difference(readAt);
+    if (since != null && !since.isNegative && since < _floor) {
+      // Inside the floor: one read at its end for all that came meanwhile.
+      _gathering = Timer(_floor - since, () => unawaited(_read()));
+      return;
+    }
     _gathering = null;
     final heard = {..._heard};
     _heard.clear();
@@ -122,6 +143,7 @@ class PushReceiver {
       // Another database's pair: it is read when that database is open
       // (case B13).
       if (open == null || !heard.contains(open)) return;
+      _readAt = _clock();
       await _readShared();
     } catch (e) {
       debugPrint('[PushReceiver] read not asked for: $e');

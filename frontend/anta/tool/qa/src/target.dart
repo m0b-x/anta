@@ -46,7 +46,8 @@ class TargetMatch {
 /// Resolves target strings against a dumped hierarchy.
 ///
 /// Accepted forms: `#12` (flat node index), `123,456` (raw coordinates),
-/// `id:some_id` (resource id) and any other string as a label, matched
+/// `id:some_id` (resource id; `id:some-prefix-*` by prefix) and any other
+/// string as a label, matched
 /// against content description, then text, then resource id, in three
 /// passes: exact, case-insensitive, then case-insensitive substring.
 class TargetResolver {
@@ -84,9 +85,7 @@ class TargetResolver {
 
     if (trimmed.startsWith('id:')) {
       final wanted = trimmed.substring(3);
-      final matches = tree.nodes
-          .where((n) => n.resourceId == wanted || n.shortId == wanted)
-          .toList();
+      final matches = tree.nodes.where((n) => _hasId(n, wanted)).toList();
       return _pick(
         matches
             .map((n) => TargetMatch(n, MatchPass.exact, MatchField.resourceId))
@@ -113,13 +112,24 @@ class TargetResolver {
     final List<UiNode> nodes;
     if (trimmed.startsWith('id:')) {
       final wanted = trimmed.substring(3);
-      nodes = tree.nodes
-          .where((n) => n.resourceId == wanted || n.shortId == wanted)
-          .toList();
+      nodes = tree.nodes.where((n) => _hasId(n, wanted)).toList();
     } else {
       nodes = [for (final match in matchLabel(trimmed)) match.node];
     }
     return nodes..sort((a, b) => a.index.compareTo(b.index));
+  }
+
+  /// Whether [node] carries the id [wanted]. A trailing `*` asks for the
+  /// prefix: a function-built id whose key is minted on the device — a
+  /// folder imported from a seed gets a fresh id — can be spelled only up
+  /// to that key (`id:share-folder-unshare-*`).
+  static bool _hasId(UiNode node, String wanted) {
+    if (!wanted.endsWith('*')) {
+      return node.resourceId == wanted || node.shortId == wanted;
+    }
+    final prefix = wanted.substring(0, wanted.length - 1);
+    return prefix.isNotEmpty &&
+        (node.resourceId.startsWith(prefix) || node.shortId.startsWith(prefix));
   }
 
   /// All nodes matching [label], strongest pass first.

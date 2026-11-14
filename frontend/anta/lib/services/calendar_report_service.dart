@@ -22,6 +22,7 @@ import '../models/date_range.dart';
 import '../models/overview_period.dart';
 import '../models/overview_view.dart';
 import '../utils/calendar_report_builder.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/event_agenda.dart';
 import '../utils/lru_cache.dart';
 import 'note_money_ledger_service.dart';
@@ -202,7 +203,7 @@ class CalendarReportService {
       window.previousSpan,
       request.weekStart,
       compare: window.compare,
-      viewCategoryIds: view == null ? null : _sorted(view.categoryIds),
+      viewCategoryIds: view == null ? null : _sorted(_viewIds(view)),
     );
     final cached = _reports.get(key);
     if (cached != null) return cached;
@@ -240,6 +241,11 @@ class CalendarReportService {
     _foldCount++;
     return CalendarReportBuilder.fold(input);
   }
+
+  /// What a compared [view] counts by: its own part alone, as a list that
+  /// reaches the report page does (`CategoryAllowlist.forReport`).
+  static Set<String> _viewIds(OverviewView view) =>
+      CategoryAllowlist.forReport(view.categoryIds);
 
   /// The previous period's or last year's fold over its counted part (D28),
   /// folded on its own today — the real one when the span is past, the
@@ -282,6 +288,10 @@ class CalendarReportService {
 
   /// The saved [view]'s fold over the span and today of [request], with
   /// [main]'s tiles, so the two Totals columns line up.
+  ///
+  /// The view's list is read as the report itself would open it
+  /// ([_viewIds]): a view can name the partner's part, and a report holds
+  /// none of it (D15).
   CalendarReport _viewFold(
     ReportRequest request,
     OverviewView view,
@@ -289,7 +299,7 @@ class CalendarReportService {
   ) {
     final derived = ReportRequest(
       span: request.span,
-      categoryIds: view.categoryIds,
+      categoryIds: _viewIds(view),
       events: request.events,
       today: request.today,
       weekStart: request.weekStart,

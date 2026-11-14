@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/shared_refresh_constants.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/settings_service.dart';
@@ -7,9 +8,12 @@ import 'package:anta/services/shared_refresh/shared_refresh.dart';
 import 'package:anta/services/shared_refresh/shared_refresh_app.dart';
 import 'package:anta/services/shared_refresh/shared_refresh_plan.dart';
 import 'package:anta/services/shared_refresh/shared_refresh_scheduler.dart';
+import 'package:anta/services/sync/sync_engine.dart';
+import 'package:anta/services/sync/sync_gateway.dart';
 
 import '../../database/support/db_test_support.dart';
 import '../../support/fake_shared_refresh_scheduler.dart';
+import '../../support/fake_sync_engine.dart';
 
 /// `SharedRefresh` — the check scheduled while an alert depends on what the
 /// partner shares, and only then (`docs/cloud-shared-freshness.md` §4,
@@ -177,13 +181,15 @@ void main() {
     });
 
     test(
-      'a check that already ran is planned again by the next pass',
+      'a check whose work has run is planned again by the next pass',
       () async {
         final refresh = refreshOf();
         final fireAt = now.add(const Duration(hours: 8));
 
         await refresh.afterAlertPass(SharedRefreshNeed(fireTimes: [fireAt]));
         now = now.add(const Duration(hours: 4, minutes: 5));
+        refresh.workRunning(SharedRefreshSlot.first);
+        await refresh.workEnded();
         await refresh.afterAlertPass(SharedRefreshNeed(fireTimes: [fireAt]));
 
         expect(platform.scheduled, const [
@@ -208,6 +214,133 @@ void main() {
         ]);
       },
     );
+  });
+
+  group('a pass that came with no shared read (review item 11)', () {
+    test(
+      'never pushes the check later: pass after pass — my own edits, a '
+      'resume, the manual cadence — the standing check stays where it '
+      'was planned, instead of moving away without anyone having looked',
+      () async {
+        final refresh = refreshOf();
+        final fireAt = now.add(const Duration(hours: 6));
+        await refresh.afterAlertPass(SharedRefreshNeed(fireTimes: [fireAt]));
+
+        // Every twenty minutes half the time left ends ten minutes later.
+        for (var pass = 0; pass < 8; pass++) {
+          now = now.add(const Duration(minutes: 20));
+          await refresh.afterAlertPass(SharedRefreshNeed(fireTimes: [fireAt]));
+        }
+
+        expect(platform.calls, ['schedule:${const Duration(hours: 3)}']);
+      },
+    );
+
+    test('an edit that moves my alert further away does not move the check '
+        'away either', () async {
+      final refresh = refreshOf();
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 6)));
+
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 20)));
+
+      expect(platform.scheduled, const [Duration(hours: 3)]);
+    });
+
+    test('still brings it nearer: an alert moved closer is checked for '
+        'sooner', () async {
+      final refresh = refreshOf();
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 6)));
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 20)));
+
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 2)));
+
+      expect(platform.scheduled, const [
+        Duration(hours: 3),
+        Duration(hours: 1),
+      ]);
+    });
+
+    test('a pass that came with a read plans from now, later than the check '
+        'stood — and the read is spent by that one pass', () async {
+      final refresh = refreshOf();
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 6)));
+
+      refresh.readMade();
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 20)));
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 40)));
+
+      expect(platform.scheduled, const [
+        Duration(hours: 3),
+        Duration(hours: 10),
+      ]);
+    });
+
+    test('a read made counts only for a pass that follows it: one that '
+        'changed nothing is followed by none, and is not left for the next '
+        'morning\'s — the check that fell due and waits for the network is '
+        'kept (second look, N2; probe R8-E)', () async {
+      platform.standing = (_) => true;
+      final refresh = refreshOf();
+      final need = SharedRefreshNeed(fireTimes: [DateTime(2026, 11, 16, 9)]);
+      await refresh.afterAlertPass(need);
+      expect(platform.scheduled, const [Duration(hours: 12)]);
+
+      // In front, a shared read runs to its end and changes nothing.
+      now = now.add(const Duration(hours: 1));
+      refresh.readMade();
+      // Offline overnight; the app is resumed, and its pass runs.
+      now = now.add(const Duration(hours: 22));
+      await refresh.afterAlertPass(need);
+
+      expect(platform.scheduled, const [Duration(hours: 12)]);
+      expect(refresh.planned, SharedRefreshPlanned.stands);
+    });
+
+    test('the pass a read asks for comes within moments of it: inside '
+        'kSharedRefreshReadPassWindow it plans from now, at the window\'s '
+        'end no longer', () async {
+      Future<List<Duration>> passAfter(Duration sinceRead) async {
+        platform = FakeSharedRefreshScheduler();
+        now = DateTime(2026, 11, 13, 9);
+        final refresh = refreshOf();
+        await refresh.afterAlertPass(alertIn(const Duration(hours: 6)));
+        refresh.readMade();
+        now = now.add(sinceRead);
+        await refresh.afterAlertPass(alertIn(const Duration(hours: 20)));
+        return platform.scheduled;
+      }
+
+      expect(
+        await passAfter(
+          kSharedRefreshReadPassWindow - const Duration(seconds: 1),
+        ),
+        hasLength(2),
+      );
+      expect(await passAfter(kSharedRefreshReadPassWindow), hasLength(1));
+    });
+
+    test('a message\'s read forwarded to the app is such a read when it was '
+        'made, and none while it is still owed', () async {
+      final refresh = refreshOf();
+      await refresh.afterAlertPass(alertIn(const Duration(hours: 6)));
+      Future<void> forwarded({required bool made}) =>
+          SharedRefreshApp.forwardedRead(
+            null,
+            refresh: refresh,
+            read: () async => made,
+            alertPass: () =>
+                refresh.afterAlertPass(alertIn(const Duration(hours: 20))),
+          );
+
+      await expectLater(forwarded(made: false), throwsA(isA<SharedReadOwed>()));
+      expect(platform.scheduled, const [Duration(hours: 3)]);
+
+      await forwarded(made: true);
+      expect(platform.scheduled, const [
+        Duration(hours: 3),
+        Duration(hours: 10),
+      ]);
+    });
   });
 
   group('no longer wanted', () {
@@ -259,11 +392,12 @@ void main() {
     });
 
     test('an alert under ten minutes away with no other plans nothing, and '
-        'takes the standing check off', () async {
+        'takes the check that still lies ahead off', () async {
       final refresh = refreshOf();
       await refresh.afterAlertPass(alertIn(const Duration(hours: 1)));
 
-      now = now.add(const Duration(minutes: 55));
+      // The alert was moved near: the check planned for it is not due yet.
+      now = now.add(const Duration(minutes: 5));
       await refresh.afterAlertPass(
         SharedRefreshNeed(fireTimes: [now.add(const Duration(minutes: 5))]),
       );
@@ -356,7 +490,10 @@ void main() {
 
     test('the slot of a task is told by its name; a name this build does '
         'not know is the first', () {
-      expect(SharedRefreshSlot.ofTask('shared-refresh'), SharedRefreshSlot.first);
+      expect(
+        SharedRefreshSlot.ofTask('shared-refresh'),
+        SharedRefreshSlot.first,
+      );
       expect(
         SharedRefreshSlot.ofTask('shared-refresh-2'),
         SharedRefreshSlot.second,
@@ -380,7 +517,7 @@ void main() {
         refresh: refresh,
         read: () async {
           order.add('read');
-          return null;
+          return true;
         },
         alertPass: () async {
           order.add('pass');
@@ -414,6 +551,131 @@ void main() {
       expect(platform.calls, ['schedule:${const Duration(hours: 3)}']);
     });
 
+    test('a read still owed — offline, dropped — still gets its alert pass '
+        'and its successor, and is then answered as failed: answered done, '
+        'a message\'s read was lost', () async {
+      final refresh = refreshOf();
+      var passed = false;
+
+      await expectLater(
+        SharedRefreshApp.forwardedRead(
+          SharedRefreshSlot.first,
+          refresh: refresh,
+          read: () async => false,
+          alertPass: () async {
+            passed = true;
+            refresh.afterAlertPass(alertIn(const Duration(hours: 6))).ignore();
+          },
+        ),
+        throwsA(isA<SharedReadOwed>()),
+      );
+
+      expect(passed, isTrue);
+      expect(platform.calls, ['schedule@second:${const Duration(hours: 3)}']);
+    });
+
+    group('which away read is still owed (review item 7): only one a '
+        'retry can heal — a work that retried on any other would loop', () {
+      // Every value of both enums, so a new one has to be placed here.
+      const owedFailures = {
+        SyncGatewayFailure.offline: true,
+        SyncGatewayFailure.quotaExhausted: true,
+        SyncGatewayFailure.unknown: true,
+        SyncGatewayFailure.permissionDenied: false,
+        SyncGatewayFailure.invalidData: false,
+      };
+      const owedSkips = {
+        SyncRunSkip.suspended: true,
+        SyncRunSkip.stopped: true,
+        SyncRunSkip.paused: true,
+        SyncRunSkip.initialMergePending: true,
+        SyncRunSkip.rebound: true,
+        SyncRunSkip.unbound: false,
+        SyncRunSkip.signedOut: false,
+        SyncRunSkip.accountMismatch: false,
+        SyncRunSkip.appOutdated: false,
+        SyncRunSkip.noAccess: false,
+        SyncRunSkip.spaceDeleted: false,
+        SyncRunSkip.manual: false,
+      };
+
+      test('the table names every failure and every skip', () {
+        expect(owedFailures.keys.toSet(), SyncGatewayFailure.values.toSet());
+        expect(owedSkips.keys.toSet(), SyncRunSkip.values.toSet());
+      });
+
+      for (final MapEntry(key: failure, value: owed) in owedFailures.entries) {
+        test('a run that failed ${failure.name}: '
+            '${owed ? 'owed' : 'ended as a read'}', () {
+          // Whatever the engine says: the run's own cause answers first.
+          for (final flag in [true, false]) {
+            final engine = FakeSyncEngine()..awayReadOwed = flag;
+            expect(
+              SharedRefreshApp.readOwed(
+                SyncRunReport(failure: failure),
+                engine,
+              ),
+              owed,
+            );
+          }
+        });
+      }
+
+      for (final MapEntry(key: skip, value: owed) in owedSkips.entries) {
+        test('a run the gate held as ${skip.name}: '
+            '${owed ? 'owed' : 'ended as a read'}', () {
+          for (final flag in [true, false]) {
+            // The app's engine: started.
+            final engine = FakeSyncEngine()
+              ..awayReadOwed = flag
+              ..isStarted = true;
+            expect(
+              SharedRefreshApp.readOwed(SyncRunReport(skipped: skip), engine),
+              owed,
+            );
+          }
+        });
+      }
+
+      test('a first merge still pending is owed only by an engine that makes '
+          'it (review R3b): the run\'s is never started and merges nothing — '
+          'retried, it met the same on every back-off until the app was '
+          'opened; every other skip answers alike for both', () {
+        final run = FakeSyncEngine();
+        expect(run.isStarted, isFalse);
+        for (final MapEntry(key: skip, value: owed) in owedSkips.entries) {
+          expect(
+            SharedRefreshApp.readOwed(SyncRunReport(skipped: skip), run),
+            skip == SyncRunSkip.initialMergePending ? isFalse : owed,
+            reason: skip.name,
+          );
+        }
+        expect(SyncRunSkip.initialMergePending.healsFor(started: true), isTrue);
+        expect(
+          SyncRunSkip.initialMergePending.healsFor(started: false),
+          isFalse,
+        );
+      });
+
+      test('a run that reports neither answers by what the report says of '
+          'its own ask (review R4) — never by the engine\'s flag, which is '
+          'the last asker\'s', () {
+        final engine = FakeSyncEngine()..awayReadOwed = true;
+
+        expect(
+          SharedRefreshApp.readOwed(const SyncRunReport(), engine),
+          isFalse,
+        );
+        expect(
+          SharedRefreshApp.readOwed(
+            const SyncRunReport(awayReadOwed: true),
+            engine..awayReadOwed = false,
+          ),
+          isTrue,
+        );
+      });
+    });
+
     test('a message\'s read names no work: the check that stands is kept '
         'while the plan has not moved, and replaced in the app\'s own slot '
         'once it has', () async {
@@ -423,7 +685,7 @@ void main() {
       await SharedRefreshApp.forwardedRead(
         null,
         refresh: refresh,
-        read: () async => null,
+        read: () async => true,
         alertPass: () =>
             refresh.afterAlertPass(alertIn(const Duration(hours: 6))),
       );
@@ -442,14 +704,12 @@ void main() {
       await SharedRefreshApp.forwardedRead(
         null,
         refresh: refresh,
-        read: () async => null,
+        read: () async => true,
         alertPass: () async {},
       );
       await refresh.afterAlertPass(alertIn(const Duration(hours: 6)));
 
-      expect(platform.calls, [
-        'schedule@second:${const Duration(hours: 3)}',
-      ]);
+      expect(platform.calls, ['schedule@second:${const Duration(hours: 3)}']);
     });
   });
 

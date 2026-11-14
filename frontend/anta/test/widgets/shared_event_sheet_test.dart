@@ -573,6 +573,106 @@ void main() {
 
       expect(asked, isEmpty);
       expect(row(), findsNothing);
+      expect(find.text('DETAILS'), findsNothing);
+    });
+
+    // Review 2, finding 5 (spec F9): the row arrived with the title and the
+    // bottom-anchored sheet grew upward under the reader.
+    testWidgets('the row stands from the first frame, empty while the title '
+        'loads: the sheet\'s top does not move when it lands', (tester) async {
+      final title = Completer<NoteMetadata?>();
+      await open(tester, event: linked(), resolveNote: (_) => title.future);
+
+      expect(row(), findsOneWidget);
+      expect(find.text('DETAILS'), findsOneWidget);
+      final top = tester.getTopLeft(sheet).dy;
+
+      title.complete(handover);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Handover'), findsOneWidget);
+      expect(tester.getTopLeft(sheet).dy, top);
+    });
+
+    // Last review, finding 1: a tap opens only what the event links now — a
+    // re-link's lookup owns the row while it is out, and a tap on the note
+    // the row still shows neither opens it nor drops the new link.
+    group('a tap while the event is re-linked', () {
+      // Not "Other": the event's category is named so on its title row.
+      final other = handover.copyWith(id: 'n2', title: 'Briefing');
+      late StreamController<CalendarEvent?> changes;
+      late Future<NoteMetadata?> Function() first;
+      late Future<NoteMetadata?> Function() second;
+
+      setUp(() {
+        changes = StreamController<CalendarEvent?>();
+        first = () => Future.value(handover);
+        second = () => Future.value(other);
+      });
+
+      tearDown(() => changes.close());
+
+      Future<_Outcome> openLinked(WidgetTester tester) => open(
+        tester,
+        event: linked(),
+        changes: changes.stream,
+        resolveNote: (id) => id == 'n1' ? first() : second(),
+      );
+
+      testWidgets('its lookup still out: nothing opens; once it lands the '
+          'row shows the new note and a tap opens it', (tester) async {
+        final relinked = Completer<NoteMetadata?>();
+        second = () => relinked.future;
+        final outcome = await openLinked(tester);
+        expect(find.text('Handover'), findsOneWidget);
+
+        changes.add(linked().copyWith(noteId: 'n2'));
+        await tester.pump();
+        var oldReads = 0;
+        first = () {
+          oldReads++;
+          return Future.value(handover);
+        };
+        await tester.tap(row());
+        await tester.pumpAndSettle();
+        expect(sheet, findsOneWidget);
+        expect(outcome.closed, isFalse);
+        expect(oldReads, 0, reason: 'the old note is not read at all');
+
+        relinked.complete(other);
+        await tester.pumpAndSettle();
+        expect(find.text('Briefing'), findsOneWidget);
+
+        second = () => Future.value(other);
+        await tester.tap(row());
+        await tester.pumpAndSettle();
+        expect(sheet, findsNothing);
+        expect((outcome.exit! as SharedEventOpenNote).note.id, 'n2');
+      });
+
+      for (final (exists, words) in [(true, 'exists'), (false, 'is gone')]) {
+        testWidgets('a re-link lands while the tap\'s own read is out, which '
+            'then answers that the old note $words: nothing opens, the row '
+            'shows the new note', (tester) async {
+          final outcome = await openLinked(tester);
+          final tapRead = Completer<NoteMetadata?>();
+          first = () => tapRead.future;
+
+          await tester.tap(row());
+          await tester.pump();
+          changes.add(linked().copyWith(noteId: 'n2'));
+          await tester.pumpAndSettle();
+          expect(find.text('Briefing'), findsOneWidget);
+
+          tapRead.complete(exists ? handover : null);
+          await tester.pumpAndSettle();
+
+          expect(sheet, findsOneWidget);
+          expect(outcome.closed, isFalse);
+          expect(row(), findsOneWidget);
+          expect(find.text('Briefing'), findsOneWidget);
+        });
+      }
     });
   });
 

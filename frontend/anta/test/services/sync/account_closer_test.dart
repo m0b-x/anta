@@ -113,6 +113,35 @@ void main() {
     }
   }
 
+  test('what has to go out as the account goes out right before its '
+      'delete, and not when the closure is withdrawn', () async {
+    gateway.seedPair([userA.uid, userB.uid]);
+    final seen = <String>[];
+    PairedAccountCloser.beforeAccountGone = (uid) async {
+      seen.add(
+        'before $uid, pairs left '
+        '${gateway.pairs.values.where((p) => p.contains(uid)).length}',
+      );
+    };
+    addTearDown(() => PairedAccountCloser.beforeAccountGone = null);
+    auth.onDeleteAccount = () => seen.add('delete');
+
+    await expectLater(
+      close(closer, stillWanted: () => false),
+      throwsA(
+        isA<AccountCloseException>().having(
+          (e) => e.failure,
+          'failure',
+          AccountCloseFailure.withdrawn,
+        ),
+      ),
+    );
+    expect(seen, isEmpty);
+
+    await close(closer);
+    expect(seen, ['before ${userA.uid}, pairs left 0', 'delete']);
+  });
+
   test('ends the active pair, removes every pair of the account and every '
       'invite it created or redeemed, and only then the account', () async {
     final active = gateway.seedPair([userA.uid, userB.uid]);

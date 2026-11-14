@@ -108,6 +108,87 @@ void main() {
     expect((await db.folderDao.getFolderById(child.id))!.isDeleted, isFalse);
   });
 
+  test('a tombstone over a live folder of a database that marks nothing '
+      'pays no statement for sharing (B2)', () async {
+    final local = await db.folderDao.createFolder(name: 'Training');
+    statements.reset();
+
+    await db.folderDao.mergeFolder(remote(local.id, newerHlc, deleted: true));
+
+    expect(
+      statements.matching('shared_pair IS NOT NULL'),
+      hasLength(1),
+      reason: 'asked inside the read of the local row, and nowhere else',
+    );
+    // 4 before review B2: the marks were asked in a statement of their own.
+    expect(statements.count, 3, reason: statements.statements.join('\n'));
+  });
+
+  // What a merge costs as it stands (review C5): on a database that holds a
+  // mark, a merge that can change a grant reads the folders' ids and parents
+  // once, as a merged live folder always did.
+  test('the statements a merge costs, with and without a mark (C5)', () async {
+    String high(int n) => 'ffffffffff0$n:0000:other';
+    Future<Folder> row(String id) async =>
+        (await db.folderDao.getByIdsIncludingDeleted([id])).single;
+    Future<int> merged(Folder folder) async {
+      statements.reset();
+      await db.folderDao.mergeFolder(folder);
+      return statements.count;
+    }
+
+    Folder renamed(Folder folder, int n) => folder.copyWith(
+      name: 'Renamed $n',
+      hlcTimestamp: high(n),
+      deviceId: 'other',
+      version: folder.version + 1,
+    );
+    Folder buried(Folder folder, int n) => folder.copyWith(
+      hlcTimestamp: high(n),
+      deviceId: 'other',
+      version: folder.version + 1,
+      isDeleted: true,
+      deletedAt: Value(DateTime.utc(2026, 6, 1)),
+    );
+
+    final shelf = (await db.folderDao.createFolder(name: 'Shelf')).id;
+    final box = (await db.folderDao.createFolder(
+      name: 'Box',
+      parentId: shelf,
+    )).id;
+    final plain = (await db.folderDao.createFolder(name: 'Plain')).id;
+    final plainBox = (await db.folderDao.createFolder(
+      name: 'PlainBox',
+      parentId: plain,
+    )).id;
+    await db.noteDao.createNote(folderId: box, title: 'In');
+    await db.noteDao.createNote(folderId: plainBox, title: 'In2');
+
+    final counts = <String, int>{
+      'markless, live applied': await merged(renamed(await row(plainBox), 1)),
+    };
+    await db.folderDao.setSharedPair(shelf, 'pair-1');
+    counts['marked, live applied, shared subtree'] = await merged(
+      renamed(await row(box), 2),
+    );
+    counts['marked, live applied, private'] = await merged(
+      renamed(await row(plainBox), 3),
+    );
+    counts['marked, burial of a private folder'] = await merged(
+      buried(await row(plainBox), 5),
+    );
+    counts['marked, burial in the shared subtree, a live note under it'] =
+        await merged(buried(await row(box), 6));
+
+    expect(counts, {
+      'markless, live applied': 5,
+      'marked, live applied, shared subtree': 8,
+      'marked, live applied, private': 8,
+      'marked, burial of a private folder': 5,
+      'marked, burial in the shared subtree, a live note under it': 9,
+    });
+  });
+
   test('a merged tombstone dates updated_at at the delete', () async {
     final local = await db.folderDao.createFolder(name: 'Training');
     final tombstone = remote(local.id, newerHlc, deleted: true);

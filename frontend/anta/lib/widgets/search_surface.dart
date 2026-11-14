@@ -261,7 +261,7 @@ class _SearchSurfaceState extends State<SearchSurface> {
         if (PartnerLookReader.mayShare(
           holdsShared: GetIt.I<FolderStorageService>().holdsShared,
         )) {
-          _partnerLook.start();
+          _partnerLook.start(asker: state);
         }
         return CustomScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,

@@ -37,7 +37,9 @@ abstract class BaseAlarm {
       rethrow;
     }
 
-    PlatformTimers.setAlarm(settings);
+    // ANTA fork, Patch 10: the fallback timer announces the ring to the
+    // isolate that armed it, which an engine that resigned must never be.
+    if (Alarm.presents) PlatformTimers.setAlarm(settings);
 
     return true;
   }

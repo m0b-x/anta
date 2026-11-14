@@ -18,10 +18,55 @@ class AlarmPluginTest {
         val name: String,
         val hasActivity: Boolean = false,
         val hadActivity: Boolean = false,
+        val presents: Boolean = true,
     )
 
     private fun presenter(vararg engines: Engine): String? =
         AlarmPlugin.presenterOf(engines.toList(), { it.hasActivity }, { it.hadActivity })?.name
+
+    /**
+     * What [AlarmPlugin.alarmTriggerApi] itself asks: the one function its
+     * getter is, so a getter that stopped setting resigned engines aside
+     * fails here.
+     */
+    private fun presenterAmong(vararg engines: Engine): String? =
+        AlarmPlugin.presenterAmong(
+            engines.toList(),
+            { it.presents },
+            { it.hasActivity },
+            { it.hadActivity },
+        )?.name
+
+    // Patch 10: an engine started for background work resigns, and a ring is
+    // then reported as if that engine were not there.
+
+    @Test
+    fun `an engine that resigned is never told, even alone`() {
+        assertNull(presenterAmong(Engine("work", presents = false)))
+    }
+
+    @Test
+    fun `beside a resigned engine the app's engine is told, whichever attached first`() {
+        val app = Engine("app", hasActivity = true, hadActivity = true)
+        val work = Engine("work", presents = false)
+
+        assertEquals("app", presenterAmong(work, app))
+        assertEquals("app", presenterAmong(app, work))
+    }
+
+    @Test
+    fun `a headless engine that did not resign is still told, as before`() {
+        assertEquals(
+            "background",
+            presenterAmong(Engine("work", presents = false), Engine("background")),
+        )
+    }
+
+    @Test
+    fun `the channel's names are the ones Dart says`() {
+        assertEquals("com.gdelataillade.alarm/presenter", AlarmPlugin.PRESENTER_CHANNEL)
+        assertEquals("resign", AlarmPlugin.RESIGN)
+    }
 
     @Test
     fun `no engine, nobody to tell`() {

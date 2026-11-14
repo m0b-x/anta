@@ -227,6 +227,11 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
   /// holds is dropped.
   int _noteLookups = 0;
 
+  /// A lookup for the event's link is out: the row stands meanwhile with an
+  /// empty value (spec F9), or the bottom-anchored sheet grows upward under
+  /// the reader when the title lands.
+  bool _noteLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -240,6 +245,9 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
     final resolve = widget.resolveNote;
     NoteMetadata? note;
     if (noteId != null && resolve != null) {
+      // Set before the first build (from initState) or before the change's
+      // own rebuild (from _onChange): no setState of its own.
+      _noteLoading = true;
       try {
         note = await resolve(noteId);
       } catch (e) {
@@ -247,26 +255,37 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
         debugPrint('[SharedEventSheet] linked note not read: $e');
       }
     }
-    if (!mounted || lookup != _noteLookups || note == _note) return;
-    setState(() => _note = note);
+    if (!mounted || lookup != _noteLookups) return;
+    if (note == _note && !_noteLoading) return;
+    setState(() {
+      _note = note;
+      _noteLoading = false;
+    });
   }
 
   /// Asked again at the tap: the note may have left the phone since the
   /// row was drawn, and the editor must not open on nothing. Gone, the row
-  /// goes and nothing opens.
+  /// goes and nothing opens. A tap opens only what the event links now: a
+  /// row whose event was re-linked, before the tap or during its read, is
+  /// about to change, and the re-link's lookup owns it.
   Future<void> _openNote(NoteMetadata shown) async {
     final resolve = widget.resolveNote;
-    if (resolve == null || _popped) return;
+    if (resolve == null || _popped || shown.id != _event.noteId) return;
     NoteMetadata? current;
     try {
       current = await resolve(shown.id);
     } catch (e) {
       debugPrint('[SharedEventSheet] linked note not read: $e');
     }
-    if (!mounted || _popped) return;
+    if (!mounted || _popped || shown.id != _event.noteId) return;
     if (current == null) {
+      // Any lookup still out is dropped with its answer, so its flag goes
+      // too, or the row would stand empty and inert.
       _noteLookups++;
-      setState(() => _note = null);
+      setState(() {
+        _note = null;
+        _noteLoading = false;
+      });
       return;
     }
     _close(SharedEventOpenNote(current));
@@ -514,21 +533,24 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
                   ],
                   // The Linked note row only for a note in a folder the
                   // partner shares, opened read-only; any other link shows
-                  // no row at all, never "Not found".
-                  if (priority != null || note != null) ...[
+                  // no row at all, never "Not found". While the lookup is
+                  // out it stands empty and inert.
+                  if (priority != null || note != null || _noteLoading) ...[
                     FormSectionLabel(text: l10n.eventSectionDetails),
                     FormRowGroup(
                       children: [
                         ?priority,
-                        if (note != null)
+                        if (note != null || _noteLoading)
                           FormPickerRow(
                             glyph: Icons.sticky_note_2_outlined,
                             identifier: SemanticsIds.sharedEventNote,
                             label: l10n.eventLinkedNote,
-                            value: note.title.isEmpty
+                            value: note == null
+                                ? ''
+                                : note.title.isEmpty
                                 ? l10n.untitledNote
                                 : note.title,
-                            onTap: () => _openNote(note),
+                            onTap: note == null ? null : () => _openNote(note),
                           ),
                       ],
                     ),

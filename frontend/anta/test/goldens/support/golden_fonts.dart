@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// The Roboto faces the app's text styles reach: the weights `Typography`
@@ -68,6 +69,20 @@ Directory _fontDirectory() {
   throw StateError(
     'The golden fonts are missing. Looked in: ${looked.join('; ')}. '
     'Run `flutter precache` to restore the SDK font cache.',
+  );
+}
+
+/// [theme] with the popup menu's label style in Roboto: that style names no
+/// family, which a phone resolves to Roboto but a test leaves in the box
+/// font, so a menu measured with real glyphs needs the family said.
+ThemeData withRobotoMenuLabels(ThemeData theme) {
+  final label = theme.popupMenuTheme.labelTextStyle!.resolve(const {})!;
+  return theme.copyWith(
+    popupMenuTheme: theme.popupMenuTheme.copyWith(
+      labelTextStyle: WidgetStatePropertyAll<TextStyle>(
+        label.copyWith(fontFamily: 'Roboto'),
+      ),
+    ),
   );
 }
 

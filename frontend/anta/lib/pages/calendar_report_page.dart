@@ -342,13 +342,19 @@ class _ReportViewState extends State<_ReportView>
       final current = state.categoryIds;
       // No partner's group: the report never counts their time (D15), so
       // what it stores stays a plain list of mine.
+      final opening = CategoryAllowlist.opening(current, partnerListed: false);
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: CategoryAllowlist.ticked(current, partnerListed: false),
+        selected: opening.ticked,
       );
       if (picked == null || !mounted) return;
       final next = CategoryAllowlist.forReport(
-        CategoryAllowlist.fromPicker(current, picked, partnerListed: false),
+        CategoryAllowlist.fromPicker(
+          current,
+          picked,
+          opening: opening,
+          partnerListed: false,
+        ),
       );
       if (setEquals(next, current)) return;
       bloc.add(ReportCategoriesPicked(next));
@@ -719,10 +725,11 @@ class _ReportViewState extends State<_ReportView>
             // (the ui-language badge rule): the tooltip stays what is read.
             icon: ExcludeSemantics(
               child: Badge.count(
-                count: CategoryAllowlist.tickedListed(
-                  ids,
-                  partnerListed: false,
-                ).length,
+                // The report's list is plain (`forReport`), so it always
+                // has a count — its own ids while no category is known.
+                count:
+                    CategoryAllowlist.tickedCount(ids, partnerListed: false) ??
+                    ids.length,
                 isLabelVisible: narrowed,
                 child: Icon(
                   narrowed

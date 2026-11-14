@@ -372,12 +372,14 @@ class NoteRow extends StatelessWidget {
         RowAction(
           icon: Icons.edit_rounded,
           label: l10n.rename,
+          identifier: SemanticsIds.rowActionRename,
           enabled: !theirs,
           onSelected: () => _showRenameDialog(context),
         ),
         RowAction(
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
+          identifier: SemanticsIds.rowActionMove,
           enabled: !theirs,
           onSelected: () => MoveCoordinator.moveNote(
             context,
@@ -388,6 +390,7 @@ class NoteRow extends StatelessWidget {
         RowAction(
           icon: Icons.share_rounded,
           label: l10n.shareNote,
+          identifier: SemanticsIds.rowActionSendCopy,
           enabled: !theirs,
           onSelected: () => _showExportFormatDialog(context),
         ),
@@ -407,6 +410,7 @@ class NoteRow extends StatelessWidget {
         RowAction(
           icon: Icons.delete_rounded,
           label: l10n.delete,
+          identifier: SemanticsIds.rowActionDelete,
           isDestructive: true,
           enabled: !theirs,
           onSelected: () => _confirmDelete(context),

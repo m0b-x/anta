@@ -569,7 +569,12 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
         calendarCategories,
       )..where((c) => c.id.equals(remote.id))).getSingleOrNull();
       if (shared) {
-        return _mergeCategory(remote, local, CrdtMerge.everyStamp);
+        return _mergeCategory(
+          remote,
+          local,
+          CrdtMerge.everyStamp,
+          shared: true,
+        );
       }
       final outcome = await _mergeCategory(remote, local, floor);
       final wrote =
@@ -633,12 +638,16 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
       row == null || row.isDeleted ? null : row.sharedPair;
 
   /// [mergeRemoteCategory]'s merge of the row itself, inside its
-  /// transaction.
+  /// transaction. A [shared] tombstone over a held row empties its name, the
+  /// one column holding the partner's words (share surfaces P8); its id,
+  /// colour, icon, order and stamps stay, and so does the row while it is
+  /// granted, for the reader's count.
   Future<MergeOutcome> _mergeCategory(
     CalendarCategoryRow remote,
     CalendarCategoryRow? local,
-    String? floor,
-  ) {
+    String? floor, {
+    bool shared = false,
+  }) {
     return CrdtMerge.mergeRemoteRow(
       db,
       table: calendarCategories,
@@ -660,6 +669,7 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
               deletedAt: Value(remote.deletedAt),
               updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
               ownerId: Value(remote.ownerId),
+              name: shared ? const Value('') : const Value.absent(),
             ),
           );
         } else {

@@ -13,6 +13,7 @@ import '../tables/event_skips_table.dart';
 import '../tables/folders_table.dart';
 import '../tables/notes_table.dart';
 import '../tables/sync_metadata_table.dart';
+import 'note_search_dao.dart';
 import 'sync_dao.dart';
 
 part 'shared_row_dao.g.dart';
@@ -266,6 +267,9 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// shared row (`SharedRowFences`) — so the caller evicts the parent's key
   /// from the parent's table first.
   ///
+  /// What went is recorded as known and not held ([noteUnheld]) until the
+  /// reader meets its documents again.
+  ///
   /// One statement, the read of whose rows are shared, for a database that
   /// holds none; nothing at all for no keys.
   Future<SharedRemovals> evict(String table, List<String> keys) async {
@@ -298,6 +302,12 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
             await _under('notes', 'folder_id', owner, taken),
           );
           placed = await placeFolders(owner);
+      }
+      // Their documents are still shared: counted as known and not held, or
+      // the leave of another row would hide behind them until a read from
+      // the start met them again (share surfaces P3).
+      for (final MapEntry(key: table, value: rows) in gone.entries) {
+        await noteUnheld(table, [for (final row in rows) row.key]);
       }
       return SharedRemovals(gone, placed);
     });
@@ -369,6 +379,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       }
       await db.syncDao.setValue(SyncDao.keySharedOwner, owner);
       await db.syncDao.setValue(SyncDao.keySharedPair, pair);
+      await db.syncDao.setValue(SyncDao.keySharedEverHeld, '1');
     });
   }
 
@@ -408,17 +419,55 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
 
   /// How many rows of [table] this database holds of [owner]'s, tombstones
   /// included, and how many of the partner's documents it knows it does not
-  /// store ([recorded]): what the server's count of the same share is
-  /// compared with. Counting the recorded ones is what lets a refused
-  /// document's leave be found as a stored row's is.
+  /// store ([recorded]): everything it can account for, which the server's
+  /// count of the same share is compared with. Counting the recorded ones is
+  /// what lets the leave of a row behind them be found (share surfaces P3):
+  /// a document refused, passed over or evicted is still in the server's
+  /// count, and left out here it would mask a removal until the daily read
+  /// from the start. A document is counted once whatever names it: a record
+  /// whose row is held — a note held at an older version and waiting for
+  /// its new text — counts as the row, and a refused-prefix record of a
+  /// category that also has a built-in record counts as the built-in.
+  ///
+  /// One statement, as many as the held rows and the records cost before
+  /// in two.
   Future<int> countOf(String table, String owner) async {
+    final synced = _shared(table);
+    final categories = table == 'calendar_categories';
+    String unheld(int prefix, {String also = ''}) {
+      final range = '?${prefix + 1}';
+      return '(SELECT COUNT(*) FROM sync_metadata m '
+          'WHERE m.key >= ?$prefix AND m.key < $range AND NOT EXISTS '
+          '(SELECT 1 FROM ${synced.name} WHERE owner_id = ?1 AND '
+          '${synced.rowKeySql} = substr(m.key, length(?$prefix) + 1))$also)';
+    }
+
+    // The same category's built-in record, by the id a refused-prefix
+    // record names.
+    const builtInToo =
+        ' AND NOT EXISTS (SELECT 1 FROM sync_metadata b '
+        'WHERE b.key = ?4 || substr(m.key, length(?2) + 1))';
     final row = await customSelect(
-      'SELECT COUNT(*) AS c FROM ${_shared(table).name} WHERE owner_id = ?',
-      variables: [Variable<String>(owner)],
-      readsFrom: {_tableOf(table)},
+      'SELECT (SELECT COUNT(*) FROM ${synced.name} WHERE owner_id = ?1) + '
+      '${unheld(2, also: categories ? builtInToo : '')}'
+      '${categories ? ' + ${unheld(4)}' : ''} AS c',
+      variables: [
+        Variable<String>(owner),
+        for (final prefix in [
+          SyncDao.keySharedRefused(table, ''),
+          if (categories) SyncDao.sharedBuiltInPrefix,
+        ]) ...[Variable<String>(prefix), Variable<String>(_above(prefix))],
+      ],
+      readsFrom: {_tableOf(table), syncMetadata},
     ).getSingle();
-    return row.read<int>('c') + (await recorded(table)).length;
+    return row.read<int>('c');
   }
+
+  /// The least key above every key that starts with [prefix]: its last code
+  /// unit raised, as `SyncDao`'s prefix reads range over the key's index.
+  static String _above(String prefix) =>
+      prefix.substring(0, prefix.length - 1) +
+      String.fromCharCode(prefix.codeUnitAt(prefix.length - 1) + 1);
 
   /// The value of a record ([SyncDao.keySharedRefused],
   /// [SyncDao.keySharedBuiltIn]) of a live document.
@@ -426,6 +475,14 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
 
   /// The value of a record of a document that is a tombstone.
   static const String _tombstoneRecord = '0';
+
+  /// The value of a record of a document met and not stored for a reason of
+  /// its own — a newer wire wrote it, it cannot be read, its text is not
+  /// there yet — or of a row evicted for one of the person's own before the
+  /// reader met its document again ([noteUnheld]). Counted ([countOf]),
+  /// never told as refused ([refusedCount]): nothing of the person's holds
+  /// its place.
+  static const String _unheldRecord = 'u';
 
   /// The tables whose rows a person would name — "{n} items could not be
   /// shown" counts their refused documents alone. An event's day rows are
@@ -461,6 +518,9 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// one is not shown, and is counted. A tombstone is nothing to show, and
   /// is still recorded: the server's count of the share holds its document,
   /// and forgetting it here would let it mask a later leave ([countOf]).
+  ///
+  /// A built-in's record takes the place of one that said it was not held
+  /// ([noteUnheld]): a document is named by one record (review A1).
   Future<void> noteRefused(
     String table,
     String rowKey, {
@@ -473,6 +533,51 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
           : SyncDao.keySharedRefused(table, rowKey),
       live ? _liveRecord : _tombstoneRecord,
     );
+    if (builtIn) {
+      await db.syncDao.deleteValue(SyncDao.keySharedRefused(table, rowKey));
+    }
+  }
+
+  /// Records the partner's documents [rowKeys] of [table] as known and not
+  /// held (share surfaces P3), in the refused records' store and shape, so
+  /// they are forgotten as those are: once stored ([noteStored]), or once a
+  /// read from the start does not meet them ([removeAbsent]). A refusal met
+  /// later writes over it.
+  ///
+  /// A record already there stands (review B4): a refusal is the stronger
+  /// fact — the person's own row holds the place, and "{n} items could not
+  /// be shown" counts it — and a document met again, at every overlap and
+  /// every read from the start, writes nothing. Nor does a built-in
+  /// category that has its own record get a second one (review A1): that
+  /// record accounts for the document, and taking it away would drop the
+  /// built-in from what is shared here, to be announced as new when it is
+  /// read again. One insert per [CrdtMerge.keysPerStatement] keys, none for
+  /// no keys.
+  Future<void> noteUnheld(String table, Iterable<String> rowKeys) async {
+    final keys = rowKeys.toSet().toList();
+    final prefix = SyncDao.keySharedRefused(table, '');
+    final builtIn = table == 'calendar_categories'
+        ? 'NOT EXISTS (SELECT 1 FROM sync_metadata b '
+              'WHERE b.key = ?3 || column1)'
+        // ?3 named all the same: the keys are ?4 onwards either way.
+        : '?3 IS NOT NULL';
+    for (var at = 0; at < keys.length; at += CrdtMerge.keysPerStatement) {
+      final chunk = keys.skip(at).take(CrdtMerge.keysPerStatement).toList();
+      final rows = [for (var i = 0; i < chunk.length; i++) '(?${i + 4})'];
+      await customInsert(
+        'INSERT INTO sync_metadata (key, value, updated_at) '
+        "SELECT ?1 || column1, '$_unheldRecord', ?2 FROM (VALUES "
+        '${rows.join(', ')}) '
+        'WHERE $builtIn ON CONFLICT (key) DO NOTHING',
+        variables: [
+          Variable<String>(prefix),
+          Variable<DateTime>(DateTime.now()),
+          Variable<String>(SyncDao.sharedBuiltInPrefix),
+          for (final key in chunk) Variable<String>(key),
+        ],
+        updates: {syncMetadata},
+      );
+    }
   }
 
   /// Forgets that the documents [rowKeys] of [table] were refused: they are
@@ -651,6 +756,11 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedRefusedPrefix);
       await dao.deleteByPrefix(SyncDao.sharedBuiltInPrefix);
       await dao.deleteValue(SyncDao.keyShareSending);
+      // Whatever build began the read, this database held theirs: the index
+      // may still keep their words in its segments (review C3).
+      if (owner != null) {
+        await dao.setValue(SyncDao.keySharedEverHeld, '1');
+      }
       final hiddenCleared =
           await (db.delete(
                 db.userSettings,
@@ -665,6 +775,51 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
         hiddenCleared: hiddenCleared,
       );
     });
+  }
+
+  /// Empties every tombstone of [owner]'s held here that still says what
+  /// its row said (review A6): an earlier build stored a partner's delete as
+  /// the deletion and the stamps alone, and a redelivery of the same stamp
+  /// merges as unchanged, so the emptying a landing does now (share
+  /// surfaces P4, P8) never reaches them. The same columns as a landing —
+  /// a note's title, preview, text and search rows, a folder's name (its id
+  /// stands in), an event's title and description, a day's text, a
+  /// category's name — and the rows stay, for the count. Inside the
+  /// reader's [writing]; never stamps or queues. It runs once per database
+  /// (its record, [SyncDao.keySharedTombstonesEmptied]). Idempotent in
+  /// effect: a second run would select again every note tombstone that once
+  /// had text — the lengths are kept — and change nothing.
+  Future<void> emptyTombstones(String owner) async {
+    final said = await customSelect(
+      'SELECT id FROM notes WHERE owner_id = ? AND is_deleted = 1 '
+      "AND (title != '' OR preview != '' OR chunk_count > 0)",
+      variables: [Variable<String>(owner)],
+      readsFrom: {notes},
+    ).get();
+    final ids = [for (final row in said) row.read<String>('id')];
+    if (ids.isNotEmpty) {
+      await NoteSearchDao(db).forgetNotes(ids);
+      await db.contentChunkDao.deleteChunksForNotes(ids);
+    }
+    for (final (table, emptied, words) in const [
+      ('notes', "title = '', preview = ''", "title != '' OR preview != ''"),
+      ('folders', 'name = id', 'name != id'),
+      (
+        'calendar_events',
+        "title = '', description = NULL",
+        "title != '' OR description IS NOT NULL",
+      ),
+      ('calendar_event_occurrences', "description = ''", "description != ''"),
+      ('calendar_categories', "name = ''", "name != ''"),
+    ]) {
+      await customUpdate(
+        'UPDATE $table SET $emptied '
+        'WHERE owner_id = ? AND is_deleted = 1 AND ($words)',
+        variables: [Variable<String>(owner)],
+        updates: {_tableOf(table)},
+        updateKind: UpdateKind.update,
+      );
+    }
   }
 
   /// Keeps every folder of [owner]'s reachable in the browser, whose top
@@ -736,7 +891,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Hard-deletes the rows of [synced] under [keys] that [owner] owns, a
-  /// note's chunk rows with it, and says what went. The owner is part of
+  /// note's chunk and search rows with it, and says what went. The owner is part of
   /// every statement: a key alone must never reach a row of the person's
   /// own. A folder and a note are read first for where they stood, which
   /// nothing can ask once they are gone.
@@ -773,12 +928,12 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
             (key: row.read<String>('id'), parent: row.read<String?>('parent')),
         ]);
         if (synced.name == 'notes') {
-          // A chunk row carries no owner of its own, so only the notes just
-          // read as the owner's lose theirs: a key that names a note of the
-          // person's own must not cost it its text.
-          await db.contentChunkDao.deleteChunksForNotes([
-            for (final row in theirs) row.read<String>('id'),
-          ]);
+          // A chunk row and a search row carry no owner of their own, so
+          // only the notes just read as the owner's lose theirs: a key that
+          // names a note of the person's own must not cost it its text.
+          final ids = [for (final row in theirs) row.read<String>('id')];
+          await NoteSearchDao(db).forgetNotes(ids);
+          await db.contentChunkDao.deleteChunksForNotes(ids);
         }
       }
       await customUpdate(

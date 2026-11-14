@@ -218,11 +218,16 @@ abstract final class AppNavigator {
   /// The folder is not always on the stack: a note reached by launch restore,
   /// or through a chain of `[[wiki links]]` that walked into another folder,
   /// sits above routes that never included it. That case replaces the current
-  /// page with the folder rather than pushing a second copy of it.
+  /// page with the folder rather than pushing a second copy of it, handed
+  /// [fromPartner] as [toFolder] is: the caches the page would otherwise ask
+  /// may have been let go since the caller read the folder (a merge, a share
+  /// act, any write while something is shared), and a partner's folder page
+  /// must not draw one writable frame.
   static Future<void> popToFolder(
     BuildContext context, {
     required String folderId,
     required String title,
+    bool? fromPartner,
   }) {
     final navigator = Navigator.of(context);
     final routes = _livePageRoutes(navigator);
@@ -237,7 +242,11 @@ abstract final class AppNavigator {
       if (title.isEmpty) return _replaceWithFolder(context, folderId);
       return pushReplacement<void, void>(
         context,
-        OptimizedFolderContentPage(folderId: folderId, title: title),
+        OptimizedFolderContentPage(
+          folderId: folderId,
+          title: title,
+          fromPartner: fromPartner,
+        ),
         destination: NavDestination.folder(folderId: folderId, title: title),
       );
     }
@@ -264,7 +273,11 @@ abstract final class AppNavigator {
     final name = folder?.name;
     await pushReplacement<void, void>(
       context,
-      OptimizedFolderContentPage(folderId: folderId, title: name ?? ''),
+      OptimizedFolderContentPage(
+        folderId: folderId,
+        title: name ?? '',
+        fromPartner: folder?.fromPartner,
+      ),
       destination: name == null
           ? null
           : NavDestination.folder(folderId: folderId, title: name),
@@ -287,9 +300,15 @@ abstract final class AppNavigator {
     BuildContext context, {
     String? folderId,
     String? title,
+    bool? fromPartner,
   }) {
     if (folderId != null) {
-      return popToFolder(context, folderId: folderId, title: title ?? '');
+      return popToFolder(
+        context,
+        folderId: folderId,
+        title: title ?? '',
+        fromPartner: fromPartner,
+      );
     }
 
     final navigator = Navigator.of(context);
@@ -1434,7 +1453,10 @@ abstract final class AppNavigator {
           );
           if (folder == null) return resolved;
           resolved.add(
-            _RestoredEntry(destination: destination.withTitle(folder.name)),
+            _RestoredEntry(
+              destination: destination.withTitle(folder.name),
+              fromPartner: folder.fromPartner,
+            ),
           );
 
         case NavDestinationKind.note:
@@ -1498,6 +1520,7 @@ abstract final class AppNavigator {
       NavDestinationKind.folder => OptimizedFolderContentPage(
         folderId: destination.folderId,
         title: destination.title,
+        fromPartner: entry.fromPartner,
       ),
       NavDestinationKind.note => OptimizedNoteEditorPage(
         folderId: destination.folderId!,
@@ -1557,11 +1580,17 @@ class _RestoredEntry {
     required this.destination,
     this.metadata,
     this.counter,
+    this.fromPartner,
   });
 
   final NavDestination destination;
   final NoteMetadata? metadata;
   final Counter? counter;
+
+  /// Whose a folder entry's folder is, as phase 1 read it: handed to the
+  /// page, which would otherwise ask caches that may have been let go before
+  /// it builds.
+  final bool? fromPartner;
 }
 
 /// The app's [RouteObserver], which additionally keeps the page routes it

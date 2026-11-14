@@ -1,0 +1,69 @@
+# The partner's folder cannot be written through any door: opened from
+# the Sharing page's "Folders" row of what the owner shares, from the
+# editor's folder entry after a search opened one of its notes, and from
+# the folder page's own breadcrumb to its parent, the page shows the
+# read-only line each time, and a tap on either create button opens
+# nothing. The note the search opened is read-only too.
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-theirs-folders --in id:sharing-page-list
+-d emulator-5558 tap id:sharing-theirs-folders
+-d emulator-5558 wait id:shared-folders-sheet
+# The row's id is keyed by the folder's id, which the seed's import
+# minted on the owner's guest: matched by its prefix.
+-d emulator-5558 tap id:shared-folder-open-* --settle 500
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect "Week 1" "Added later"
+-d emulator-5558 tap id:create-note
+-d emulator-5558 tap id:create-folder
+-d emulator-5558 expect --absent id:editor-body --absent id:sheet-confirm
+-d emulator-5558 shot door-sharing-page
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 key back
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+# A search opens the shared Session 1 (its row names the folder's path;
+# the partner's own copy, in My copies, is the other hit).
+-d emulator-5558 tap id:search-open
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+-d emulator-5558 type "Mobility"
+-d emulator-5558 wait "Training › Week 1" --timeout 10
+-d emulator-5558 tap "Training › Week 1"
+-d emulator-5558 wait id:shared-note-line --timeout 15
+-d emulator-5558 tap id:editor-body
+-d emulator-5558 expect id:shared-note-line --absent id:editor-toolbar
+# The editor's folder entry: the first row of its ⋮, named by the folder.
+-d emulator-5558 tap id:editor-more
+-d emulator-5558 wait id:editor-menu-folder
+-d emulator-5558 expect id:editor-menu-folder "Week 1"
+-d emulator-5558 tap id:editor-menu-folder
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect "Session 1" --absent id:shared-note-line
+-d emulator-5558 tap id:create-note
+-d emulator-5558 tap id:create-folder
+-d emulator-5558 expect --absent id:editor-body --absent id:sheet-confirm
+-d emulator-5558 shot door-editor
+# The folder page's breadcrumb ("Training", the parent folders) opens a
+# menu whose first row is that parent.
+-d emulator-5558 tap "Training" --settle 800
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect "Added later" --timeout 10
+-d emulator-5558 tap id:create-note
+-d emulator-5558 tap id:create-folder
+-d emulator-5558 expect --absent id:editor-body --absent id:sheet-confirm
+-d emulator-5558 shot door-breadcrumb
+# The parent replaced the pages the search opened: Back is the search.
+-d emulator-5558 key back
+-d emulator-5558 wait id:search-field
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

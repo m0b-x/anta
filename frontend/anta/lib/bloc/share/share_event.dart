@@ -29,7 +29,14 @@ final class ShareLoadRequested extends ShareEvent {
 /// order they came: two that overtook each other would leave the older
 /// outcome on the page, and two category sets would interleave.
 sealed class ShareActEvent extends ShareEvent {
-  const ShareActEvent();
+  /// The surface that asked, handed back on the act's [ShareOutcome]: a
+  /// list sheet answers for the acts it started and for no other — one
+  /// dismissed with an act running and reopened at once must not take the
+  /// old act's outcome for its own. Null for the page's own acts. Compared
+  /// by identity, never part of [props].
+  final Object? asker;
+
+  const ShareActEvent({this.asker});
 }
 
 /// The tick sheet's Done: exactly [ids] of the person's categories shared.
@@ -46,7 +53,7 @@ final class ShareCategoriesSet extends ShareActEvent {
 final class ShareEventUnshared extends ShareActEvent {
   final String eventId;
 
-  const ShareEventUnshared(this.eventId);
+  const ShareEventUnshared(this.eventId, {super.asker});
 
   @override
   List<Object?> get props => [eventId];
@@ -57,7 +64,7 @@ final class ShareEventUnshared extends ShareActEvent {
 final class ShareFolderShared extends ShareActEvent {
   final String folderId;
 
-  const ShareFolderShared(this.folderId);
+  const ShareFolderShared(this.folderId, {super.asker});
 
   @override
   List<Object?> get props => [folderId];
@@ -67,7 +74,7 @@ final class ShareFolderShared extends ShareActEvent {
 final class ShareFolderUnshared extends ShareActEvent {
   final String folderId;
 
-  const ShareFolderUnshared(this.folderId);
+  const ShareFolderUnshared(this.folderId, {super.asker});
 
   @override
   List<Object?> get props => [folderId];
@@ -88,7 +95,7 @@ final class ShareUndoRequested extends ShareActEvent {
   /// handed to it rather than lost. Null writes through the service alone.
   final FutureOr<void> Function(ShareChange change)? pastBloc;
 
-  const ShareUndoRequested(this.change, {this.pastBloc});
+  const ShareUndoRequested(this.change, {this.pastBloc, super.asker});
 
   @override
   List<Object?> get props => [change];

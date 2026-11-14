@@ -201,10 +201,27 @@ void main() {
       subfolderSortOrder: 'nameDesc',
     );
     await folders.loadAllFoldersForParent(mine);
+    // The share census, re-read after my own folder write while something
+    // is shared, names `user_settings` for the stored pair id: it is known
+    // by its recursive walk, and is the only statement that may name it.
+    bool isCensus(String sql) => sql.contains('s(id, root, depth)');
     expect(
-      statements.matching('user_settings'),
+      statements.matching('user_settings').where((sql) => !isCensus(sql)),
       isEmpty,
       reason: 'paired: still no store for a folder of mine',
+    );
+    expect(
+      [
+        for (final c in statements.captured)
+          if (c.sql.contains('user_settings') &&
+              (!isCensus(c.sql) ||
+                  c.args.contains(SettingsKeys.shareFolderSorts)))
+            c.sql,
+      ],
+      isEmpty,
+      reason:
+          'the census is the only statement naming user_settings, and it '
+          'never asks for the store',
     );
     expect(await stored(), isEmpty);
   });

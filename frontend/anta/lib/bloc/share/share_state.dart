@@ -39,12 +39,17 @@ class ShareOutcome extends Equatable {
 
   final ShareFailure? failure;
 
+  /// The act's `ShareActEvent.asker`: the surface that answers for it.
+  /// [sequence] tells outcomes apart, so it stays out of [props].
+  final Object? asker;
+
   const ShareOutcome({
     required this.sequence,
     required this.act,
     this.change = ShareChange.none,
     this.cleared = 0,
     this.failure,
+    this.asker,
   });
 
   @override

@@ -37,6 +37,8 @@ import 'services/body_search_indexer.dart';
 import 'services/calendar_event_service.dart';
 import 'services/counter_service.dart';
 import 'services/database_manager.dart';
+import 'services/database_replacing.dart';
+import 'services/device_state.dart';
 import 'services/firebase_bootstrap.dart';
 import 'services/import_export_service.dart';
 import 'services/label_appearance_service.dart';
@@ -263,6 +265,9 @@ void main() async {
   // Namespaces preferences and honours a reset marker before anything opens
   // preferences or a database. Compiled out unless `ANTA_QA` is defined.
   await QaBootstrap.beforeDependencies();
+  // A replacement a dead process left marked is over: this launch holds
+  // the databases alone, and the check would otherwise never run again.
+  await DatabaseReplacing.clearLeftBehind();
   installErrorHooks();
   await initializeDateFormatting();
 
@@ -277,6 +282,10 @@ void main() async {
   // Before Firebase and the services, so a migration is the first thing
   // launch waits on and the only time it shows anything before the app.
   await openDatabaseForLaunch(open: AppDatabase.getInstance);
+  // With the device id the open read or made, before anything below reads
+  // what describes this device: on a phone the system restored the
+  // preferences onto, that state is another phone's.
+  await DeviceState.keepTo((await AppDatabase.getInstance()).deviceId);
 
   // Degrades to local-only rather than blocking launch.
   await initializeFirebaseForSync();
@@ -720,14 +729,22 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // from a keyboard and drop it for every page at once.
     if (state == AppLifecycleState.paused) {
       FocusManager.instance.primaryFocus?.unfocus();
+      SharedRefreshApp.inFront(false);
     }
+    // The engine is going with its activity: the app's name goes first, so
+    // a check that starts next does not wait on an isolate that is gone.
+    if (state == AppLifecycleState.detached) SharedRefreshApp.detached();
     // The resume branch is what makes the horizon roll forward without the
     // user doing anything: a phone left closed for a week comes back with
     // every registration in the past, and this is where they are marked and
     // replanned. It is also what carries a holiday-profile change to the OS,
     // since the rules that read `PublicHolidays` are re-walked here.
     if (state == AppLifecycleState.resumed) {
-      SharedRefreshApp.reassert();
+      SharedRefreshApp.inFront(true);
+      // A marker whose removal the store once refused keeps the check away
+      // for as long as it stands; with no replacement in flight this takes
+      // it off, and with one it does nothing.
+      unawaited(DatabaseReplacing.clearLeftBehind());
       unawaited(_settleLockScreen());
       _resumeReconcile?.cancel();
       _resumeReconcile = Timer(const Duration(seconds: 2), () {

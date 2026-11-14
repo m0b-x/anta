@@ -1,0 +1,58 @@
+# Stopped from the Sharing page, heard once. The partner stands in the
+# shared folder's note — the editor over the folder page — and opens Sync
+# & sharing over it; the owner stops Training from its Sharing page's
+# Folders sheet (✕). After a sync each the partner's Pairing row says
+# nothing is shared, and Back lets the covered pages leave: both close,
+# ONE bar says so ("… no longer shares this note", never "… this folder"
+# with it, nothing after it leaves), and the root has no "From …" section
+# left. Training ends private, as 04a on expects it.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 tap "Week 1"
+-d emulator-5558 expect "Session 1" --timeout 10
+-d emulator-5558 tap "Session 1"
+-d emulator-5558 wait id:shared-note-line --timeout 15
+# Covered before the stop can arrive: a covered editor keeps its leave
+# until it is in front again, so the bar comes at the Back below, never
+# on a page the flow is not watching.
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+tap id:sharing-paired
+wait id:sharing-page
+scroll-to id:sharing-mine-folders --in id:sharing-page-list
+tap id:sharing-mine-folders
+wait id:share-folders-sheet
+expect "Training" --timeout 5
+# The ✕ is keyed by the folder's id, which the seed's import minted:
+# matched by its prefix (Training is the one folder shared).
+tap id:share-folder-unshare-*
+expect "No longer shared: Training" id:snackbar-undo --timeout 5
+key back
+wait id:share-folders-sheet --gone
+key back
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 expect id:sharing-paired "Nothing is shared yet" --timeout 60
+-d emulator-5558 expect --absent "no longer shares"
+-d emulator-5558 key back
+-d emulator-5558 expect "no longer shares this note" --timeout 15
+-d emulator-5558 expect "My copies" --absent id:browser-section-partner --absent "Training" --absent id:shared-note-line --absent id:browser-partner-line --absent "no longer shares this folder" --timeout 15
+-d emulator-5558 shot one-bar
+-d emulator-5558 expect --absent "no longer shares" --timeout 20
+# A second bar would be queued behind the first and shown the frame it
+# left: none is.
+-d emulator-5558 expect --absent "no longer shares"
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect --absent "no longer shares"
+-d emulator-5558 errors
+errors

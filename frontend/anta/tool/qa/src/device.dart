@@ -229,6 +229,37 @@ String autoFallbackNote({required bool vmRecorded, required String deviceId}) =>
     : 'note: driver auto → adb (no VM URI is recorded for $deviceId; '
           '`qa relaunch` brings the agent back)';
 
+/// Whether an `auto` choice that fell to adb is made again: a VM URI was
+/// recorded since the fall ([fellOn] is the one recorded then, null for
+/// none). Left alone, a fall in one flow held for the rest of the pass,
+/// though a later step found the agent again in the platform log — the
+/// share pass's 04m typed its invite code through adb into no field
+/// (2026-11-14).
+bool autoRedecides({
+  required bool onNative,
+  required String? fellOn,
+  required String? recordedNow,
+}) => onNative && recordedNow != null && recordedNow != fellOn;
+
+/// What a verb says when `auto` takes the agent back after a fall to adb.
+String autoRejoinNote({required String deviceId, required String vm}) =>
+    'note: driver adb → agent on $deviceId (a VM URI was recorded since '
+    'the fall: $vm)';
+
+/// Whether the VM service [announced] in the platform log belongs to a
+/// process this launch did not start: an `am start` asking for
+/// [requestedPort] lands in a process that is already up — the scheduled
+/// work started it a moment before — whose Dart VM opened its service on
+/// a port of its own before the activity existed, so the port asked for
+/// never answers.
+bool announcedByAnotherStart({
+  required String? announced,
+  required int requestedPort,
+}) {
+  final port = announced == null ? null : Uri.tryParse(announced)?.port;
+  return port != null && port != 0 && port != requestedPort;
+}
+
 ViaMode parseViaMode(String? raw) => switch ((raw ?? '').trim().toLowerCase()) {
   '' || 'auto' => ViaMode.auto,
   'agent' => ViaMode.agent,

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
 import 'package:anta/widgets/note_overflow_menu.dart';
+
+import '../goldens/support/golden_fonts.dart';
 
 /// E5, E6/E22, E7 — menu anatomy against the mock: 236 wide, 44 dp rows,
 /// a 15/400 label, 20 px glyphs in `onSurfaceVariant`, and a move-history
@@ -129,6 +133,72 @@ void main() {
     final trailing = tester.widget<Text>(find.text('Name'));
     expect(trailing.style?.fontSize, AppTheme.menuTrailingSize);
     expect(trailing.style?.color, AppTheme.lightScheme.onSurfaceVariant);
+  });
+
+  testWidgets('the folder menu at German 2.0 with real Roboto: no entry\'s '
+      'words are cut — a label wraps, the sort value goes under its label', (
+    tester,
+  ) async {
+    await tester.runAsync(loadGoldenFonts);
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final de = AppLocalizationsDe();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('de'),
+        theme: withRobotoMenuLabels(AppTheme.light()),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2.0)),
+          child: child!,
+        ),
+        home: Scaffold(
+          appBar: AppBar(
+            actions: [
+              FolderOverflowMenu(
+                isRootPage: false,
+                sortLabel: de.sortByUpdated,
+                moveHistoryCount: 3,
+                onSortBy: () {},
+                onSelect: () {},
+                onMoveHistory: () {},
+                onImport: () {},
+                onSettings: () {},
+                onRenameFolder: () {},
+                onMoveFolder: () {},
+                onShareFolder: () {},
+                onDeleteFolder: () {},
+                partnerShare: FolderShareEntry(
+                  label: de.shareWithPartner('Maria'),
+                ),
+                onPartnerShare: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+
+    final paragraphs = find.descendant(
+      of: menuItems(),
+      matching: find.byType(RichText),
+    );
+    expect(paragraphs, findsAtLeastNWidgets(10));
+    for (final element in paragraphs.evaluate()) {
+      final paragraph = element.renderObject! as RenderParagraph;
+      expect(
+        paragraph.didExceedMaxLines,
+        isFalse,
+        reason: paragraph.text.toPlainText(),
+      );
+    }
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the move-history count is a primary pill on the trailing edge', (

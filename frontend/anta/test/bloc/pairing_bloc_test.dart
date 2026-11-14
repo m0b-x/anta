@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/pairing/pairing_bloc.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/pair_record.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/pairing_error.dart';
@@ -282,6 +283,51 @@ void main() {
       expect(states.last, isA<PairingEnded>());
       await bloc.close();
     });
+
+    test('a blank name is no name: the ended state made from an empty or a '
+        'whitespace name carries none, and a real one as it stands', () {
+      expect(PairingEnded.from(null).partnerName, isNull);
+      expect(PairingEnded.from('').partnerName, isNull);
+      expect(PairingEnded.from('   ').partnerName, isNull);
+      expect(PairingEnded.from('Ana').partnerName, 'Ana');
+      expect(PairingEnded.from(''), const PairingEnded());
+    });
+
+    test(
+      'a partner whose profile came to name nobody ends the link: the '
+      'name the listener stored is an empty one, and the state names '
+      'nobody — so the notice says "your partner" (device leg 2, R5)',
+      () async {
+        for (final blank in ['', '  ']) {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final creator = await _bootService(
+            FakeAuthService(user: userA),
+            gateway,
+          );
+          final code = (await creator.generateInvite()).pendingCode!;
+
+          final auth = FakeAuthService(user: userB);
+          await _bootService(auth, gateway);
+          final (bloc, states) = await _pumpBloc(auth, gateway);
+          bloc.add(RedeemCodeRequested(code));
+          await pumpEventQueue();
+          final pairId = gateway.pairs.values.first.pairId;
+
+          // The partner's side publishes a profile with no name in it.
+          await gateway.writeProfile(
+            pairId: pairId,
+            profile: PairProfile(uid: userA.uid, displayName: blank),
+          );
+          await pumpEventQueue();
+          await gateway.endPair(pairId: pairId, endedBy: userA.uid);
+          await pumpEventQueue();
+
+          expect(states.last, const PairingEnded(), reason: '"$blank"');
+          await bloc.close();
+        }
+      },
+    );
 
     test('acknowledging the notice returns to unpaired', () async {
       final gateway = FakePairingGateway();

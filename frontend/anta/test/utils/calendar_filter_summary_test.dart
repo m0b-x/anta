@@ -115,4 +115,33 @@ void main() {
       'Highest, High · Tracked · Without Holidays',
     );
   });
+
+  /// The agenda's chip. While no category is known — before the first load,
+  /// the moment after a database switch — a list is in force and the chip
+  /// must not call it "No categories": a plain list counts its own ids, a
+  /// list that holds a group has no true count and reads "Categories".
+  group('the allowlist chip', () {
+    test('counts the listed categories ticked, and says when none is', () {
+      expect(
+        CalendarFilterSummary.allowlistLabel({'gym', 'run'}, l10n),
+        'Categories (2)',
+      );
+      expect(
+        CalendarFilterSummary.allowlistLabel({'deleted'}, l10n),
+        'No categories',
+      );
+    });
+
+    test('with no category known a list still reads as in force', () {
+      CalendarCategories.updateCache(const []);
+      expect(
+        CalendarFilterSummary.allowlistLabel({'gym', 'run'}, l10n),
+        'Categories (2)',
+      );
+      expect(
+        CalendarFilterSummary.allowlistLabel({'*mine'}, l10n),
+        'Categories',
+      );
+    });
+  });
 }

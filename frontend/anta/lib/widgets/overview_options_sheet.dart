@@ -138,7 +138,12 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
       for (final category in CategoryAllowlist.tickedListed(_categoryIds))
         CalendarCategories.labelOf(category, l10n),
     ];
-    if (names.isEmpty) return l10n.calendarFilterNoCategories;
+    if (names.isEmpty) {
+      // No category known yet names nothing, and claims nothing either.
+      return CategoryAllowlist.tickedCount(_categoryIds) == 0
+          ? l10n.calendarFilterNoCategories
+          : l10n.calendarCategories;
+    }
     return CalendarFilterSummary.namesReadBack(names, l10n);
   }
 
@@ -158,14 +163,19 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
     if (_pickerOpen) return;
     _pickerOpen = true;
     try {
+      final opening = CategoryAllowlist.opening(_categoryIds);
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: CategoryAllowlist.ticked(_categoryIds),
+        selected: opening.ticked,
         partner: CalendarCategories.partnerShown,
         partnerLook: widget.partnerLook,
       );
       if (picked == null || !mounted) return;
-      final next = CategoryAllowlist.fromPicker(_categoryIds, picked);
+      final next = CategoryAllowlist.fromPicker(
+        _categoryIds,
+        picked,
+        opening: opening,
+      );
       if (setEquals(next, _categoryIds)) return;
       setState(() => _categoryIds = next);
       widget.onCategoriesChanged(next);

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../constants/shared_refresh_constants.dart';
@@ -58,12 +59,38 @@ class WorkmanagerSharedRefreshScheduler implements SharedRefreshScheduler {
     }
   }
 
+  /// The plugin's own question: true while the unique work is enqueued or
+  /// running. Asked without handing the entry over first — nothing is
+  /// scheduled by it — and a failure is "cannot tell", never "no": a "no"
+  /// has the asker schedule over a check that may stand.
+  @override
+  Future<bool?> stands(SharedRefreshSlot slot) async {
+    try {
+      return await Workmanager().isScheduledByUniqueName(slot.workName);
+    } catch (error) {
+      debugPrint('[SharedRefresh] work not asked about: $error');
+      return null;
+    }
+  }
+
   /// Called from the messaging plugin's isolate, so the entry is handed
   /// over here too: the plugin refuses a work until its engine knows a
   /// dispatcher, and an app that never scheduled the check stored none.
-  /// Appended — `update` is WorkManager's append-or-replace — so a message
-  /// that comes while one's run goes waits for it, and a chain that failed
-  /// is started afresh rather than failing the new one with it.
+  ///
+  /// A message's work is always a fresh one. Handed over for a message it
+  /// **replaces** whatever stands under the name — a work that waits, one
+  /// the platform holds on a back-off, one that runs: the fresh work reads
+  /// everything, and nothing is ever queued behind another. Appended — the
+  /// plugin's `update` and `append` are both the platform's
+  /// append-or-replace — a work that had been stopped and re-enqueued came
+  /// back plain, never expedited again, and on a phone asleep every later
+  /// message's work waited behind it for a maintenance window.
+  ///
+  /// [behindRunning] is the one hand-over that is appended: asked by the
+  /// work that is running, for the read it still owes. Replace would cancel
+  /// the very work that asks (what the check's two slots exist for); behind
+  /// it, the fresh work starts when this one has answered — a first attempt
+  /// again, so expedited where it may be.
   ///
   /// [expedited] where that costs no notification — Android 12 and later,
   /// whose system runs an expedited work in Doze and with the network: a
@@ -71,12 +98,15 @@ class WorkmanagerSharedRefreshScheduler implements SharedRefreshScheduler {
   /// B8). Out of the expedited quota it runs as an ordinary work. Never on
   /// older Android, which runs an expedited work only as a foreground
   /// service with a notification (D23) — there the work runs within the
-  /// short allowance the high-priority message grants, and a run that
-  /// needs longer is stopped and retried on WorkManager's back-off.
+  /// short allowance the high-priority message grants.
+  ///
+  /// Never delayed: a delayed work is a plain one, which a phone asleep
+  /// holds for its maintenance window.
   @override
   Future<void> scheduleMessage(
     String pairId, {
     required bool expedited,
+    bool behindRunning = false,
   }) async {
     await _ensureInitialized();
     await Workmanager().registerOneOffTask(
@@ -87,7 +117,9 @@ class WorkmanagerSharedRefreshScheduler implements SharedRefreshScheduler {
         kSharedRefreshPairKey: pairId,
       },
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingWorkPolicy.update,
+      existingWorkPolicy: behindRunning
+          ? ExistingWorkPolicy.update
+          : ExistingWorkPolicy.replace,
       expedited: expedited,
       outOfQuotaPolicy: expedited
           ? OutOfQuotaPolicy.runAsNonExpeditedWorkRequest

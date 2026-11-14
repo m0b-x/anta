@@ -10,7 +10,9 @@ import 'package:anta/database/migrations/database_migrations.dart';
 import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/database/migrations/shared_row_fences.dart';
 import 'package:anta/models/item_label.dart';
+import 'package:anta/services/body_search_indexer.dart';
 
+import '../services/support/body_index_support.dart';
 import 'support/db_test_support.dart';
 
 /// The fences (`docs/cloud-sharing-foundations.md` §7, `SharedRowFences`):
@@ -518,6 +520,279 @@ void main() {
         hasLength(1),
       );
       expect(await db.contentChunkDao.loadContent(ownNote), 'My text');
+    });
+
+    test('a tombstone of my own space keeps what its row said: the emptying '
+        'is the partner\'s rows\' alone (B8)', () async {
+      const later = 'ffffffffff01:0000:other';
+      final event = (await db.calendarEventDao.getByIdsIncludingDeleted([
+        'own',
+      ])).single;
+      await db.calendarEventDao.upsert(
+        const CalendarEventsCompanion(
+          id: Value('own'),
+          description: Value('My room'),
+        ),
+      );
+      final folder = (await db.folderDao.getByIdsIncludingDeleted([
+        ownFolder,
+      ])).single;
+      final note = (await db.noteDao.getByIdsIncludingDeleted([
+        ownNote,
+      ])).single;
+
+      await db.calendarEventDao.mergeRemoteEvent(
+        event.copyWith(
+          hlcTimestamp: later,
+          deviceId: 'other',
+          version: event.version + 5,
+          isDeleted: true,
+          deletedAt: Value(day),
+        ),
+      );
+      await db.folderDao.mergeFolder(
+        folder.copyWith(
+          hlcTimestamp: later,
+          deviceId: 'other',
+          version: folder.version + 5,
+          isDeleted: true,
+          deletedAt: Value(day),
+        ),
+      );
+      await db.noteDao.mergeNoteDocument(
+        note.copyWith(
+          hlcTimestamp: later,
+          deviceId: 'other',
+          version: note.version + 5,
+          isDeleted: true,
+          deletedAt: Value(day),
+        ),
+        null,
+      );
+
+      final eventAfter = (await db.calendarEventDao.getByIdsIncludingDeleted([
+        'own',
+      ])).single;
+      expect(eventAfter.isDeleted, isTrue);
+      expect((eventAfter.title, eventAfter.description), ('Event', 'My room'));
+      final folderAfter = (await db.folderDao.getByIdsIncludingDeleted([
+        ownFolder,
+      ])).single;
+      expect((folderAfter.isDeleted, folderAfter.name), (true, 'Mine'));
+      final noteAfter = (await db.noteDao.getByIdsIncludingDeleted([
+        ownNote,
+      ])).single;
+      expect(noteAfter.isDeleted, isTrue);
+      expect((noteAfter.title, noteAfter.preview), ('My note', 'My text'));
+    });
+
+    test('stored as tombstones by an earlier build, words and all, are '
+        'emptied once by the sweep — every shared table, search rows too — '
+        'and a tombstone of my own keeps what it said (A6)', () async {
+      await BodySearchIndexer(
+        database: db,
+        scheduler: inlineBodyIndexScheduler,
+      ).drain();
+      await db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: 'climb',
+          name: 'Climb',
+          colorValue: 0xFF336699,
+          iconKey: 'event',
+          createdAt: day,
+          updatedAt: day,
+        ),
+      );
+      await db.sharedRowDao.writing(
+        () => db.customStatement(
+          "UPDATE calendar_categories SET owner_id = '$partner' "
+          "WHERE id = 'climb'",
+        ),
+      );
+      await db.calendarEventDao.upsert(
+        const CalendarEventsCompanion(
+          id: Value('shared'),
+          description: Value('Room 4'),
+        ),
+      );
+      // As an earlier build merged the partner's deletes: the deletion and
+      // nothing else.
+      await db.sharedRowDao.writing(() async {
+        for (final (table, where, arg) in [
+          ('calendar_categories', 'id = ?', 'climb'),
+          ('calendar_events', 'id = ?', 'shared'),
+          ('calendar_event_occurrences', 'event_id = ?', 'shared'),
+          ('folders', 'id = ?', sharedFolder),
+          ('notes', 'id = ?', sharedNote),
+        ]) {
+          await db.customStatement(
+            'UPDATE $table SET is_deleted = 1 WHERE $where',
+            [arg],
+          );
+        }
+      });
+      await db.noteDao.softDeleteNoteWithChunks(ownNote);
+
+      await db.sharedRowDao.writing(
+        () => db.sharedRowDao.emptyTombstones(partner),
+      );
+
+      expect(
+        await one<String>(
+          "SELECT name FROM calendar_categories WHERE id = 'climb'",
+        ),
+        isEmpty,
+      );
+      final event = (await db.calendarEventDao.getByIdsIncludingDeleted([
+        'shared',
+      ])).single;
+      expect(event.title, isEmpty);
+      expect(event.description, isNull);
+      expect(
+        await one<String>(
+          'SELECT description FROM calendar_event_occurrences '
+          "WHERE event_id = 'shared'",
+        ),
+        isEmpty,
+      );
+      expect(
+        (await db.folderDao.getByIdsIncludingDeleted([
+          sharedFolder,
+        ])).single.name,
+        sharedFolder,
+      );
+      final note = (await db.noteDao.getByIdsIncludingDeleted([
+        sharedNote,
+      ])).single;
+      expect((note.title, note.preview), ('', ''));
+      expect(
+        await one<int>(
+          'SELECT COUNT(*) FROM note_search_ledger WHERE note_id = ?',
+          [sharedNote],
+        ),
+        0,
+      );
+      expect(
+        (await db.noteDao.getByIdsIncludingDeleted([ownNote])).single.title,
+        'My note',
+        reason: 'my own tombstone is mine',
+      );
+    });
+
+    // The record of a document known and not held (share surfaces P3).
+    group('a record of a document not held', () {
+      SharedRowDao dao() => db.sharedRowDao;
+      Future<String?> record(String key) =>
+          db.syncDao.getValue(SyncDao.keySharedRefused('notes', key));
+      Future<int> changes() => one<int>('SELECT total_changes()');
+
+      test(
+        'is "u", counted, never told as refused, forgotten once the row is '
+        'stored, and by a read from the start that does not meet it (B8)',
+        () async {
+          await dao().noteUnheld('notes', ['waits', 'leaves']);
+          expect(await record('waits'), 'u');
+          final held = await dao().countOf('notes', partner);
+          expect(await dao().refusedCount(), 0);
+
+          await dao().noteStored('notes', ['waits']);
+          expect(await record('waits'), isNull);
+          expect(await dao().countOf('notes', partner), held - 1);
+
+          await dao().removeAbsent('notes', partner, {sharedNote});
+          expect(await record('leaves'), isNull);
+        },
+      );
+
+      test('never takes the place of a refusal: a refused document later met '
+          'unreadable is still told as refused (B4)', () async {
+        await dao().noteRefused('notes', 'mine-too', live: true);
+        expect(await dao().refusedCount(), 1);
+
+        await dao().noteUnheld('notes', ['mine-too']);
+
+        expect(await record('mine-too'), '1');
+        expect(await dao().refusedCount(), 1);
+      });
+
+      test('met again writes nothing (B4)', () async {
+        await dao().noteUnheld('notes', ['waits']);
+        final before = await changes();
+
+        await dao().noteUnheld('notes', ['waits']);
+
+        expect(await changes(), before);
+      });
+    });
+
+    test('the first read of a partner\'s rows marks the database for good: '
+        'neither the pair\'s end, an unbind nor another partner takes the '
+        'mark away (A3)', () async {
+      await db.sharedRowDao.removeAll();
+      await db.sharedRowDao.begin(owner: 'u2', pair: 'p2', boundUid: 'me');
+      expect(await db.syncDao.getValue(SyncDao.keySharedEverHeld), '1');
+
+      // The pair's end, an unbind and another account signing in all take
+      // the shared rows away through the one removal.
+      await db.sharedRowDao.removeAll();
+      await db.sharedRowDao.begin(owner: 'u3', pair: 'p3', boundUid: 'me');
+      await db.sharedRowDao.removeAll();
+
+      expect(await db.syncDao.getValue(SyncDao.keySharedEverHeld), '1');
+    });
+
+    test(
+      'given way to where the body index cannot be cleared, leaves its '
+      'ledger rows for the drain to find, and is still removed (A4)',
+      () async {
+        await BodySearchIndexer(
+          database: db,
+          scheduler: inlineBodyIndexScheduler,
+        ).drain();
+        // An index this SQLite cannot open: every statement over it fails.
+        await db.customStatement('DROP TABLE note_body_fts');
+
+        await db.sharedRowDao.evict('notes', [sharedNote]);
+
+        expect(
+          await db.noteDao.getByIdsIncludingDeleted([sharedNote]),
+          isEmpty,
+        );
+        expect(
+          await one<int>(
+            'SELECT COUNT(*) FROM note_search_ledger WHERE note_id = ?',
+            [sharedNote],
+          ),
+          1,
+          reason: 'what the drain\'s orphan sweep reads',
+        );
+      },
+    );
+
+    test('given way to, takes its search rows along in the same removal, and '
+        'only its own (P1)', () async {
+      await BodySearchIndexer(
+        database: db,
+        scheduler: inlineBodyIndexScheduler,
+      ).drain();
+      Future<int> ledgerOf(String id) => one<int>(
+        'SELECT COUNT(*) FROM note_search_ledger WHERE note_id = ?',
+        [id],
+      );
+      Future<int> hits(String word) => one<int>(
+        'SELECT COUNT(*) FROM note_body_fts WHERE note_body_fts MATCH ?',
+        ['"$word"'],
+      );
+      expect(await ledgerOf(sharedNote), 1);
+      // The projection is folded: a search is asked in lower case.
+      expect(await hits('their'), 1);
+
+      await db.sharedRowDao.evict('notes', [sharedNote, ownNote]);
+
+      expect(await ledgerOf(sharedNote), 0);
+      expect(await hits('their'), 0, reason: 'no word of theirs is found');
+      expect(await ledgerOf(ownNote), 1);
+      expect(await hits('my text'), 1, reason: 'my own note stays found');
     });
 
     test(

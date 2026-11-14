@@ -459,7 +459,7 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
         if (PartnerLookReader.mayShare(
           holdsShared: GetIt.I<FolderStorageService>().holdsShared,
         )) {
-          _partnerLook.start();
+          _partnerLook.start(asker: state);
         }
 
         if (notes.isEmpty) return _buildEmptyState(context);

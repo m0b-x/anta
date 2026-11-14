@@ -17,6 +17,13 @@ class FakeSyncEngine implements SyncEngine {
 
   SyncRunReport report = const SyncRunReport();
 
+  /// What the engine says of the last away read: still owed.
+  @override
+  bool awayReadOwed = false;
+
+  @override
+  bool sharedReadFoundNoPartner = false;
+
   @override
   SyncStatus current = SyncStatus.empty;
 

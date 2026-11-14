@@ -58,14 +58,16 @@ void sayShareFailurePastSurface(
     );
 }
 
-/// A list sheet dismissed while [pending] acts of [acts] it asked for had
-/// not answered: their outcomes are heard on [bloc] past [seen], and a
-/// failure among them said on [messenger]. The sheet that would have said
-/// it is gone and the page leaves these acts to the sheet, so this is the
-/// one voice. A success says nothing more: its words were said at the tap.
+/// A list sheet dismissed while [pending] acts it asked for — those whose
+/// `ShareActEvent.asker` is [asker] — had not answered: their outcomes are
+/// heard on [bloc] past [seen], and a failure among them said on
+/// [messenger]. The sheet that would have said it is gone, and neither the
+/// page nor a sheet opened since answers for an act it did not ask for, so
+/// this is the one voice. A success says nothing more: its words were said
+/// at the tap.
 void sayShareFailuresPastSheet({
   required ShareBloc bloc,
-  required Set<ShareAct> acts,
+  required Object asker,
   required int pending,
   required int? seen,
   required ScaffoldMessengerState? messenger,
@@ -79,7 +81,7 @@ void sayShareFailuresPastSheet({
     final outcome = state is ShareLoaded ? state.outcome : null;
     if (outcome == null || outcome.sequence == last) return;
     last = outcome.sequence;
-    if (!acts.contains(outcome.act)) return;
+    if (!identical(outcome.asker, asker)) return;
     switch (outcome.failure) {
       case ShareFailure.refused:
         sayShareFailurePastSurface(messenger, l10n.shareNeedsSync);

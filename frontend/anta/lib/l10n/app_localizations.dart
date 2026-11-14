@@ -16894,11 +16894,17 @@ abstract class AppLocalizations {
   /// **'{inner} is now shared through {outer}'**
   String shareNowThrough(String inner, String outer);
 
-  /// Snackbar when the folder picked to share is shared already, on its own or through a folder it lies in
+  /// The sentence for a folder that is shared already, on its own or through a folder it lies in. Said by two snackbars (a share from the folder page's menu, a pick in the Sharing page's folders sheet) and shown as the subtitle of a refused row in the share picker's search results, under the folder's name
   ///
   /// In en, this message translates to:
   /// **'{folder} is already shared'**
   String shareFolderAlready(String folder);
+
+  /// The share picker's two-line reason slot under its list, when the folder the picker is in is shared already, on its own or through a folder it lies in: why the Share button is off. The why comes first and the name last: a long name is cut at the slot's second line, and the why must survive
+  ///
+  /// In en, this message translates to:
+  /// **'Already shared: {folder}'**
+  String pickShareAlready(String folder);
 
   /// Snackbar after a folder stopped being shared that also took away the shares of folders inside it, with Undo
   ///

@@ -243,7 +243,7 @@ class PairingBloc extends Bloc<PairingEvent, PairingState> {
       );
     }
     if (status.endedNoticePending) {
-      return PairingEnded(partnerName: status.endedPartnerName);
+      return PairingEnded.from(status.endedPartnerName);
     }
     final code = status.pendingCode;
     final expiresAt = status.pendingExpiresAt;

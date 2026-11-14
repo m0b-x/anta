@@ -72,6 +72,29 @@ String shareChangeMessage(
 /// which spells the year the time of day and this year's dates leave out.
 final DateTime _widestMoment = DateTime(2000, 9, 28);
 
+/// The route [open] pushed on [navigator] before it returned, or null when
+/// it pushed none by then — an opener that awaits before it pushes, or one
+/// that pushes nothing: the route on top then is the one that was there
+/// already, the page's own or another's, and is never taken for the
+/// opener's (review finding 13).
+@visibleForTesting
+Route<dynamic>? routePushedBy(NavigatorState navigator, void Function() open) {
+  Route<dynamic>? top() {
+    Route<dynamic>? found;
+    // A predicate that holds at once pops nothing: it names the top route.
+    navigator.popUntil((route) {
+      found = route;
+      return true;
+    });
+    return found;
+  }
+
+  final before = top();
+  open();
+  final after = top();
+  return identical(after, before) ? null : after;
+}
+
 /// Which of the lines under what the partner shares were true as the page
 /// first loaded, and the count the third said then.
 class _HeldNotices {
@@ -204,9 +227,8 @@ class _SharingViewState extends State<_SharingView> {
   /// opens no second sheet.
   bool _picking = false;
 
-  /// While the Single events sheet is up: it says the outcome of its ✕ and
-  /// of an Undo over itself, and a bar of the page's under it would say a
-  /// failure twice (closing review finding 3).
+  /// While the Single events sheet is up, so a second tap opens no second
+  /// sheet. What it asked for it says itself (`ShareActEvent.asker`).
   bool _eventsOpen = false;
 
   /// While my Folders sheet is up, on [_eventsOpen]'s terms.
@@ -248,19 +270,17 @@ class _SharingViewState extends State<_SharingView> {
     final l10n = AppLocalizations.of(context)!;
     return MultiBlocListener(
       listeners: [
-        // The page's own acts; an un-share from the events sheet, a folder
-        // shared or un-shared from the folders sheet, and an Undo while
-        // either sheet is up, are said from inside the sheet.
+        // The page's own acts, and an Undo tapped once its sheet had gone.
+        // An act a list sheet asked for carries the sheet as its asker and
+        // is said by that sheet — over itself, or past it once dismissed
+        // (`sayShareFailuresPastSheet`); a bar of the page's would say a
+        // failure twice (closing review finding 3).
         BlocListener<ShareBloc, ShareState>(
           listenWhen: (previous, current) {
             final outcome = _outcomeOf(current);
             return outcome != null &&
                 outcome.sequence != _outcomeOf(previous)?.sequence &&
-                outcome.act != ShareAct.eventUnshared &&
-                outcome.act != ShareAct.folderShared &&
-                outcome.act != ShareAct.folderUnshared &&
-                !((_eventsOpen || _foldersOpen) &&
-                    outcome.act == ShareAct.undo);
+                outcome.asker == null;
           },
           listener: (context, state) => _sayOutcome(
             context,
@@ -1056,20 +1076,16 @@ class _SharingViewState extends State<_SharingView> {
   /// menu, its sheets — by their own handles, while each is up.
   final Set<Route<dynamic>> _ownRoutes = {};
 
-  /// Runs [open], which pushes a route synchronously, and keeps that route's
-  /// handle until it is answered: [_leave] closes what the page opened and
-  /// nothing else, so a route of another's above it — Sync & sharing's
-  /// "pair ended" notice — is never taken for one of the page's.
+  /// Runs [open] and keeps the handle of the route it pushed until it is
+  /// answered: [_leave] closes what the page opened and nothing else, so a
+  /// route of another's above it — Sync & sharing's "pair ended" notice —
+  /// is never taken for one of the page's. Only a route pushed before
+  /// [open] returns is held ([routePushedBy]): one an opener pushes after
+  /// an await is left to close itself.
   Future<T> _opened<T>(Future<T> Function() open) {
-    final future = open();
-    Route<dynamic>? top;
-    // A predicate that holds at once pops nothing: it names the top route.
-    Navigator.of(context).popUntil((above) {
-      top = above;
-      return true;
-    });
-    final pushed = top;
-    if (pushed == null || pushed == ModalRoute.of(context)) return future;
+    late final Future<T> future;
+    final pushed = routePushedBy(Navigator.of(context), () => future = open());
+    if (pushed == null) return future;
     _ownRoutes.add(pushed);
     return future.whenComplete(() => _ownRoutes.remove(pushed));
   }

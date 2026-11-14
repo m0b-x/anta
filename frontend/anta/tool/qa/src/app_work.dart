@@ -259,6 +259,14 @@ final RegExp _triggerEnded = RegExp(
   r'\[SharedRefresh\] trigger\((\w+)\) ended: (\w+)',
 );
 
+/// Whether WorkManager stopped the forced run in [log] before it could
+/// end: `cmd jobscheduler run -f` cold-starts the process, WorkManager's
+/// start-up reconcile then finds "unfinished work" and schedules it again,
+/// which stops the job just started (`onStopJob`). Seen twice in the share
+/// pass's 04k (2026-11-14), never in a run the scheduler started by itself.
+bool forcedRunStoppedByReconcile(String log) =>
+    log.contains('Found unfinished work') && log.contains('onStopJob');
+
 /// How the last trigger of the shared check in [log] ended — `read`,
 /// `forwarded`, `notWanted`, … — or null when none ended there.
 String? lastSharedRefreshEnding(String log) {

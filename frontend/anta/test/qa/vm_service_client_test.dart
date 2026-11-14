@@ -4,7 +4,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/qa/qa.dart'
-    show InstalledLaunch, QaCommand, QaCommandRunner, QaContext, QaMarkers;
+    show
+        InstalledLaunch,
+        LaunchCommand,
+        QaCommand,
+        QaCommandRunner,
+        QaContext,
+        QaMarkers;
 import '../../tool/qa/src/agent_client.dart';
 import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/cancel.dart';
@@ -367,6 +373,69 @@ void main() {
         },
       );
     });
+
+    group('launch of an app that is already running', () {
+      late Directory root;
+      late _NativeDriver native;
+      late _RunningAppDevice device;
+      late _LaunchContext ctx;
+
+      Future<int?> launch() => QaCommandRunner(
+        contextFactory: (_) => ctx,
+        commands: [LaunchCommand()],
+      ).run(['-d', 'emulator-5558', 'launch']);
+
+      setUp(() {
+        root = Directory.systemTemp.createTempSync('anta_qa_relaunched_');
+        native = _NativeDriver();
+        device = _RunningAppDevice(native, announced: service.httpUri);
+        ctx = _LaunchContext(
+          QaCommandRunner().argParser.parse(['-d', 'emulator-5558']),
+          paths: QaPaths(root.path),
+          dev: device,
+        );
+        service.agentReplies[AgentOps.info] = jsonEncode({
+          AgentKeys.ok: true,
+          AgentKeys.platform: 'android',
+          AgentKeys.lifecycle: 'resumed',
+          AgentKeys.qaMode: true,
+        });
+      });
+
+      tearDown(() => root.deleteSync(recursive: true));
+
+      test('finds the agent of a process the tool did not start', () async {
+        // The pass of 2026-11-13: `kill-app`, then scheduled work started
+        // the process again. The recorded port is the killed process's (a
+        // forward that hangs up), so `auto` had settled on adb.
+        final stale = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        stale.listen((socket) => socket.destroy());
+        addTearDown(stale.close);
+        await ctx.recordUris(vm: 'http://127.0.0.1:${stale.port}/', dtd: null);
+        expect(await ctx.driver(), same(native));
+
+        expect(await launch(), 0);
+
+        expect(device.events, ['front', 'discover']);
+        expect(await ctx.recordedVmUri(), service.httpUri);
+        expect(
+          await ctx.driver(),
+          isA<AgentClient>(),
+          reason: 'the verbs after the launch are back on the agent',
+        );
+      });
+
+      test('keeps the agent that still answers and reads no log', () async {
+        await ctx.recordUris(vm: service.httpUri, dtd: null);
+        final before = await ctx.driver();
+        expect(before, isA<AgentClient>());
+
+        expect(await launch(), 0);
+
+        expect(device.events, ['front']);
+        expect(await ctx.driver(), same(before));
+      });
+    });
   });
 
   group('a seedless fresh launch', () {
@@ -380,10 +449,13 @@ void main() {
         paths: QaPaths(root.path),
         dev: device,
       );
-      final runner = QaCommandRunner(
-        contextFactory: (_) => ctx,
-        commands: [_MarkerVerb(), _CancelledLaunch()],
-      )..lineSink = (line, {required prefix, required isError}) => said.add(line);
+      final runner =
+          QaCommandRunner(
+              contextFactory: (_) => ctx,
+              commands: [_MarkerVerb(), _CancelledLaunch()],
+            )
+            ..lineSink = (line, {required prefix, required isError}) =>
+                said.add(line);
       return runner.run(['-d', 'emulator-5556', ...args]);
     }
 
@@ -504,6 +576,9 @@ class _CancelledLaunch extends QaCommand with InstalledLaunch {
 
 class _NativeDriver implements UiDriver {
   @override
+  Duration get settleAfterAction => Duration.zero;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -534,6 +609,55 @@ class _FailingLaunchDevice implements Device {
     required int vmServicePort,
     int? previousVmServicePort,
   }) => throw DeviceFailure('am start failed');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// An Android device whose app is already running, with its VM service
+/// announced in the platform log; a cold launch is never expected.
+class _RunningAppDevice implements Device {
+  _RunningAppDevice(this.native, {required this.announced});
+
+  final UiDriver native;
+  final String announced;
+  final List<String> events = [];
+
+  @override
+  DeviceKind get kind => DeviceKind.android;
+
+  @override
+  String get id => 'emulator-5558';
+
+  @override
+  String get label => 'Android emulator-5558';
+
+  @override
+  String get packageId => 'com.alexzamfir.anta';
+
+  @override
+  UiDriver? get nativeDriver => native;
+
+  @override
+  Future<bool> isInstalled() async => true;
+
+  @override
+  Future<int?> appPid() async => 10150;
+
+  @override
+  Future<void> bringToFront() async => events.add('front');
+
+  @override
+  Future<String?> discoverVmServiceUri() async {
+    events.add('discover');
+    return announced;
+  }
+
+  @override
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  }) => throw StateError('the app is running: no cold launch');
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

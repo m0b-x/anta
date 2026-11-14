@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
 
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
@@ -1263,6 +1264,7 @@ void main() {
     testWidgets('delete all wipes the database directory and asks for a '
         'restart that exits', (tester) async {
       await seed(tester);
+      await prefs.setString(SettingsKeys.deviceStateOf, 'device-here');
       final platform = recordMethodCalls(SystemChannels.platform);
       final robot = DatabaseSettingsRobot(tester);
       await robot.pump();
@@ -1272,6 +1274,10 @@ void main() {
       await robot.settleUntil(() => robot.shows(l10n.dataDeleted));
 
       expect(robot.showsLoading, isFalse);
+      // The device id went with the directory, on the same phone: its
+      // stamp goes too, or the id the next launch makes would read as
+      // another device's (`DeviceState`).
+      expect(prefs.containsKey(SettingsKeys.deviceStateOf), isFalse);
       // No database file is left. The directory itself may be back: the next
       // database or settings read recreates it, and an open handle would
       // have made the delete throw instead.

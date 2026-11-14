@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../constants/settings_keys.dart';
 import '../../models/item_label.dart';
 import '../../models/movable_item.dart';
 import '../../utils/position_plan.dart';
@@ -425,7 +426,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// re-stamp its tombstone with this device's id and a fresh HLC, a delete
   /// it never made. The notes repair once read that id as "this device
   /// deleted the folder" and brought the folder's notes back everywhere
-  /// (P fix pass PF-H1).
+  /// (P fix pass PF-H1). A move takes [moveFolder]'s rule
+  /// ([refusesParent]); a refused one writes nothing, the rename with it.
   Future<Folder?> updateFolder({
     required String id,
     String? name,
@@ -440,6 +442,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final renames = name != null && name != existing.name;
       final moves = updateParent && parentId != existing.parentId;
       if (!renames && !moves) return existing;
+      if (moves && await refusesParent(id, parentId)) return null;
 
       final landing = moves ? await _landing(id, parentId) : null;
       final now = DateTime.now();
@@ -458,6 +461,36 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       if (landing != null) await _settleMoved(id, existing, landing);
       return getFolderById(id);
     });
+  }
+
+  /// Whether [target] cannot take the folder [id] as its parent: itself, a
+  /// folder missing or deleted, or one of its own descendants. The one rule
+  /// of both doors that re-parent a folder, [moveFolder] and [updateFolder]
+  /// (share surfaces P7), and of the storage service before it asks about
+  /// names: a parent that is a tombstone hides the folder from every list
+  /// while its share is derived through the tombstone, and a descendant
+  /// makes a cycle. The top level ([target] null) always takes it.
+  ///
+  /// The cycle is found walking up from [target] through every row, deleted
+  /// or not, to the root (review B5): a walk down from [id] ends at a
+  /// tombstone, and a live folder a merge left under a deleted one of the
+  /// subtree would not be seen. Bounded by [maxFolderDepth], as every folder
+  /// walk here is. One statement.
+  Future<bool> refusesParent(String id, String? target) async {
+    if (target == null) return false;
+    final chain = await customSelect(
+      'WITH RECURSIVE up(id, parent_id, is_deleted, depth) AS ('
+      '  SELECT id, parent_id, is_deleted, 0 FROM folders WHERE id = ?1 '
+      '  UNION ALL '
+      '  SELECT f.id, f.parent_id, f.is_deleted, up.depth + 1 '
+      '  FROM folders f JOIN up ON f.id = up.parent_id '
+      '  WHERE up.depth < $maxFolderDepth'
+      ') SELECT id, is_deleted, depth FROM up ORDER BY depth',
+      variables: [Variable<String>(target)],
+      readsFrom: {folders},
+    ).get();
+    if (chain.isEmpty || chain.first.read<bool>('is_deleted')) return true;
+    return chain.any((row) => row.read<String>('id') == id);
   }
 
   /// Where the folder [id] stood and where it lands as to sharing, read
@@ -502,13 +535,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final existing = await getFolderById(id);
       if (existing == null || existing.isDeleted) return null;
 
-      if (targetParentId != null) {
-        if (targetParentId == id) return null;
-        final target = await getFolderById(targetParentId);
-        if (target == null || target.isDeleted) return null;
-        final descendants = await getAllDescendantIds(id);
-        if (descendants.contains(targetParentId)) return null;
-      }
+      if (await refusesParent(id, targetParentId)) return null;
 
       if (existing.parentId == targetParentId) return existing;
 
@@ -552,6 +579,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// [BulkMoveResult.duplicates] and stays where it is. A folder that is the
   /// target or one of its ancestors cannot move under it and is left out of
   /// every set, as [moveFolder] returns null for it.
+  ///
+  /// It keeps its own walk rather than asking [refusesParent] per folder,
+  /// which would cost a walk each: the target read and one walk up from it
+  /// through every row, tombstones included, for the whole selection. It
+  /// must stay equal to that rule (review C6).
   Future<BulkMoveResult> moveFolders(
     List<String> ids,
     String? targetParentId,
@@ -1170,11 +1202,18 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// carrying the outermost mark at or above it — itself for a marked
   /// folder under no other. A folder under two marks, which only a merge
   /// leaves, is the outer one's. Partner's rows are never among them.
-  Future<({String? owner, Map<String, String> outermost})> shareCensus() async {
+  ///
+  /// The stored pair id rides in the same first row ([pairId], null when
+  /// none is stored): a browser page learns "paired" from the census it
+  /// reads anyway, so an account that never paired asks nothing more.
+  Future<({String? owner, String? pairId, Map<String, String> outermost})>
+  shareCensus() async {
     final rows = await customSelect(
       'SELECT NULL AS id, NULL AS root, -1 AS depth, '
-      '(SELECT value FROM sync_metadata WHERE key = ?1) AS owner '
-      'UNION ALL SELECT id, root, depth, NULL FROM ('
+      '(SELECT value FROM sync_metadata WHERE key = ?1) AS owner, '
+      "(SELECT value FROM user_settings WHERE key = ?2 AND value <> '') "
+      'AS pair '
+      'UNION ALL SELECT id, root, depth, NULL, NULL FROM ('
       'WITH RECURSIVE s(id, root, depth) AS ('
       '  SELECT id, id, 0 FROM folders WHERE shared_pair IS NOT NULL '
       '  AND is_deleted = 0 AND ${SyncDao.mineSql} '
@@ -1183,16 +1222,21 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       '  JOIN s ON f.parent_id = s.id '
       '  WHERE f.is_deleted = 0 AND s.depth < $maxFolderDepth'
       ') SELECT id, root, depth FROM s)',
-      variables: [Variable<String>(SyncDao.keySharedOwner)],
-      readsFrom: {folders, db.syncMetadata},
+      variables: [
+        Variable<String>(SyncDao.keySharedOwner),
+        Variable<String>(SettingsKeys.pairingPairId),
+      ],
+      readsFrom: {folders, db.syncMetadata, db.userSettings},
     ).get();
     String? owner;
+    String? pairId;
     final outermost = <String, String>{};
     final depths = <String, int>{};
     for (final row in rows) {
       final id = row.read<String?>('id');
       if (id == null) {
         owner = row.read<String?>('owner');
+        pairId = row.read<String?>('pair');
         continue;
       }
       final depth = row.read<int>('depth');
@@ -1201,7 +1245,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         outermost[id] = row.read<String>('root');
       }
     }
-    return (owner: owner, outermost: outermost);
+    return (owner: owner, pairId: pairId, outermost: outermost);
   }
 
   /// The newest stamp among each folder of [ids] and the folders above it,
@@ -1554,10 +1598,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// ([CrdtWrite.requeueRows]). Every one this device may push — its own,
   /// whatever `owner_id` spells that as ([SyncDao.mineSql]) — and never a
   /// row another account shares with it. The folder itself is its caller's
-  /// write.
-  Future<void> _requeueSubtree(String id) async {
+  /// write. [liveOnly] leaves the tombstones out, for a change that moves
+  /// the grant of live rows alone.
+  Future<void> _requeueSubtree(String id, {bool liveOnly = false}) async {
     final under = _descendantsOf('?2');
-    const own = SyncDao.mineSql;
+    final own = liveOnly
+        ? '${SyncDao.mineSql} AND is_deleted = 0'
+        : SyncDao.mineSql;
     final folder = [Variable<String>(id)];
     await db.requeueRows(
       folders,
@@ -1569,6 +1616,22 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       rows: '(folder_id = ?2 OR folder_id IN ($under)) AND $own',
       variables: folder,
     );
+  }
+
+  /// Whether this device holds a live folder or note of its own under the
+  /// folder [id], at any depth: one statement.
+  Future<bool> _holdsLiveUnder(String id) async {
+    final under = _descendantsOf('?1');
+    const own = SyncDao.mineSql;
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM folders WHERE id IN ($under) '
+      'AND is_deleted = 0 AND $own) OR EXISTS(SELECT 1 FROM notes '
+      'WHERE (folder_id = ?1 OR folder_id IN ($under)) AND is_deleted = 0 '
+      'AND $own) AS held',
+      variables: [Variable<String>(id)],
+      readsFrom: {folders, db.notes},
+    ).getSingle();
+    return row.read<bool>('held');
   }
 
   /// The pair the folder [id] is shared into as it stands — its own mark or
@@ -1618,9 +1681,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// device that pushed one before it had merged the change wrote a
   /// document that says the old grant, and only the device holding the row
   /// can say it again. A folder that arrives new brings nothing to queue
-  /// unless it carries a mark itself. What it shared into before is read
-  /// only when the merge can change it: the row is written, or the two
-  /// marks differ.
+  /// unless it carries a mark itself. A tombstone that buries a live folder
+  /// which was shared queues them too, and owes the pair a poke: the live
+  /// rows under it lose their grant; a live version that brings such a
+  /// tombstone back gives it them again, alike. What it shared into before
+  /// is read only when the merge can change it: the row is written, or the
+  /// two marks differ.
   ///
   /// [shared] merges a folder another account shares with this one
   /// (`docs/cloud-sharing-foundations.md` §5): the owner's copy wins
@@ -1634,13 +1700,14 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     bool shared = false,
   }) {
     return transaction(() async {
-      final local = await getFolderById(remote.id);
+      final (local, marked) = await _localWithMarks(remote.id);
       if (shared) {
         final merged = await _mergeFolder(
           remote,
           local,
           CrdtMerge.everyStamp,
           repairs: false,
+          shared: true,
         );
         return merged.outcome;
       }
@@ -1657,11 +1724,43 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           local != null &&
           (local.sharedPair != remote.sharedPair ||
               local.sharedStamp != remote.sharedStamp);
-      final sharedBefore = local != null && (writes || marksDiffer)
+      // A tombstone over a live folder ends the grant of every live row this
+      // device holds under it: a live row is shared only through live
+      // folders, so their documents now say too much (share surfaces P2).
+      final buries =
+          !live &&
+          local != null &&
+          !local.isDeleted &&
+          CrdtMerge.remoteWrites(
+            remoteHlc: remote.hlcTimestamp,
+            localHlc: local.hlcTimestamp,
+            floor: floor,
+          );
+      // A live version over a local tombstone gives those rows their grant
+      // back, as the burial took it (review A2): under the tombstone they
+      // were private, whatever the tombstone itself derives through.
+      final revives = writes && local != null && local.isDeleted;
+      // With no mark anywhere nothing here was shared: no read for it.
+      final sharedBefore =
+          marked &&
+              !revives &&
+              local != null &&
+              (writes || marksDiffer || buries)
           ? await _sharedPairOf(remote.id)
           : null;
       final (:outcome, :repaired) = await _mergeFolder(remote, local, floor);
-      if (!live) return outcome;
+      if (!live) {
+        // Only the live rows' grant changed — a tombstone's walks through
+        // tombstones — and with none of them there is nothing to tell the
+        // partner's phone (review B3).
+        if (sharedBefore != null &&
+            outcome.result == MergeResult.applied &&
+            await _holdsLiveUnder(remote.id)) {
+          await _requeueSubtree(remote.id, liveOnly: true);
+          await db.syncDao.oweSharePokes([sharedBefore], urgent: false);
+        }
+        return outcome;
+      }
       final kept = await CrdtMerge.mergeMark(
         db,
         table: folders,
@@ -1691,13 +1790,36 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     });
   }
 
+  /// The folder [id] as stored, tombstones included, and whether any folder
+  /// carries a share mark, in the one read a merge makes of its local row
+  /// (review B2): a merge on a database that shares nothing then asks
+  /// nothing more about sharing. False with no local row, which has no
+  /// subtree to tell of.
+  Future<(Folder?, bool)> _localWithMarks(String id) async {
+    final row = await customSelect(
+      'SELECT *, EXISTS(SELECT 1 FROM folders m '
+      'WHERE m.shared_pair IS NOT NULL) AS any_mark '
+      'FROM folders WHERE id = ?',
+      variables: [Variable<String>(id)],
+      readsFrom: {folders},
+    ).getSingleOrNull();
+    if (row == null) return (null, false);
+    return (folders.map(row.data), row.read<bool>('any_mark'));
+  }
+
   /// [mergeFolder]'s merge and repair, inside its transaction, with whether
   /// the repair re-parented the row; none is attempted unless [repairs].
+  ///
+  /// A [shared] tombstone over a held row has its name taken away (share
+  /// surfaces P4) — the column refuses an empty name, so the id stands in,
+  /// as the wire's decode does. Its parent, order, sorts, label and stamps
+  /// stay, and so does the row while it is granted, for the reader's count.
   Future<({MergeOutcome outcome, bool repaired})> _mergeFolder(
     Folder remote,
     Folder? local,
     String? floor, {
     bool repairs = true,
+    bool shared = false,
   }) async {
     final outcome = await CrdtMerge.mergeRemoteRow(
       db,
@@ -1718,6 +1840,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
               deletedAt: Value(remote.deletedAt),
               updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
               ownerId: Value(remote.ownerId),
+              name: shared ? Value(remote.id) : const Value.absent(),
             ),
           );
         } else {

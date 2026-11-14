@@ -106,7 +106,33 @@ enum SyncRunSkip {
   /// The cadence is [SyncCadence.manual] and nobody asked: a leave drains
   /// nothing, a snapshot's or a timer's run queued before the switch reaches
   /// nothing; only "Sync now" and the bind's first merge run (record §13).
-  manual,
+  manual;
+
+  /// [SyncGatewayFailure.healsByItself] for a run that reached nothing:
+  /// whether what held it lifts with no act of the person's — a restore
+  /// ends, a stopped engine is built again, a quota resets, a first merge
+  /// completes, a binding made mid-run is the one the next run reads under.
+  /// Signing in, binding, updating the app and getting access back are
+  /// somebody's act.
+  bool get healsByItself => switch (this) {
+    suspended || stopped || paused || initialMergePending || rebound => true,
+    unbound ||
+    signedOut ||
+    accountMismatch ||
+    appOutdated ||
+    noAccess ||
+    spaceDeleted ||
+    manual => false,
+  };
+
+  /// [healsByItself] for the engine that was held, [started] or not. A
+  /// first merge completes by itself only where an engine runs that makes
+  /// it — the app's. The engine of the shared check's run is never started
+  /// and merges nothing: a run that retried on [initialMergePending] met it
+  /// on every back-off until the app was opened, whose launch completes the
+  /// merge and plans the check anyway.
+  bool healsFor({required bool started}) =>
+      this == initialMergePending ? started : healsByItself;
 }
 
 /// What one run did, for "Sync now" to report and for the tests to read.
@@ -156,7 +182,28 @@ class SyncRunReport extends Equatable {
     this.pushAttempts = 0,
     this.resumeFallbacks = 0,
     this.duration = Duration.zero,
+    this.awayReadOwed = false,
   });
+
+  /// Whether the read a [SyncEngine.readSharedWhileAway] asked for is still
+  /// owed — said to that asker alone, with its own report: two asks served
+  /// by different runs are each answered for theirs. No part of the
+  /// outcome two runs are compared by.
+  final bool awayReadOwed;
+
+  SyncRunReport _answering({required bool awayReadOwed}) => SyncRunReport(
+    pulledRows: pulledRows,
+    pushedRows: pushedRows,
+    parked: parked,
+    failure: failure,
+    skipped: skipped,
+    pushedBytes: pushedBytes,
+    pages: pages,
+    pushAttempts: pushAttempts,
+    resumeFallbacks: resumeFallbacks,
+    duration: duration,
+    awayReadOwed: awayReadOwed,
+  );
 
   /// The outcome only: the counters measure a run, and two runs that did
   /// the same thing are equal however long they took.
@@ -533,6 +580,13 @@ class SyncEngine {
   /// until the next launch (S3c review F6).
   static bool autoStart = false;
 
+  /// Told each time a shared read ran to its end — every table read, or
+  /// nothing left to read — by any engine of the isolate: the app's in
+  /// front, a forwarded one, a run's own. Set by DI; what plans the shared
+  /// check counts from it (`SharedRefresh.readMade`). Never for a read
+  /// that failed, was cut or was not due.
+  static void Function()? onSharedReadCompleted;
+
   /// The app's engine over the active database, built once per database: the
   /// gateway and the identity come from GetIt (global, like the
   /// `AlertScheduler`'s gateway), the database and the sync services from
@@ -599,13 +653,13 @@ class SyncEngine {
     required AuthService auth,
     Stream<AppUser?>? authChanges,
     AppLifecycleState? Function()? lifecycleState,
-    void Function(ShareNotice notice)? notify,
+    AppSyncApplyHooks? hooks,
   }) => SyncEngine.detached(
     db: db,
     gateway: gateway,
     binding: binding,
     status: status,
-    hooks: AppSyncApplyHooks(notify: notify),
+    hooks: hooks ?? AppSyncApplyHooks(),
     deviceId: db.deviceId,
     schema: DatabaseSchema.syncSchemaVersion,
     currentUser: () => auth.currentUser,
@@ -638,7 +692,7 @@ class SyncEngine {
       binding: await SyncBindingService.getInstance(),
       status: await SyncStatusService.getInstance(),
       auth: GetIt.I<AuthService>(),
-      notify: notify,
+      hooks: AppSyncApplyHooks.awayFromApp(notify: notify),
     );
     engine._foreground = false;
     return engine;
@@ -873,12 +927,65 @@ class SyncEngine {
   /// engine away from the front does none of that for any run — and the
   /// foreground is left as the lifecycle last reported it, so this is no
   /// resume.
-  Future<SyncRunReport> readSharedWhileAway() =>
-      _request(_RunMode.shared, away: true);
+  Future<SyncRunReport> readSharedWhileAway() async {
+    // Owed from the asking, not from a failure: a run that never reaches
+    // the reader — merged into a pull the leave cuts at once — reports
+    // nothing wrong, and only the reader can say the read was made.
+    final ask = ++_awayAsked;
+    _awayOwed.add(ask);
+    _awayReadOwed = true;
+    final SyncRunReport report;
+    try {
+      report = await _request(_RunMode.shared, awayAsk: ask);
+    } finally {
+      _awayReadOwed = _awayOwed.remove(ask);
+    }
+    return report._answering(awayReadOwed: _awayReadOwed);
+  }
 
   /// Whether the run in flight carries a [readSharedWhileAway]: the shared
   /// reader then reads past a leave ([_SharedReader.read]).
   bool _awayRead = false;
+
+  /// One token per [readSharedWhileAway], and the asks whose read is still
+  /// owed. A flag for all of them was lowered by the reader of whichever
+  /// run carried an away read: an ask merged into a later run, which the
+  /// leave then cut, was answered "made" on the strength of another's
+  /// (review R4).
+  int _awayAsked = 0;
+  final Set<int> _awayOwed = {};
+
+  /// The asks the run in flight carries: the only ones its reader answers.
+  List<int> _awayCarried = const [];
+
+  /// The reader's word for the run in flight: its read reached its end, or
+  /// failed for a cause no retry heals.
+  void _awayReadSettled() => _awayOwed.removeAll(_awayCarried);
+
+  /// Whether the read the last [readSharedWhileAway] asked for is still
+  /// owed, for a run whose report shows neither a failure nor a skip
+  /// (`docs/cloud-shared-freshness.md` §6): the reader stamps a failure of
+  /// its own for the Sharing page and returns normally, and a read the run
+  /// dropped leaves no trace at all.
+  ///
+  /// Raised by the asking and lowered only by the reader, as the read of a
+  /// run that carries one ends — to false when it reached its end or failed
+  /// for a cause no retry heals ([SyncGatewayFailure.healsByItself]), so a
+  /// refusal is never asked again by the work that met it.
+  ///
+  /// As the ask answered last left it; each asker is told for its own in
+  /// its report ([SyncRunReport.awayReadOwed]).
+  bool get awayReadOwed => _awayReadOwed;
+  bool _awayReadOwed = false;
+
+  /// Whether the last shared read asked the server for this account's pair
+  /// and was answered that it has none — on a database that says it is
+  /// paired, or holds what a pair shared: the pair has ended. The answer of
+  /// that one read, false again at the next one's start; a read that could
+  /// not ask says nothing. For the run with the app closed, which gives the
+  /// install's push address up on it (`AppSharedRefreshRunSteps.read`).
+  bool get sharedReadFoundNoPartner => _sharedReadFoundNoPartner;
+  bool _sharedReadFoundNoPartner = false;
 
   /// Set by [syncNow] and taken by the next run as it starts, never during
   /// one: a drain in flight reads the push's parks as it bisects.
@@ -1017,12 +1124,12 @@ class SyncEngine {
   Future<SyncRunReport> _request(
     _RunMode mode, {
     bool asked = false,
-    bool away = false,
+    int? awayAsk,
   }) {
     final request = _queued ??= _RunRequest();
     if (mode.index > request.mode.index) request.mode = mode;
     if (asked) request.asked = true;
-    if (away) request.away = true;
+    if (awayAsk != null) request.awayAsks.add(awayAsk);
     // A drain it merges into still owes the read.
     if (mode == _RunMode.shared) request.readsShared = true;
     _pump();
@@ -1121,6 +1228,7 @@ class SyncEngine {
 
     try {
       _awayRead = request.away;
+      _awayCarried = request.awayAsks;
       _spaceReadByGate = false;
       _spaceShareRead = null;
       // A run that reads the share alone leaves the recheck a resume or
@@ -1333,6 +1441,7 @@ class SyncEngine {
       return report(failure: failure.failure);
     } finally {
       _awayRead = false;
+      _awayCarried = const [];
       _drainAhead = false;
       if (_drainSwallowed) {
         _drainSwallowed = false;
@@ -1433,7 +1542,29 @@ class SyncEngine {
       return (null, SyncRunSkip.appOutdated);
     }
     if (_quotaHeld) return (null, SyncRunSkip.paused);
+    // The engine that is never started: [start] is the one reader of the
+    // stored mark, so here every check spent its reads under a pause.
+    if (!_started && _awayRead && await _storedQuotaHolds()) {
+      return (null, SyncRunSkip.paused);
+    }
     return (binding, null);
+  }
+
+  /// Whether the quota pause the account's own sync stored still holds, by
+  /// the rule that sync keeps it under itself ([quotaRetryDelay]): until the
+  /// quota's reset, an hour at most, then one try. Only read — the mark is
+  /// the app's own engine's to move and to clear, and its next start
+  /// retries at once whatever stands here. A stamp ahead of the clock holds
+  /// nothing: a clock set back must not silence the check for good.
+  Future<bool> _storedQuotaHolds() async {
+    final stamp = int.tryParse(
+      await _db.syncDao.getValue(SyncDao.keyQuotaPausedAt) ?? '',
+    );
+    if (stamp == null) return false;
+    final pausedAt = DateTime.fromMillisecondsSinceEpoch(stamp);
+    final held = _now().difference(pausedAt);
+    return !held.isNegative &&
+        held < quotaRetryDelay(pausedAt, _timing.quotaRetry);
   }
 
   /// Whether the engine holds a `noAccess` or `spaceDeleted` pause — the two
@@ -2248,7 +2379,10 @@ class _RunRequest {
 
   /// Whether a [SyncEngine.readSharedWhileAway] was merged into it: the
   /// shared read then runs although the app is not in front.
-  bool away = false;
+  bool get away => awayAsks.isNotEmpty;
+
+  /// The asks merged into it, each answered by this run's reader.
+  final List<int> awayAsks = [];
   final Completer<SyncRunReport> done = Completer<SyncRunReport>();
 }
 

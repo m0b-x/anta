@@ -26,6 +26,7 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/digest_planner.dart';
 import 'package:anta/widgets/digest_editor_sheet.dart';
+import 'package:anta/widgets/form_rows.dart' show FormCheckRow;
 
 import '../database/support/db_test_support.dart';
 import 'support/digest_sheet_robot.dart';
@@ -813,7 +814,9 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      /// Fix pass, finding 1: a picker changes only the part it showed.
+      /// Fix pass, finding 1: a picker changes only the part it showed. A
+      /// Done on it untouched is no pick — their group, chosen under another
+      /// setting, is still their group when that setting comes back.
       testWidgets('their group, opened where their categories are not '
           'listed, reads No categories and survives a no-op Done', (
         tester,
@@ -831,8 +834,134 @@ void main() {
 
         await openPicker(tester);
         await done(tester);
+        expect(robot.categoriesValue, 'No categories');
         await robot.save();
         expect(savedFrom(outcome).categoryIds, {
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      /// Second review: "Select none" over a part of mine beside their
+      /// group stored their group alone — a digest that then sent nothing.
+      /// A pick the person changed to nothing is every category.
+      testWidgets('a part of mine beside their group, Select none: every '
+          'category, never their group alone', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.own);
+        final outcome = await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            categoryIds: {'gym', CategoryAllowlist.partnerEntry},
+          ),
+        );
+        final robot = DigestSheetRobot(tester);
+        expect(robot.categoriesValue, 'Gym');
+
+        await openPicker(tester);
+        await tapRow(tester, 'gym');
+        await done(tester);
+        expect(robot.categoriesValue, 'Events');
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, isEmpty);
+      });
+
+      /// A report holds no part of theirs (D15): its own part is what the
+      /// editor shows and stores, whatever list reached it.
+      testWidgets('a report opened on a list that names their group shows '
+          'and stores its own part alone', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            cadence: DigestCadence.weeklyReport,
+            categoryIds: {'gym', CategoryAllowlist.partnerEntry},
+          ),
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+        expect(robot.categoriesValue, 'Gym');
+
+        await robot.pickCategories(ticked: const {'birthday', 'gym'});
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {'birthday', 'gym'});
+      });
+
+      /// Review of the fix pass: the row read "Events" while the picker
+      /// opened on the stored list, with no row ticked. It opens on the
+      /// list as the report reads it — what the row says.
+      testWidgets('a report whose list names their group alone reads Events '
+          'and opens with every row ticked; a Done untouched stays every '
+          'category', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            cadence: DigestCadence.weeklyReport,
+            categoryIds: {CategoryAllowlist.partnerEntry},
+          ),
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+        expect(robot.categoriesValue, 'Events');
+
+        await openPicker(tester);
+        for (final id in const ['birthday', 'gym', 'work']) {
+          await tester.ensureVisible(pickRow(id));
+          final inside = find.descendant(
+            of: pickRow(id),
+            matching: find.byType(FormCheckRow),
+          );
+          final around = find.ancestor(
+            of: pickRow(id),
+            matching: find.byType(FormCheckRow),
+          );
+          final row = inside.evaluate().isNotEmpty ? inside : around;
+          expect(
+            tester.widget<FormCheckRow>(row.first).checked,
+            isTrue,
+            reason: id,
+          );
+        }
+        await done(tester);
+        expect(robot.categoriesValue, 'Events');
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, isEmpty);
+      });
+
+      /// The second look at that fix: the picker's answer replaced the list
+      /// as held with the report's reading of it, so a Done nobody touched —
+      /// and a switch back to Upcoming before the save — lost their part.
+      /// The answer is stored over the list as held; the report's reading is
+      /// applied once, at the save.
+      testWidgets('a report\'s picker leaves the list as it is held: back '
+          'on Upcoming their group is still there', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            cadence: DigestCadence.weeklyReport,
+            categoryIds: {'gym', CategoryAllowlist.partnerEntry},
+          ),
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+        expect(robot.categoriesValue, 'Gym');
+
+        await openPicker(tester);
+        await done(tester);
+        await openPicker(tester);
+        await tapRow(tester, 'birthday');
+        await done(tester);
+        expect(robot.categoriesValue, '2 categories');
+
+        await robot.pickShows('upcoming');
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {
+          'birthday',
+          'gym',
           CategoryAllowlist.partnerEntry,
         });
       });

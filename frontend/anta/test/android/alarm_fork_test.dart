@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Five of the `alarm` fork's nine patches (`packages/alarm/`) are held here,
+/// Six of the `alarm` fork's ten patches (`packages/alarm/`) are held here,
 /// by reading their source. A newer upstream copy of the file any of them
 /// lives in would undo it with nothing in the app's `flutter test` failing,
-/// and none of the five losses would be seen in a day's use of the app.
+/// and none of the six losses would be seen in a day's use of the app.
 ///
 /// Two sit where the fork's own tests cannot reach. Patch 5 is one attribute
 /// of the library's manifest. Patch 6's rule is unit-tested in Kotlin
@@ -29,6 +29,15 @@ import 'package:flutter_test/flutter_test.dart';
 /// sounds is stopped by the plugin's own start, and never rings, when the app
 /// is opened more than 30 s after it came due — two alarms in one minute and
 /// a late look at the heads-up.
+///
+/// Patch 10 is on both sides and in the app: an engine that is not a
+/// presenter (`AlarmPluginTest`, `alarm_non_presenter_test.dart`). Without it
+/// an alarm that rings while the shared check runs with the app closed is
+/// reported to the check's isolate — no page, and a silence timer that ends
+/// with it — and every such run re-arms every stored alarm. What neither of
+/// the fork's suites can hold is that the two sides spell one channel alike
+/// and that the app's binding takes the right start, which no suite can
+/// build off a device.
 void main() {
   const fork = 'packages/alarm/android/src/main';
 
@@ -321,6 +330,271 @@ void main() {
 
       expect(yes, isNotNull);
       expect(yes!.group(1)!.trim(), endsWith('continue;'));
+    });
+  });
+
+  group('an engine that is not a presenter (Patch 10)', () {
+    final host = File(
+      '$fork/kotlin/com/gdelataillade/alarm/alarm/AlarmPlugin.kt',
+    ).readAsStringSync();
+    final plugin = File('packages/alarm/lib/alarm.dart').readAsStringSync();
+    final base = File(
+      'packages/alarm/lib/src/base_alarm.dart',
+    ).readAsStringSync();
+    final binding = File(
+      'lib/services/android_alert_gateway.dart',
+    ).readAsStringSync();
+    final registration = File('lib/core/di/injection.dart').readAsStringSync();
+
+    /// One member of a Dart class, whole: from its signature to the first
+    /// brace that closes at a member's own indent.
+    String memberOf(String source, String signature) {
+      final member = RegExp(
+        '${RegExp.escape(signature)}[\\s\\S]*?^  \\}',
+        multiLine: true,
+      ).stringMatch(source);
+      expect(member, isNotNull, reason: signature);
+      return member!;
+    }
+
+    /// [source] without its comment lines.
+    String uncommented(String source) => source
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('//'))
+        .where((line) => !line.trimLeft().startsWith('*'))
+        .join('\n');
+
+    test('the two sides say the same channel and the same word', () {
+      // Hand-written beside the generated bindings, so nothing but this
+      // holds the two spellings together: renamed on one side, the run's
+      // start throws and its pass arms nothing — or, worse, a host that
+      // answered another word leaves the run a presenter.
+      const channel = 'com.gdelataillade.alarm/presenter';
+
+      expect(
+        host,
+        contains('internal const val PRESENTER_CHANNEL = "$channel"'),
+      );
+      expect(host, contains('internal const val RESIGN = "resign"'));
+      expect(
+        plugin,
+        matches(
+          RegExp(
+            "static const _presenterChannel = MethodChannel\\(\\s*'"
+            "${RegExp.escape(channel)}',?\\s*\\);",
+          ),
+        ),
+      );
+      expect(
+        plugin,
+        contains("await _presenterChannel.invokeMethod<void>('resign');"),
+      );
+    });
+
+    test('the host sets a resigned engine aside before it picks whom to '
+        'tell, on the one path every report takes', () {
+      final code = uncommented(host);
+
+      // The getter is one call of the function the unit test asks, handed
+      // the engines' own word on whether they present...
+      expect(
+        code,
+        matches(
+          RegExp(
+            r'get\(\) = synchronized\(attached\) \{\s*'
+            r'presenterAmong\(\s*attached,\s*\{ it\.presents \},\s*'
+            r'\{ it\.activity != null \},\s*\{ it\.hadActivity \},\s*'
+            r'\)\?\.triggerApi\s*\}',
+          ),
+        ),
+      );
+      // ...and that function sets the resigned aside before it picks.
+      expect(
+        code,
+        contains(
+          '): T? = presenterOf(presenters(attached, presents), '
+          'hasActivity, hadActivity)',
+        ),
+      );
+      expect(
+        'presenterOf('.allMatches(code),
+        hasLength(2),
+        reason: 'its declaration and the one call',
+      );
+      expect('presenterAmong('.allMatches(code), hasLength(2));
+
+      // The run's engine says so in its entry before Firebase and the
+      // database come up (review R7) — right after a QA build's preferences
+      // are namespaced, which the resign's own look at them must not
+      // precede, and for a bound at most.
+      final entry = File(
+        'lib/services/shared_refresh/shared_refresh_entry.dart',
+      ).readAsStringSync();
+      expect(
+        entry,
+        matches(
+          RegExp(
+            r'if \(!SharedRefreshAvailability\.isSupported\) return true;\s*'
+            r'QaBootstrap\.namespacePreferences\(\);\s*'
+            r'await _resignAsPresenter\(resign, resignBound\);\s*'
+            r'return fire\(',
+          ),
+        ),
+      );
+      expect(entry, matches(RegExp(r'fire =\s*fireSharedRefresh,')));
+      expect(entry, contains('resign = _resignWithHost,'));
+      expect(entry, contains('await Alarm.initWithoutPresenting();'));
+      // Resigning is one way: nothing gives the word back.
+      expect(
+        RegExp(
+          r'\bpresents = (true|false)',
+        ).allMatches(code).map((write) => write.group(0)),
+        ['presents = true', 'presents = false'],
+        reason: 'its declaration and the resignation',
+      );
+      expect(
+        code,
+        matches(
+          RegExp(
+            r'if \(call\.method == RESIGN\) \{\s*presents = false\s*'
+            r'result\.success\(null\)',
+          ),
+        ),
+      );
+    });
+
+    test('the start that resigns says so first, and neither reconciles nor '
+        'takes the host\'s reports', () {
+      final start = memberOf(
+        plugin,
+        'static Future<void> initWithoutPresenting() async {',
+      );
+
+      expect(
+        start.indexOf("invokeMethod<void>('resign')"),
+        inInclusiveRange(0, start.indexOf('await AlarmStorage.init();')),
+      );
+      // `checkAlarm` sets every stored future alarm again and drains the
+      // host's markers; the trigger handlers are how a ring reaches Dart.
+      expect(start, isNot(contains('checkAlarm')));
+      expect(start, isNot(contains('AlarmTriggerApiImpl')));
+      expect(start, isNot(contains('_applyPendingEvents')));
+    });
+
+    test('and what it sets gets no fallback timer, which would announce the '
+        'ring to the isolate that armed it', () {
+      expect(
+        uncommented(base),
+        contains('if (Alarm.presents) PlatformTimers.setAlarm(settings);'),
+      );
+      expect(
+        'PlatformTimers.setAlarm('.allMatches(uncommented(base)),
+        hasLength(1),
+      );
+    });
+
+    group('in the app\'s binding', () {
+      const start = 'Future<void> _initialize() async {';
+
+      test('a binding that presents nothing resigns before anything else, '
+          'and never starts the plugin the presenting way', () {
+        final code = uncommented(memberOf(binding, start));
+        const resigns =
+            'if (!presentsAlarms) await Alarm.initWithoutPresenting();';
+        const leaves = 'if (!presentsAlarms) return;';
+        const presents =
+            'await Alarm.init(acknowledgeEventsAutomatically: '
+            'false);';
+
+        expect(
+          code.trimLeft().substring(start.length).trimLeft(),
+          startsWith(resigns),
+        );
+        // Everything of the plugin's that is the presenter's comes after
+        // the line a non-presenter leaves at: its reconciliation, and both
+        // of its streams.
+        final left = code.indexOf(leaves);
+        expect(left, isNonNegative);
+        for (final presenters in [
+          presents,
+          'Alarm.events.listen(',
+          'Alarm.ringing.listen(',
+        ]) {
+          expect(
+            code.indexOf(presenters),
+            greaterThan(left),
+            reason: presenters,
+          );
+          expect(
+            presenters.allMatches(uncommented(binding)),
+            hasLength(1),
+            reason: presenters,
+          );
+        }
+        expect(
+          'Alarm.initWithoutPresenting('.allMatches(uncommented(binding)),
+          hasLength(1),
+        );
+      });
+
+      test('it notes a ring in progress for its pass and shows it to '
+          'nobody: no page, no timer, no word on the stream', () {
+        final lookup = uncommented(
+          memberOf(binding, 'Future<void> _reportRingsInProgress() async {'),
+        );
+        final noted = RegExp(
+          r'if \(!presentsAlarms\) \{([\s\S]*?)\}',
+        ).firstMatch(lookup);
+
+        expect(noted, isNotNull);
+        expect(
+          noted!.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim(),
+          '_rings[alarm.id] = _ringReport(payload, alarm); continue;',
+        );
+        expect(
+          lookup.indexOf('if (!presentsAlarms) {'),
+          lessThan(lookup.indexOf('_emitRing(')),
+        );
+      });
+
+      test('the check\'s run is given the one that presents nothing, the '
+          'launch the one that presents — each named, neither by default', () {
+        final run = memberOf(
+          registration,
+          'Future<void> configureSharedRefreshRunDependencies() async {',
+        ).replaceFirst(RegExp(r'^  \}', multiLine: true), '}');
+
+        expect(run, contains('_registerAlertGateway(presentsAlarms: false);'));
+        expect(
+          '_registerAlertGateway(presentsAlarms: true);'.allMatches(
+            registration,
+          ),
+          hasLength(1),
+        );
+        expect(
+          '_registerAlertGateway(presentsAlarms: false);'.allMatches(
+            registration,
+          ),
+          hasLength(1),
+        );
+        expect(
+          registration,
+          contains(
+            'void _registerAlertGateway({required bool presentsAlarms}) {',
+          ),
+        );
+        expect(
+          registration,
+          contains('AndroidAlertGateway(presentsAlarms: presentsAlarms);'),
+        );
+        expect(
+          binding,
+          contains(
+            'AndroidAlertGateway({this.presentsAlarms = '
+            'true}) {',
+          ),
+        );
+      });
     });
   });
 }

@@ -1,9 +1,27 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:anta/constants/app_constants.dart';
 import 'package:anta/database/database.dart';
+
+/// A second connection to [path], configured as the app configures one,
+/// writing a row from an isolate of its own — where the app's connection
+/// lives too, so its wait does not hold this isolate. How long the write
+/// took, in milliseconds.
+Future<int> _writeFromAnotherIsolate(String path) => Isolate.run(() {
+  final other = sqlite3.open(path);
+  try {
+    configureSqliteConnection(other);
+    final waited = Stopwatch()..start();
+    other.execute('INSERT INTO t VALUES (2)');
+    return waited.elapsedMilliseconds;
+  } finally {
+    other.close();
+  }
+});
 
 /// Guards the connection pragmas, which are worth roughly a **20×** speedup on
 /// the app's dominant write shape (many small auto-save commits: 561 ms → 28 ms
@@ -72,6 +90,42 @@ void main() {
       await pragma('journal_size_limit'),
       AppConstants.sqliteJournalSizeLimitBytes,
     );
+  });
+
+  test(
+    'waits for another connection\'s write rather than failing at once',
+    () async {
+      // Zero is SQLite's default: "database is locked" within a millisecond.
+      expect(AppConstants.sqliteBusyTimeout, const Duration(seconds: 5));
+      expect(
+        await pragma('busy_timeout'),
+        AppConstants.sqliteBusyTimeout.inMilliseconds,
+      );
+    },
+  );
+
+  test('a second writer configured as the app configures one waits for the '
+      'first\'s commit and then writes — the shared check\'s run and the '
+      'app, in the bounded windows where the handshake cannot keep them '
+      'apart', () async {
+    final path = '${dir.path}/two.sqlite';
+    final first = sqlite3.open(path);
+    addTearDown(first.close);
+    configureSqliteConnection(first);
+    first
+      ..execute('CREATE TABLE t (x INTEGER)')
+      ..execute('BEGIN IMMEDIATE')
+      ..execute('INSERT INTO t VALUES (1)');
+
+    final second = _writeFromAnotherIsolate(path);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    first.execute('COMMIT');
+
+    expect(await second, greaterThanOrEqualTo(200));
+    expect(first.select('SELECT x FROM t ORDER BY x').map((row) => row['x']), [
+      1,
+      2,
+    ]);
   });
 
   test('WAL sidecars land beside the database file', () async {

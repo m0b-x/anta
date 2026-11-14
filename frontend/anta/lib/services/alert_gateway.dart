@@ -129,6 +129,14 @@ abstract class AlertGateway {
   /// ring would find an entry nobody planned and silence it.
   Set<int> get ringingIds => const {};
 
+  /// Asks the platform again which alarms are sounding, for a binding that
+  /// follows no ring by itself — the one of a pass with no app
+  /// (`AlertScheduler.awayFromApp`), which otherwise knows only the rings
+  /// of the moment it came up. Asked right before a pass arms: an alarm
+  /// that began to sound since must not be armed over, which stops it.
+  /// Nothing for a binding that hears every ring as it starts.
+  Future<void> noteRinging() async {}
+
   /// The payloads of the rings in progress — [ringingIds], with what each one
   /// rang under.
   ///
@@ -187,6 +195,31 @@ abstract class AlertGateway {
   /// equal inputs, equal token — and **coarse**: a token that changed with
   /// every nudge of the volume key would re-arm the horizon every time.
   Future<String> refreshArmContext() async => backendName;
+
+  /// What the last [refreshArmContext] read that only the app's own engine
+  /// can answer — the phone's alarm volume, its clock style, its screen —
+  /// as one opaque string; null from a binding that reads nothing of the
+  /// kind.
+  ///
+  /// The scheduler keeps it with the database for a pass that runs with no
+  /// app behind it (`docs/cloud-shared-freshness.md` §6). There the activity
+  /// that answers these does not exist: a pass that asked anyway would lose
+  /// the volume floor and the clock style, and so write every standing
+  /// entry again under a context nobody chose.
+  String? get armFacts => null;
+
+  /// Whether [refreshArmContext] works [armFacts] out at all: told by the
+  /// scheduler before each of its passes, false where no pass with no app
+  /// can ever run — an install that never paired. Such a binding asks the
+  /// phone nothing for the facts' sake and hands none on.
+  set keepsArmFacts(bool keeps) {}
+
+  /// [refreshArmContext] for a pass with no app: the binding arms under
+  /// [stored] — an [armFacts] the app's own pass left — and asks the phone
+  /// nothing. The token, exactly as [refreshArmContext] would spell it for
+  /// the same facts; null when [stored] is not this binding's to read, and
+  /// then that pass arms nothing.
+  Future<String?> adoptArmFacts(String stored) async => null;
 
   /// What the scheduler writes an entry's times and days with.
   ///

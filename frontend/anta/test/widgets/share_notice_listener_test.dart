@@ -25,6 +25,7 @@ import 'package:anta/models/share_notice.dart';
 import 'package:anta/pages/sharing_page.dart';
 import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/app_navigator.dart';
+import 'package:anta/services/kept_share_notices.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
@@ -66,10 +67,26 @@ void main() {
   var catalogueLoads = 0;
   var catalogue = const <CalendarCategory>[];
 
-  /// What a check kept with the database while the app was closed, handed
-  /// over once as the store hands it; and how often it was asked.
+  /// What a check kept with the database while the app was closed, read as
+  /// the store hands it — reading clears nothing — and how often it was
+  /// asked.
   var kept = <ShareNotice>[];
   var keptAsked = 0;
+
+  /// What the listener told the store it had dealt with, in order; the
+  /// store forgets exactly that, once [forgetting] lets it — null is at
+  /// once.
+  var forgotten = <KeptNoticesSaid>[];
+  Completer<void>? forgetting;
+
+  /// The partner's events the calendar no longer holds — gone again
+  /// before their arrival was said.
+  var goneEvents = <String>{};
+
+  /// A calendar, or a store, that answers when the test lets it: each null
+  /// answers at once from [goneEvents] and [kept].
+  Future<Set<String>> Function(Iterable<String> ids)? heldOverride;
+  Future<List<ShareNotice>> Function()? keptOverride;
 
   /// What the app's builder handed the listener, to show it draws nothing
   /// of its own.
@@ -115,11 +132,54 @@ void main() {
     shellChild = null;
     kept = [];
     keptAsked = 0;
+    forgotten = [];
+    forgetting = null;
+    goneEvents = {};
+    heldOverride = null;
+    keptOverride = null;
     CalendarCategories.updateCache(catalogue);
+    // A hide's notice is said while the category stands hidden.
+    CalendarCategories.updatePartnerHidden({'c-shifts', 'gym'});
     CustomSnackbar.forgetActionBar();
   });
 
-  tearDown(() => CalendarCategories.updateCache(const []));
+  tearDown(() {
+    CalendarCategories.updateCache(const []);
+    CalendarCategories.updatePartnerHidden(const {});
+  });
+
+  /// [notices] as the store holds them once [said] is forgotten: each id
+  /// out of the list of its own kind, a notice with nothing left gone.
+  List<ShareNotice> withoutSaid(
+    List<ShareNotice> notices,
+    KeptNoticesSaid said,
+  ) => [
+    for (final notice in notices)
+      ...switch (notice) {
+        ShareLeftWithAlert(:final events, :final partnerName) => [
+          if (events.any((e) => !said.left.contains(e.id)))
+            ShareLeftWithAlert([
+              for (final e in events)
+                if (!said.left.contains(e.id)) e,
+            ], partnerName: partnerName),
+        ],
+        ShareArrived(:final categoryIds, :final events) => [
+          if (categoryIds.any((id) => !said.categories.contains(id)) ||
+              events.any((e) => !said.events.contains(e.id)))
+            ShareArrived(
+              categoryIds: [
+                for (final id in categoryIds)
+                  if (!said.categories.contains(id)) id,
+              ],
+              events: [
+                for (final e in events)
+                  if (!said.events.contains(e.id)) e,
+              ],
+            ),
+        ],
+        ShareHiddenWithAlerts() => [notice],
+      },
+  ];
 
   Future<void> pumpApp(
     WidgetTester tester, {
@@ -157,11 +217,17 @@ void main() {
               return null;
             },
             alertInFront: () => alerting,
-            takeKept: () async {
+            partnerEventsHeld: (ids) =>
+                heldOverride?.call(ids) ??
+                Future.value(ids.toSet().difference(goneEvents)),
+            keptNotices: () {
               keptAsked++;
-              final taken = kept;
-              kept = [];
-              return taken;
+              return keptOverride?.call() ?? Future.value(kept);
+            },
+            forgetKept: (said) async {
+              forgotten.add(said);
+              await forgetting?.future;
+              kept = withoutSaid(kept, said);
             },
             child: shellChild = child!,
           ),
@@ -285,6 +351,7 @@ void main() {
     testWidgets('a built-in category is named by my own label for it', (
       tester,
     ) async {
+      share.sharedBuiltIns = {'gym'};
       await pumpApp(tester);
       await say(tester, const ShareArrived(categoryIds: ['gym']));
 
@@ -663,6 +730,7 @@ void main() {
 
     testWidgets('a built-in category is worded from the loaded catalogue, '
         'never as "Other"', (tester) async {
+      share.sharedBuiltIns = {'gym'};
       CalendarCategories.updateCache(const []);
       await pumpApp(tester);
       await say(tester, const ShareArrived(categoryIds: ['gym']));
@@ -788,9 +856,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('is said once, and a built-in by my own label', (
-      tester,
-    ) async {
+    testWidgets('is said once, and a built-in by my own label', (tester) async {
       await pumpApp(tester);
       await say(tester, hid);
       expect(said, findsOneWidget);
@@ -840,6 +906,133 @@ void main() {
       await settleBar(tester);
 
       expect(said, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    /// Holds [hid] behind an alert in front, runs [meanwhile], then lets
+    /// what is in front change.
+    Future<void> heldThen(
+      WidgetTester tester,
+      void Function() meanwhile,
+    ) async {
+      await pumpApp(tester);
+      alerting = true;
+      await say(tester, hid);
+      meanwhile();
+      alerting = false;
+      unawaited(
+        showDialog<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      );
+      await settleBar(tester);
+    }
+
+    testWidgets('held, it is dropped when the database switched under it', (
+      tester,
+    ) async {
+      await heldThen(tester, DatabaseLifecycle.notifyDatabaseSwitching);
+
+      expect(said, findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('held, it is dropped when the category shows again before '
+        'it could be said', (tester) async {
+      await heldThen(
+        tester,
+        () => CalendarCategories.updatePartnerHidden({'gym'}),
+      );
+
+      expect(said, findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  // What is no longer here when an arrival is said is dropped first: never
+  // "Ana shares Other with you" for a category un-shared again.
+  group('an arrival undone before it could be said', () {
+    /// Holds [notice] under a dialog, runs [meanwhile], closes the dialog.
+    Future<void> heldThen(
+      WidgetTester tester,
+      ShareNotice notice,
+      void Function() meanwhile,
+    ) async {
+      await pumpApp(tester);
+      unawaited(
+        showDialog<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      );
+      await settleBar(tester);
+      await say(tester, notice);
+      meanwhile();
+      AppNavigator.navigatorKey.currentState!.pop();
+      await settleBar(tester);
+    }
+
+    testWidgets('a category the catalogue no longer holds is not said', (
+      tester,
+    ) async {
+      await heldThen(
+        tester,
+        const ShareArrived(categoryIds: ['c-shifts']),
+        () => catalogue = const [gym, choir],
+      );
+
+      expect(bar(), findsNothing);
+      expect(find.textContaining('Other'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('an event the calendar no longer holds is not said', (
+      tester,
+    ) async {
+      await heldThen(
+        tester,
+        const ShareArrived(events: [run]),
+        () => goneEvents = {run.id},
+      );
+
+      expect(bar(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('what is still here is said without what left', (tester) async {
+      await heldThen(
+        tester,
+        const ShareArrived(events: [run, lunch]),
+        () => goneEvents = {lunch.id},
+      );
+
+      expect(find.text(en.shareNewFromPartner('Ana', 'Run')), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    /// A built-in is my own row in the catalogue whether or not they share
+    /// it, so the catalogue alone cannot say it left: the service is asked.
+    testWidgets('a built-in of mine they no longer share is not said; one '
+        'they still share is', (tester) async {
+      await heldThen(
+        tester,
+        const ShareArrived(categoryIds: ['gym']),
+        () => share.sharedBuiltIns = {},
+      );
+
+      expect(bar(), findsNothing);
+
+      share.sharedBuiltIns = {'gym'};
+      await say(tester, const ShareArrived(categoryIds: ['gym']));
+
+      expect(bar(), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -1203,12 +1396,192 @@ void main() {
 
       await waitOutBar(tester);
       await settleBar(tester);
+      expect(find.text(en.shareNewFromPartner('Ana', 'Run')), findsOneWidget);
+      expect(keptAsked, 1, reason: 'read once, at the start');
+      // Each forgotten as its own bar was said, by its id and kind — and
+      // nothing before it was.
+      expect(forgotten.map((said) => [said.left, said.events]), [
+        [
+          {dinner.id},
+          <String>{},
+        ],
+        [
+          <String>{},
+          {run.id},
+        ],
+      ]);
+      expect(kept, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    /// A return to the app, as the lifecycle tells it.
+    void leaveAndReturn(WidgetTester tester) {
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+    }
+
+    testWidgets('is cleared only once it was said: while its bar waits '
+        'under a dialog the store holds it still, so an app closed there '
+        'loses nothing; read again on each return it is held once, said '
+        'once, and only then forgotten (review item 13)', (tester) async {
+      await pumpApp(tester);
+      unawaited(
+        showDialog<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      );
+      await settleBar(tester);
+      kept = const [
+        ShareLeftWithAlert([dinner], partnerName: 'Mara'),
+      ];
+
+      // A return under the dialog reads it, and it waits.
+      leaveAndReturn(tester);
+      await settleBar(tester);
+      expect(bar(), findsNothing);
+      expect(forgotten, isEmpty);
+      expect(kept, hasLength(1), reason: 'unsaid, it is still kept');
+
+      // Two more: read again each time, held by id.
+      leaveAndReturn(tester);
+      await settleBar(tester);
+      leaveAndReturn(tester);
+      await settleBar(tester);
+      expect(keptAsked, 4);
+      expect(bar(), findsNothing);
+      expect(forgotten, isEmpty);
+
+      AppNavigator.navigatorKey.currentState!.pop();
+      await settleBar(tester);
+
+      // One event, said as one: the three reads did not make it three.
       expect(
-        find.text(en.shareNewFromPartner('Ana', 'Run')),
+        find.text('Mara no longer shares Dinner. Your alert is off.'),
         findsOneWidget,
       );
-      expect(keptAsked, 1, reason: 'taken once; the store is empty after');
+      expect(forgotten.single.left, {dinner.id});
       expect(kept, isEmpty);
+
+      // Its turn over, nothing is worded a second time.
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(opens, 1);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('said, with the forgetting still on its way: a return reads '
+        'it again and it is not said twice', (tester) async {
+      kept = const [
+        ShareArrived(events: [run]),
+      ];
+      forgetting = Completer<void>();
+      await pumpApp(tester);
+      await settleBar(tester);
+      expect(find.text(en.shareNewFromPartner('Ana', 'Run')), findsOneWidget);
+      expect(kept, hasLength(1), reason: 'the store has not forgotten yet');
+      expect(opens, 1);
+
+      await waitOutBar(tester);
+      leaveAndReturn(tester);
+      await settleBar(tester);
+      await waitOutBar(tester);
+      await settleBar(tester);
+
+      // Read again, and worded no second time.
+      expect(keptAsked, 2);
+      expect(opens, 1);
+      expect(forgotten, hasLength(1));
+
+      forgetting!.complete();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('dropped as undone at the moment it would be said, it will '
+        'never be said: the store forgets it too, and what is still here '
+        'is said and forgotten with its bar', (tester) async {
+      goneEvents = {run.id};
+      kept = const [
+        ShareArrived(categoryIds: ['c-gone'], events: [run, lunch]),
+      ];
+
+      await pumpApp(tester);
+      await settleBar(tester);
+
+      expect(find.text(en.shareNewFromPartner('Ana', 'Lunch')), findsOneWidget);
+      expect(forgotten.map((said) => [said.categories, said.events]), [
+        [
+          {'c-gone'},
+          <String>{},
+        ],
+        [
+          <String>{},
+          {run.id},
+        ],
+        [
+          <String>{},
+          {lunch.id},
+        ],
+      ]);
+      expect(kept, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('only what was said is forgotten: what a run kept meanwhile '
+        'stays in the store for its own turn', (tester) async {
+      kept = const [
+        ShareLeftWithAlert([dinner], partnerName: 'Mara'),
+      ];
+      await pumpApp(tester);
+      await settleBar(tester);
+      expect(forgotten.single.left, {dinner.id});
+
+      // A run, in between: the same event arrived again, and another left.
+      kept = [
+        ...kept,
+        const ShareLeftWithAlert([lunch], partnerName: 'Mara'),
+        const ShareArrived(events: [dinner]),
+      ];
+      await waitOutBar(tester);
+      leaveAndReturn(tester);
+      await settleBar(tester);
+
+      expect(
+        find.text('Mara no longer shares Lunch. Your alert is off.'),
+        findsOneWidget,
+      );
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(
+        find.text(en.shareNewFromPartner('Ana', 'Dinner')),
+        findsOneWidget,
+      );
+      expect(kept, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a notice that only ever arrived live tells the store '
+        'nothing: saying it costs no statement', (tester) async {
+      await pumpApp(tester);
+      await say(tester, const ShareArrived(events: [run]));
+      expect(find.text(en.shareNewFromPartner('Ana', 'Run')), findsOneWidget);
+      await waitOutBar(tester);
+      await say(tester, const ShareLeftWithAlert([dinner]));
+
+      expect(bar(), findsOneWidget);
+      expect(forgotten, isEmpty);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -1253,6 +1626,388 @@ void main() {
       expect(keptAsked, 1);
       expect(opens, 0);
       expect(bar(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('reads that answer late (the notices review, N1–N5)', () {
+    void leave(WidgetTester tester) {
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+    }
+
+    void comeBack(WidgetTester tester) {
+      for (final state in [
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+    }
+
+    final dinnerAlone = en.shareNewFromPartner('Ana', 'Dinner');
+    final runAlone = en.shareNewFromPartner('Ana', 'Run');
+    final twoEvents = en.shareNewFromPartner('Ana', en.shareSummaryEvents(2));
+
+    testWidgets('only what was checked is said (N1): an arrival that lands '
+        'while the first is asked about — and is gone again already — is '
+        'not in that bar, and is dropped at its own turn', (tester) async {
+      final first = Completer<Set<String>>();
+      var asks = 0;
+      heldOverride = (ids) {
+        asks++;
+        return asks == 1
+            ? first.future
+            : Future.value(ids.toSet().difference(goneEvents));
+      };
+      await pumpApp(tester);
+      ShareService.notify(const ShareArrived(events: [dinner]));
+      await tester.pump();
+      await tester.pump();
+      goneEvents = {run.id};
+      ShareService.notify(const ShareArrived(events: [run]));
+      await tester.pump();
+      first.complete({dinner.id});
+      await settleBar(tester);
+
+      expect(find.text(dinnerAlone), findsOneWidget);
+      expect(find.text(twoEvents), findsNothing);
+
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(asks, 2, reason: 'the second was asked about at its own turn');
+      expect(find.text(runAlone), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('at a return (N1): a kept arrival that merges in while a '
+        'live one is asked about is not said with it — and is forgotten as '
+        'dropped at its own turn, never as said', (tester) async {
+      await pumpApp(tester);
+      await settleBar(tester);
+      leave(tester);
+      ShareService.notify(const ShareArrived(events: [dinner]));
+      await tester.pump();
+      goneEvents = {run.id};
+      kept = const [
+        ShareArrived(events: [run]),
+      ];
+      comeBack(tester);
+      await settleBar(tester);
+
+      expect(find.text(dinnerAlone), findsOneWidget);
+      expect(find.text(twoEvents), findsNothing);
+
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(find.text(runAlone), findsNothing);
+      expect(forgotten.map((said) => said.events), [
+        {run.id},
+      ]);
+      expect(kept, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a check that never answers costs no leave (N3): the leave '
+        'is said without it, and the arrival is said as held once the '
+        'check\'s own bound has passed', (tester) async {
+      heldOverride = (ids) => Completer<Set<String>>().future;
+      await pumpApp(tester);
+      ShareService.notify(const ShareArrived(events: [dinner]));
+      await settleBar(tester);
+      expect(bar(), findsNothing);
+
+      ShareService.notify(const ShareLeftWithAlert([run]));
+      await tester.pump(AppConstants.shareNoticeCheckLimit);
+      await settleBar(tester);
+      expect(
+        find.text('Ana no longer shares Run. Your alert is off.'),
+        findsOneWidget,
+      );
+
+      await waitOutBar(tester);
+      await tester.pump(AppConstants.shareNoticeCheckLimit);
+      await settleBar(tester);
+      expect(find.text(dinnerAlone), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a service that never comes up releases the turn (N3): the '
+        'next notice tries again', (tester) async {
+      var hangs = true;
+      await tester.pumpWidget(const SizedBox.shrink());
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: AppNavigator.navigatorKey,
+          navigatorObservers: [
+            AppNavigator.routeObserver,
+            ShareNoticeListener.routes,
+          ],
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          builder: (context, child) => ShareNoticeListener(
+            shareService: () =>
+                hangs ? Completer<ShareService>().future : Future.value(share),
+            loadCategories: () async => null,
+            partnerEventsHeld: (ids) async => ids.toSet(),
+            keptNotices: () async => const [],
+            forgetKept: (_) async {},
+            child: child!,
+          ),
+          home: const Scaffold(body: SizedBox.expand()),
+        ),
+      );
+      await tester.pump();
+      ShareService.notify(const ShareLeftWithAlert([dinner]));
+      await tester.pump(AppConstants.shareNoticeCheckLimit);
+      await settleBar(tester);
+      expect(bar(), findsNothing);
+
+      hangs = false;
+      ShareService.notify(const ShareLeftWithAlert([run]));
+      await settleBar(tester);
+      expect(find.text(en.shareGoneWithAlerts(2, 'Ana')), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('dealt with lasts as long as the store\'s forget (N4): a '
+        'kept arrival said and forgotten, then kept again by a later run, '
+        'is said again', (tester) async {
+      kept = const [
+        ShareArrived(events: [run]),
+      ];
+      await pumpApp(tester);
+      await settleBar(tester);
+      expect(find.text(runAlone), findsOneWidget);
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(kept, isEmpty);
+      expect(opens, 1);
+
+      // It left, was shared again, and a later run kept its arrival anew.
+      leave(tester);
+      kept = const [
+        ShareArrived(events: [run]),
+      ];
+      comeBack(tester);
+      await settleBar(tester);
+
+      expect(find.text(runAlone), findsOneWidget);
+      expect(opens, 2, reason: 'a second bar was worded');
+      expect(forgotten, hasLength(2));
+      expect(kept, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a notice said live is dealt with too (N4): the kept copy '
+        'of it that a read in flight brings afterwards is not said a second '
+        'time, and is forgotten in the store', (tester) async {
+      final read = Completer<List<ShareNotice>>();
+      var reads = 0;
+      keptOverride = () => ++reads == 1 ? read.future : Future.value(kept);
+      await pumpApp(tester);
+      await say(tester, const ShareArrived(events: [run]));
+      expect(find.text(runAlone), findsOneWidget);
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(opens, 1);
+      expect(forgotten, isEmpty, reason: 'said live: the store told nothing');
+
+      read.complete(const [
+        ShareArrived(events: [run]),
+      ]);
+      await settleBar(tester);
+
+      expect(opens, 1, reason: 'no second bar was worded');
+      expect(forgotten.map((said) => said.events), [
+        {run.id},
+      ]);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('and only while a copy can exist (N4): said live with none '
+        'kept, an arrival a later run keeps under the same id is news', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await say(tester, const ShareArrived(events: [run]));
+      await waitOutBar(tester);
+      await settleBar(tester);
+      // A return whose read holds no copy: there was none.
+      leave(tester);
+      comeBack(tester);
+      await settleBar(tester);
+      expect(opens, 1);
+
+      leave(tester);
+      kept = const [
+        ShareArrived(events: [run]),
+      ];
+      comeBack(tester);
+      await settleBar(tester);
+
+      expect(opens, 2, reason: 'a second bar was worded');
+      expect(find.text(runAlone), findsOneWidget);
+      expect(forgotten.map((said) => said.events), [
+        {run.id},
+      ]);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('kept notices read under one database are not said under '
+        'the next (N5): a switch while the read is on its way drops the '
+        'answer, and forgets nothing in the other database\'s store — it '
+        'is said when its own database reads it', (tester) async {
+      final read = Completer<List<ShareNotice>>();
+      var reads = 0;
+      keptOverride = () => ++reads == 1 ? read.future : Future.value(kept);
+      await pumpApp(tester);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      read.complete(const [
+        ShareLeftWithAlert([dinner], partnerName: 'Mara'),
+      ]);
+      await settleBar(tester);
+
+      const said = 'Mara no longer shares Dinner. Your alert is off.';
+      expect(find.text(said), findsNothing);
+      expect(forgotten, isEmpty);
+
+      // Back under the database that kept it.
+      leave(tester);
+      kept = const [
+        ShareLeftWithAlert([dinner], partnerName: 'Mara'),
+      ];
+      comeBack(tester);
+      await settleBar(tester);
+      expect(find.text(said), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the calendar\'s answer for one database is not applied to '
+        'the next (N5): a switch while it is asked drops nothing and tells '
+        'the other database\'s store nothing', (tester) async {
+      final asked = Completer<Set<String>>();
+      heldOverride = (ids) => asked.future;
+      kept = const [
+        ShareArrived(events: [dinner]),
+      ];
+      await pumpApp(tester);
+      await tester.pump();
+      await tester.pump();
+      kept = const [];
+
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      // The old database's answer: gone.
+      asked.complete(const {});
+      await settleBar(tester);
+
+      expect(forgotten, isEmpty);
+      expect(bar(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a hide tells of the database it was made in (N5): one '
+        'stamped under another opening is not said, one stamped under this '
+        'one is', (tester) async {
+      await pumpApp(tester);
+      await say(
+        tester,
+        ShareHiddenWithAlerts(
+          categoryId: 'c-shifts',
+          name: 'Shifts',
+          generation: ShareService.databaseGeneration - 1,
+        ),
+      );
+      final hidden = find.text(en.shareHiddenAlertsOff('Shifts'));
+      expect(hidden, findsNothing);
+
+      await say(
+        tester,
+        ShareHiddenWithAlerts(
+          categoryId: 'c-shifts',
+          name: 'Shifts',
+          generation: ShareService.databaseGeneration,
+        ),
+      );
+      expect(hidden, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('one bar per name (N8): leaves told with different names — '
+        'an unsaid one of Mara\'s, then one of Ion\'s — are never one bar '
+        'under the later name; each name\'s leaves get a turn of their own, '
+        'the earlier first', (tester) async {
+      await pumpApp(tester);
+      await settleBar(tester);
+      leave(tester);
+      ShareService.notify(
+        const ShareLeftWithAlert([dinner], partnerName: 'Mara'),
+      );
+      ShareService.notify(const ShareLeftWithAlert([run], partnerName: 'Ion'));
+      ShareService.notify(
+        const ShareLeftWithAlert([lunch], partnerName: 'Ion'),
+      );
+      await tester.pump();
+      comeBack(tester);
+      await settleBar(tester);
+
+      expect(
+        find.text('Mara no longer shares Dinner. Your alert is off.'),
+        findsOneWidget,
+      );
+      expect(find.text(en.shareGoneWithAlerts(3, 'Ion')), findsNothing);
+
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(find.text(en.shareGoneWithAlerts(2, 'Ion')), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a run that wrote behind the live app (N2): the prompt '
+        'after the catch-up has the store read again, with no return in '
+        'between', (tester) async {
+      await pumpApp(tester);
+      await settleBar(tester);
+      expect(keptAsked, 1);
+      kept = const [
+        ShareLeftWithAlert([dinner], partnerName: 'Ana'),
+      ];
+
+      KeptShareNotices.prompt();
+      await settleBar(tester);
+
+      expect(keptAsked, 2);
+      expect(
+        find.text('Ana no longer shares Dinner. Your alert is off.'),
+        findsOneWidget,
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

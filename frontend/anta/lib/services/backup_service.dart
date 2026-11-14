@@ -27,6 +27,7 @@ import 'overview_view_service.dart';
 import 'vocabulary_service.dart';
 import 'category_service.dart';
 import 'counter_service.dart';
+import 'database_replacing.dart';
 import 'markdown_bar_service.dart';
 import 'public_holiday_service.dart';
 import 'sync/sync_binding_service.dart';
@@ -124,7 +125,13 @@ class BackupService {
   Future<ImportResult> importFromData(Map<String, dynamic> data) =>
       _restore(() => data);
 
-  Future<ImportResult> _restore(Object? Function() decode) {
+  /// The suspension holds this isolate's engine. The shared check runs in an
+  /// isolate of its own, which reads no static of this one: the marker is
+  /// what holds it.
+  Future<ImportResult> _restore(Object? Function() decode) =>
+      DatabaseReplacing.run(() => _restoreSuspended(decode));
+
+  Future<ImportResult> _restoreSuspended(Object? Function() decode) {
     return SyncSuspension.run(() async {
       SyncBindingService? unbound;
       final result = await _importFromJson(

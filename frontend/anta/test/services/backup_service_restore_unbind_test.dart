@@ -22,6 +22,7 @@ import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/database_manager.dart';
+import 'package:anta/services/database_replacing.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_space_service.dart';
@@ -35,9 +36,13 @@ import 'support/backup_archive.dart';
 class _SuspensionProbeGateway extends NoOpAlertGateway {
   final List<bool> suspended = [];
 
+  /// Whether the marker another isolate reads stood at the same moments.
+  final List<bool> replacing = [];
+
   @override
   Future<String> refreshArmContext() async {
     suspended.add(SyncSuspension.isSuspended);
+    replacing.add(await DatabaseReplacing.standing());
     return backendName;
   }
 
@@ -110,10 +115,17 @@ void main() {
     final backup = await BackupService.getInstance();
     final archive = jsonEncode(await exportBackupArchive());
     gateway.suspended.clear();
+    gateway.replacing.clear();
+    expect(await DatabaseReplacing.standing(), isFalse);
 
     final result = await backup.importFromJson(archive);
 
     expect(result.success, isTrue, reason: result.error);
+    // The check's own isolate reads no static of this one: the restore
+    // stood the marker for it, and took it off as it ended.
+    expect(gateway.replacing, isNotEmpty);
+    expect(gateway.replacing, everyElement(isTrue));
+    expect(await DatabaseReplacing.standing(), isFalse);
     expect(await (await SyncBindingService.getInstance()).read(), isNull);
     expect(await db.userSettingsDao.getValue(SettingsKeys.syncSpaceId), isNull);
     expect(await db.syncOutboxDao.count(), 0);
@@ -196,9 +208,17 @@ void main() {
   test('an archive never pairs or binds the database it lands on', () async {
     final db = await AppDatabase.getInstance();
     final backup = await BackupService.getInstance();
+    // The last pair this database was in (share surfaces D38) is a pairing
+    // row: in no export, and written back by no restore.
+    await db.userSettingsDao.setValue(SettingsKeys.pairingLastPair, 'here');
     final data = await exportBackupArchive();
+    expect(
+      (data['settings'] as Map<String, dynamic>).keys,
+      isNot(contains(SettingsKeys.pairingLastPair)),
+    );
     (data['settings'] as Map<String, dynamic>).addAll({
       SettingsKeys.pairingPairId: 'pair-from-elsewhere',
+      SettingsKeys.pairingLastPair: 'pair-from-elsewhere',
       SettingsKeys.syncSpaceId: 'space-from-elsewhere',
       'restore_probe': 'kept',
     });
@@ -209,6 +229,10 @@ void main() {
     expect(
       await db.userSettingsDao.getValue(SettingsKeys.pairingPairId),
       isNull,
+    );
+    expect(
+      await db.userSettingsDao.getValue(SettingsKeys.pairingLastPair),
+      isNot('pair-from-elsewhere'),
     );
     expect(await db.userSettingsDao.getValue(SettingsKeys.syncSpaceId), isNull);
     expect(await db.userSettingsDao.getValue('restore_probe'), 'kept');

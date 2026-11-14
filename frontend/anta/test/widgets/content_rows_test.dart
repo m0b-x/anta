@@ -1328,6 +1328,7 @@ void main() {
   group('the row action sheet', () {
     Widget sheetHost({
       Widget Function(BuildContext sheetContext)? headerBuilder,
+      List<RowAction>? actions,
     }) {
       return MaterialApp(
         theme: AppTheme.light(),
@@ -1341,13 +1342,15 @@ void main() {
                   context,
                   title: 'Leg day',
                   headerBuilder: headerBuilder,
-                  actions: [
-                    RowAction(
-                      icon: Icons.edit_rounded,
-                      label: l10n.rename,
-                      onSelected: () {},
-                    ),
-                  ],
+                  actions:
+                      actions ??
+                      [
+                        RowAction(
+                          icon: Icons.edit_rounded,
+                          label: l10n.rename,
+                          onSelected: () {},
+                        ),
+                      ],
                 ),
                 child: const Text('open'),
               ),
@@ -1398,6 +1401,41 @@ void main() {
       expect(find.byType(LabelSwatchStrip), findsNothing);
       expect(find.byType(Divider), findsOneWidget);
       expect(find.byType(ListTile), findsOneWidget);
+    });
+
+    // Review 12 (B7): an action that is off is its own node, announced as
+    // a button that is off — with or without an identifier, alone or not.
+    testWidgets('a lone disabled action with no identifier is its own node: '
+        'a button, off', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        sheetHost(
+          actions: [
+            RowAction(
+              icon: Icons.edit_rounded,
+              label: l10n.rename,
+              enabled: false,
+              onSelected: () {},
+            ),
+          ],
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSemantics(find.text(l10n.rename)),
+        matchesSemantics(
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: false,
+          // Every ListTile carries a selected state, off.
+          hasSelectedState: true,
+          label: l10n.rename,
+        ),
+      );
+      semantics.dispose();
     });
   });
 }

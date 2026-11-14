@@ -321,12 +321,15 @@ abstract final class CalendarFilterSummary {
   /// Categories row names, and an id that no longer lists (a deleted
   /// category, one a partner stopped sharing) is never counted; with none
   /// left to count the chip says so, as the row does. An entry counts every
-  /// listed category of its group ([CategoryAllowlist.tickedListed]).
+  /// listed category of its group ([CategoryAllowlist.tickedCount]); while
+  /// no category is known an entry has no true count, and the chip says
+  /// "Categories" alone rather than "No categories".
   static String allowlistLabel(Set<String> categoryIds, AppLocalizations l10n) {
-    final allowed = CategoryAllowlist.tickedListed(categoryIds).length;
-    return allowed == 0
-        ? l10n.calendarFilterNoCategories
-        : '${l10n.calendarCategories} ($allowed)';
+    return switch (CategoryAllowlist.tickedCount(categoryIds)) {
+      null => l10n.calendarCategories,
+      0 => l10n.calendarFilterNoCategories,
+      final allowed => '${l10n.calendarCategories} ($allowed)',
+    };
   }
 
   /// Names the categories still showing while few enough to name, and counts

@@ -111,6 +111,22 @@ void main() {
     expect(await source.pairedLocally('someone-else'), isFalse);
   });
 
+  test('the pair the database says it is in is its own stored pair id, for '
+      'the account asked about only, read with no network (C4)', () async {
+    expect(await source.localPairId('me'), isNull);
+
+    await settings.setPairingSettings(
+      const PairingSettings(
+        pairId: 'pair-2',
+        accountUid: 'me',
+        partnerUid: 'them',
+      ),
+    );
+
+    expect(await source.localPairId('me'), 'pair-2');
+    expect(await source.localPairId('someone-else'), isNull);
+  });
+
   test('a pair that does not hold the account names no partner, whatever '
       'list it came in', () {
     final stray = PairRecord(

@@ -1,0 +1,87 @@
+# The pair ended with a folder shared. Paired again after 05, the owner
+# shares Training from its menu and the partner sees it under "From …";
+# the owner unpairs. The partner's notice names who ended it ("qa1@
+# example.com ended sharing."), and after a sync its "From …" group and
+# Training are gone; the owner's Training no longer wears the shared sign.
+# Ends with both on Sync & sharing, unpaired, as 06 expects.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+scroll-to id:sharing-pair --in id:sharing-list
+tap id:sharing-pair
+wait id:pairing-generate
+tap id:pairing-generate
+wait id:pairing-code --timeout 20
+text id:pairing-code --match "[2-9A-Z]{4}-[2-9A-Z]{4}" --capture invite3
+-d emulator-5558 scroll-to id:sharing-pair --in id:sharing-list
+-d emulator-5558 tap id:sharing-pair
+-d emulator-5558 wait id:pairing-code-field
+-d emulator-5558 tap id:pairing-code-field
+-d emulator-5558 type "{{var:invite3}}"
+-d emulator-5558 tap id:pairing-connect
+-d emulator-5558 wait id:sharing-paired --timeout 30
+wait id:sharing-paired --timeout 30
+key back
+wait id:create-folder
+tap "Training"
+wait id:create-note
+tap id:folder-more
+wait id:folder-menu-share
+tap id:folder-menu-share
+wait id:folder-menu-share --gone
+expect "Sharing Training with" --timeout 5
+key back
+wait id:create-folder
+# Right after a new pair the sign may still say "your partner".
+expect "Shared with" --timeout 10
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 expect id:browser-section-partner "Training" --timeout 30
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+scroll-to id:sharing-paired --in id:sharing-list
+tap id:sharing-paired
+wait id:sharing-page
+scroll-to id:sharing-unpair --in id:sharing-page-list
+tap id:sharing-unpair
+wait id:sharing-unpair-confirm
+tap id:sharing-unpair-confirm
+wait id:sharing-pair --timeout 30
+# The partner stands on Sync & sharing: the notice comes up there.
+-d emulator-5558 wait id:sharing-ended-close --timeout 30
+-d emulator-5558 expect "qa1@example.com ended sharing."
+-d emulator-5558 tap id:sharing-ended-close
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 expect id:create-folder --absent id:browser-section-partner --absent "Training" --timeout 30
+-d emulator-5558 shot folder-gone-with-pair
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+key back
+wait id:create-folder
+expect "Training" --absent "Shared with" --timeout 15
+shot owner-folder-unshared
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

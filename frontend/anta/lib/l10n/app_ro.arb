@@ -3128,6 +3128,7 @@
   "shareFolderNotes": "{count, plural, one{o notiță} few{{count} notițe} other{{count} de notițe}}",
   "shareNowThrough": "{inner} e acum partajat prin {outer}",
   "shareFolderAlready": "{folder} e deja partajat",
+  "pickShareAlready": "Deja partajat: {folder}",
   "shareStoppedWithInner": "{count, plural, one{Nu se mai partajează: {folder} și un folder din el} few{Nu se mai partajează: {folder} și {count} foldere din el} other{Nu se mai partajează: {folder} și {count} de foldere din el}}",
   "shareSummaryFolders": "{count, plural, one{un folder} few{{count} foldere} other{{count} de foldere}}",
   "shareNoteLook": "Notițe partajate cu tine",

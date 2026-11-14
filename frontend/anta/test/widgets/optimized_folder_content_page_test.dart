@@ -23,6 +23,7 @@ import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/controllers/partner_look_reader.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/services/share_service.dart';
@@ -1320,6 +1321,24 @@ void main() {
         .map((tile) => (tile.title! as Text).data!)
         .toList();
 
+    /// Leg 10: every entry of the sheet carries its id, once — what the
+    /// device flows tap it by.
+    void expectRowActionIds() {
+      for (final identifier in [
+        SemanticsIds.rowActionSelect,
+        SemanticsIds.rowActionRename,
+        SemanticsIds.rowActionMove,
+        SemanticsIds.rowActionSendCopy,
+        SemanticsIds.rowActionDelete,
+      ]) {
+        expect(
+          find.bySemanticsIdentifier(identifier),
+          findsOneWidget,
+          reason: identifier,
+        );
+      }
+    }
+
     testWidgets('a folder row opens a sheet that leads with Select and '
         'carries the four card actions', (tester) async {
       await pumpPage(tester, folderId: child.id, title: 'Winter block');
@@ -1334,6 +1353,7 @@ void main() {
         l10n.shareFolder,
         l10n.delete,
       ]);
+      expectRowActionIds();
 
       await tester.tap(find.text(l10n.select));
       await tester.pumpAndSettle();
@@ -1364,6 +1384,7 @@ void main() {
         l10n.shareNote,
         l10n.delete,
       ]);
+      expectRowActionIds();
 
       await tester.tap(find.text(l10n.select));
       await tester.pumpAndSettle();
@@ -3842,49 +3863,55 @@ void main() {
     await teardownPage(tester);
   });
 
-  // Fix pass item 1: whether the database is paired is asked once, by the
-  // first folder ⋮ menu or row sheet of the process — local reads only —
-  // and the menu opens with its share entry already in place.
-  group('the share entry when the pairing is not known in memory', () {
+  // Record §16.9 B3: whether the database is paired rides in the share
+  // census the page reads at every load, so no menu or sheet asks before
+  // it opens, and a page with a pair stored starts its look reader there.
+  group('the share entry follows the census', () {
     late int opened;
+    late FakeShareService service;
 
-    void serve(FakeShareService service) {
+    const maria = ShareReady(
+      ShareAudience(
+        id: 'pair-1',
+        displayName: 'Maria',
+        members: [AppUser(uid: 'maria')],
+      ),
+    );
+
+    void serve(FakeShareService fake) {
+      service = fake;
       opened = 0;
       final open = PartnerLookReader.openService;
       PartnerLookReader.openService = () async {
         opened++;
-        return service;
+        return fake;
       };
-      PartnerLookReader.forgetAsked();
-      addTearDown(() {
-        PartnerLookReader.openService = open;
-        PartnerLookReader.forgetAsked();
-      });
+      addTearDown(() => PartnerLookReader.openService = open);
     }
 
-    Future<void> openMenuAsking(WidgetTester tester) async {
-      await tester.tap(find.byType(FolderOverflowMenu));
-      await settle(tester, rounds: 4);
-      await tester.pumpAndSettle();
+    /// Stores [pairId], or drops the stored pair, and forgets the census as
+    /// start-up's wiring does on every pairing write
+    /// (`forgetShareCensusOnPairingWrites`).
+    Future<void> storePair(String? pairId) async {
+      if (pairId == null) {
+        await db.userSettingsDao.deleteValue(SettingsKeys.pairingPairId);
+      } else {
+        await db.userSettingsDao.setValue(SettingsKeys.pairingPairId, pairId);
+      }
+      GetIt.I<FolderRepository>().shareCensus.forget();
     }
 
-    testWidgets('paired, nothing shared yet: the first menu and the first row '
-        'sheet offer "Share with Maria"', (tester) async {
-      serve(
-        FakeShareService(
-          availability: const ShareReady(
-            ShareAudience(
-              id: 'pair-1',
-              displayName: 'Maria',
-              members: [AppUser(uid: 'maria')],
-            ),
-          ),
-        ),
-      );
+    tearDown(() => storePair(null));
+
+    testWidgets('paired, nothing shared yet: the reader starts from the load, '
+        'and the first menu and row sheet open on one tap with "Share with '
+        'Maria"', (tester) async {
+      serve(FakeShareService(availability: maria));
+      await tester.runAsync(() => storePair('pair-1'));
       await pumpPage(tester, folderId: folder.id, title: 'Training');
-      expect(opened, 0, reason: 'nothing on a list build');
+      expect(opened, 1, reason: 'from the census the load read, not a tap');
 
-      await openMenuAsking(tester);
+      await openMenu(tester);
       expect(
         find.bySemanticsIdentifier(SemanticsIds.folderMenuShare),
         findsOneWidget,
@@ -3893,38 +3920,151 @@ void main() {
       await dismissMenu(tester);
 
       await tester.longPress(find.byType(FolderRow));
-      await settle(tester, rounds: 4);
       await tester.pumpAndSettle();
       expect(
         find.bySemanticsIdentifier(SemanticsIds.rowActionShare),
         findsOneWidget,
       );
+      expect(opened, 1);
 
       await teardownPage(tester);
     });
 
-    testWidgets('never paired: nothing at launch or on a list build; the '
-        'first menu asks once, and no later menu or sheet asks again', (
-      tester,
-    ) async {
-      serve(FakeShareService());
+    testWidgets('never paired: nothing asked at launch, on a list build, by '
+        'a menu or by a row sheet', (tester) async {
+      serve(FakeShareService(availability: maria));
       await pumpPage(tester, folderId: folder.id, title: 'Training');
       await pushFolder(tester, child);
-      expect(opened, 0);
 
-      await openMenuAsking(tester);
-      expect(opened, 1);
+      await openMenu(tester);
       expect(
         find.bySemanticsIdentifier(SemanticsIds.folderMenuShare),
         findsNothing,
       );
       await dismissMenu(tester);
-      await openMenuAsking(tester);
-      await dismissMenu(tester);
       await tester.longPress(find.byType(FolderRow).first);
-      await settle(tester, rounds: 4);
       await tester.pumpAndSettle();
-      expect(opened, 1);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.rowActionShare),
+        findsNothing,
+      );
+      expect(opened, 0);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a pair made while the page is open brings the entry, and '
+        'the pair ended takes it away', (tester) async {
+      serve(FakeShareService(availability: maria));
+      await pumpPage(tester, folderId: folder.id, title: 'Training');
+      expect(opened, 0);
+
+      await tester.runAsync(() => storePair('pair-1'));
+      await settle(tester, rounds: 40);
+      expect(opened, 1, reason: 'the census read again says paired');
+      await openMenu(tester);
+      expect(find.text('Share with Maria'), findsOneWidget);
+      await dismissMenu(tester);
+
+      await tester.runAsync(() => storePair(null));
+      service.emit(const ShareNotPaired());
+      await settle(tester, rounds: 40);
+      await openMenu(tester);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.folderMenuShare),
+        findsNothing,
+      );
+      await dismissMenu(tester);
+
+      await teardownPage(tester);
+    });
+  });
+
+  // Review of the browser's sharing, findings 3–5 (record §16.9 B3): a
+  // folder page of an account that never paired builds the ⋮ button it
+  // built before sharing existed, and nothing stands between a tap and
+  // the menu.
+  group('an account that never paired: the ⋮ button it always had', () {
+    late int opened;
+
+    void serve(Future<ShareService> Function() open) {
+      opened = 0;
+      final previous = PartnerLookReader.openService;
+      PartnerLookReader.openService = () {
+        opened++;
+        return open();
+      };
+      addTearDown(() => PartnerLookReader.openService = previous);
+    }
+
+    testWidgets('its own semantics with the move-history badge, its tooltip '
+        'on a long-press, the menu on one tap — no share service built', (
+      tester,
+    ) async {
+      serve(() async => FakeShareService());
+      final semantics = tester.ensureSemantics();
+      final history = GetIt.I<MoveHistoryService>();
+      history.addMove(
+        itemType: MoveItemType.note,
+        itemId: 'moved-note',
+        itemName: 'Moved',
+        sourceParentId: null,
+        sourceParentName: null,
+        targetParentId: folder.id,
+        targetParentName: folder.name,
+      );
+      addTearDown(history.clearHistory);
+      final showMenu = const DefaultMaterialLocalizations().showMenuTooltip;
+
+      await pumpPage(tester, folderId: folder.id, title: 'Training');
+
+      expect(
+        tester.getSemantics(find.byIcon(Icons.more_vert)),
+        isSemantics(
+          identifier: SemanticsIds.folderMore,
+          isButton: true,
+          hasTapAction: true,
+          tooltip: showMenu,
+          label: '1',
+        ),
+        reason: 'the button itself, its badge spoken with it',
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.folderMore),
+        findsOneWidget,
+        reason: 'one node: the button, with its id',
+      );
+
+      await tester.longPress(find.byIcon(Icons.more_vert));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text(showMenu), findsOneWidget, reason: 'the tooltip');
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.sortBy), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.sortBy), findsOneWidget);
+      expect(opened, 0, reason: 'nothing asked whether it is paired');
+      await dismissMenu(tester);
+
+      semantics.dispose();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a share service that would never answer cannot leave the '
+        'menu dead: nothing is asked before it opens', (tester) async {
+      serve(() => Completer<ShareService>().future);
+      await pumpPage(tester, folderId: folder.id, title: 'Training');
+
+      for (var tap = 0; tap < 2; tap++) {
+        await tester.tap(find.byType(FolderOverflowMenu));
+        await tester.pumpAndSettle();
+        expect(find.text(l10n.sortBy), findsOneWidget, reason: 'tap $tap');
+        await dismissMenu(tester);
+      }
+      expect(opened, 0);
 
       await teardownPage(tester);
     });

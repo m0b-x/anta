@@ -8,6 +8,7 @@ import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/share_service.dart' show ShareAvailability, ShareReady;
 import '../utils/share_copy.dart';
+import 'automation_id.dart';
 import 'form_menu_item.dart';
 
 enum _FolderMenuAction {
@@ -101,7 +102,6 @@ class FolderOverflowMenu extends StatelessWidget {
     this.readOnly = false,
     this.partnerShare,
     this.onPartnerShare,
-    this.beforeOpen,
   });
 
   final bool isRootPage;
@@ -115,11 +115,6 @@ class FolderOverflowMenu extends StatelessWidget {
   /// out — not paired, or the partner's folder (§16.8 fe).
   final FolderShareEntry? partnerShare;
   final VoidCallback? onPartnerShare;
-
-  /// Run before the menu opens, while the page does not yet know whether
-  /// the database is paired: the menu then opens once it knows, with its
-  /// share entry in place, and never changes height while open.
-  final Future<void> Function()? beforeOpen;
 
   /// The active sort order, shown as trailing text on the sort row so the
   /// menu answers "how is this list ordered?" without being opened twice.
@@ -145,19 +140,14 @@ class FolderOverflowMenu extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
 
-    return _OpensWhenReady<_FolderMenuAction>(
-      beforeOpen: beforeOpen,
-      button: (key) => _menuButton(key, l10n, colorScheme),
+    return AutomationId(
+      identifier: SemanticsIds.folderMore,
+      child: _buildMenu(l10n, colorScheme),
     );
   }
 
-  PopupMenuButton<_FolderMenuAction> _menuButton(
-    Key key,
-    AppLocalizations l10n,
-    ColorScheme colorScheme,
-  ) {
+  Widget _buildMenu(AppLocalizations l10n, ColorScheme colorScheme) {
     return PopupMenuButton<_FolderMenuAction>(
-      key: key,
       icon: Badge(
         isLabelVisible: moveHistoryCount > 0,
         backgroundColor: colorScheme.primary,
@@ -277,6 +267,22 @@ class FolderOverflowMenu extends StatelessWidget {
     Color? color,
     bool enabled = true,
   }) {
+    final labelText = Text(
+      label,
+      // The menu's label style has no disabled state of its own: an off
+      // row's words dim with its glyph, or a write reads as live.
+      style: !enabled
+          ? TextStyle(
+              color: colorScheme.onSurface.withValues(
+                alpha: FormMetrics.disabledOpacity,
+              ),
+            )
+          : color == null
+          ? null
+          : TextStyle(color: color),
+      maxLines: FormMetrics.menuLabelLines,
+      overflow: TextOverflow.ellipsis,
+    );
     return PopupMenuItem<_FolderMenuAction>(
       value: value,
       enabled: enabled,
@@ -292,44 +298,35 @@ class FolderOverflowMenu extends StatelessWidget {
               alpha: enabled ? 1 : FormMetrics.disabledOpacity,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: FormMetrics.menuRowGap),
           Expanded(
-            child: Text(
-              label,
-              // The menu's label style has no disabled state of its own: an
-              // off row's words dim with its glyph, or a write reads as live.
-              style: !enabled
-                  ? TextStyle(
-                      color: colorScheme.onSurface.withValues(
-                        alpha: FormMetrics.disabledOpacity,
+            child: trailing == null
+                ? labelText
+                // The value sits on the row's end while both fit, and goes
+                // under the label at large text rather than either being
+                // cut (German 2.0's "Sortieren nach / Zuletzt aktualisiert").
+                : Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: FormMetrics.menuRowGap,
+                    children: [
+                      labelText,
+                      Text(
+                        trailing,
+                        textAlign: TextAlign.end,
+                        maxLines: FormMetrics.menuLabelLines,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: AppTheme.menuTrailingSize,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    )
-                  : color == null
-                  ? null
-                  : TextStyle(color: color),
-              overflow: TextOverflow.ellipsis,
-            ),
+                    ],
+                  ),
           ),
           if (count > 0) ...[
-            const SizedBox(width: 12),
+            const SizedBox(width: FormMetrics.menuRowGap),
             MenuCountPill(count: count),
-          ],
-          if (trailing != null) ...[
-            const SizedBox(width: 12),
-            // Gives way at large text rather than pushing the row past the
-            // menu's width.
-            Flexible(
-              child: Text(
-                trailing,
-                textAlign: TextAlign.end,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: AppTheme.menuTrailingSize,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
           ],
         ],
       ),
@@ -390,62 +387,6 @@ class MenuCountPill extends StatelessWidget {
           color: colorScheme.rowGroup,
         ),
       ),
-    );
-  }
-}
-
-/// A popup menu button that, while [beforeOpen] is set, runs it on a tap
-/// and opens the menu only after the frame that follows it — so the items
-/// are built from what it learned. The button's own tap and its semantics
-/// tap are both routed through it; without [beforeOpen] the button is
-/// itself, untouched.
-class _OpensWhenReady<T> extends StatefulWidget {
-  const _OpensWhenReady({required this.beforeOpen, required this.button});
-
-  final Future<void> Function()? beforeOpen;
-  final PopupMenuButton<T> Function(Key key) button;
-
-  @override
-  State<_OpensWhenReady<T>> createState() => _OpensWhenReadyState<T>();
-}
-
-class _OpensWhenReadyState<T> extends State<_OpensWhenReady<T>> {
-  final GlobalKey<PopupMenuButtonState<T>> _key = GlobalKey();
-  bool _opening = false;
-
-  Future<void> _open() async {
-    final beforeOpen = widget.beforeOpen;
-    if (_opening || beforeOpen == null) return;
-    _opening = true;
-    try {
-      await beforeOpen();
-      if (!mounted) return;
-      await WidgetsBinding.instance.endOfFrame;
-      if (mounted) _key.currentState?.showButtonMenu();
-    } finally {
-      _opening = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final asking = widget.beforeOpen != null;
-    return Stack(
-      children: [
-        ExcludeSemantics(excluding: asking, child: widget.button(_key)),
-        if (asking)
-          Positioned.fill(
-            child: Semantics(
-              button: true,
-              label: MaterialLocalizations.of(context).showMenuTooltip,
-              onTap: _open,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _open,
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

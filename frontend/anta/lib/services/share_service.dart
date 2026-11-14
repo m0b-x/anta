@@ -884,10 +884,45 @@ class ShareService {
   /// The folders first, in a `try` of their own: dropping their caches and
   /// the share census cannot fail on a calendar refresh, and a census kept
   /// would go on saying "not shared" of a folder that is.
-  Future<void> _afterMarks({required bool wrote}) async {
+  Future<void> _afterMarks({required bool wrote}) => _cachesTold(
+    foldersChanged: _foldersChanged,
+    askForRun: wrote && _availability is ShareReady ? _askForRun : null,
+    wrote: wrote,
+  );
+
+  /// [_afterMarks] for marks an act of another service cleared and queued —
+  /// the pairing's, when a pair is adopted that is not the one they were
+  /// set under (`PairingService.onMarksOfOtherPairsCleared`): the caches
+  /// read again and the run that sends the rows private is asked for.
+  ///
+  /// Also where no share surface has opened this service yet: the calendar
+  /// and the folders hold their flags without it, so they are told through
+  /// what the service would be built over.
+  static Future<void> afterMarksClearedElsewhere() {
+    final service = _instance;
+    if (service != null) return service._afterMarks(wrote: true);
+    final wiring = _wiring;
+    return _cachesTold(
+      foldersChanged: wiring?.foldersChanged,
+      askForRun: wiring == null
+          ? null
+          : () => unawaited(
+              wiring.requestRun().catchError((Object e, StackTrace st) {
+                debugPrint('[ShareService] run not requested: $e\n$st');
+              }),
+            ),
+      wrote: true,
+    );
+  }
+
+  static Future<void> _cachesTold({
+    required void Function()? foldersChanged,
+    required void Function()? askForRun,
+    required bool wrote,
+  }) async {
     var mended = false;
     try {
-      _foldersChanged();
+      foldersChanged?.call();
     } catch (e, st) {
       debugPrint('[ShareService] folder caches not dropped: $e\n$st');
     }
@@ -899,7 +934,7 @@ class ShareService {
       // next load.
       debugPrint('[ShareService] caches not refreshed: $e\n$st');
     }
-    if (wrote && _availability is ShareReady) _askForRun();
+    askForRun?.call();
     if (wrote || mended) {
       CalendarEventService.notifyExternalChange(cacheCurrent: true);
     }
@@ -1079,6 +1114,10 @@ class ShareService {
   /// (D30, A13) — from here, so the bar needs no sheet and no bloc of the
   /// surface that asked to be alive by then.
   Future<int> setCategoryShown(String id, bool shown) async {
+    // Read at the act: the write's alert pass comes before the notice, and
+    // a switch during that pass would otherwise let whoever says it take
+    // the notice for the next database's.
+    final generation = databaseGeneration;
     var armed = 0;
     String? name;
     final written = await _writeHidden(
@@ -1100,18 +1139,44 @@ class ShareService {
     // and the notice would be said under a database that never hid it.
     if (!written) return 0;
     if (armed > 0) {
-      notify(ShareHiddenWithAlerts(categoryId: id, name: name ?? id));
+      notify(
+        ShareHiddenWithAlerts(
+          categoryId: id,
+          name: name ?? id,
+          generation: generation,
+        ),
+      );
     }
     return armed;
+  }
+
+  /// Which of [ids] the partner shares with this phone right now: a
+  /// category of their own that the catalogue holds, or a built-in of mine
+  /// that they share. Asked as an arrival is said (D23: arrival is news
+  /// once) — one un-shared again before its bar could show is no news, and
+  /// an id the catalogue no longer knows would be read back as Other. The
+  /// catalogue answers for their own; the built-ins they share are read,
+  /// one statement, only when an id is not one of those.
+  Future<Set<String>> partnerSharesCategories(Set<String> ids) async {
+    final theirs = {
+      for (final id in ids)
+        if (CalendarCategories.byId(id)?.fromPartner ?? false) id,
+    };
+    if (theirs.length == ids.length) return theirs;
+    final builtIns = await _db.sharedRowDao.sharedBuiltIns();
+    return {
+      ...theirs,
+      for (final id in ids)
+        if (builtIns.contains(id) && CalendarCategories.byId(id) != null) id,
+    };
   }
 
   /// How many of the partner's events on this phone — under [categoryId]
   /// alone when given, by the category they draw under — hold an alert of
   /// mine still armed on the platform: what a confirmation or a bar must say
   /// goes off with them (D30). No statement while the calendar holds none
-  /// of theirs; one read of the pending registrations otherwise, of which
-  /// only those still ahead count: a fire time passed is over, though the
-  /// row stays pending until the next pass sweeps it.
+  /// of theirs; one read otherwise, by the rule a leave notice says by
+  /// (`AlertRegistrationDao.armedEventIds`): only an alert still ahead.
   Future<int> armedOnPartner({String? categoryId}) async {
     final events = await CalendarEventService.getInstance();
     if (!events.mayHoldPartnerEvents) return 0;
@@ -1123,11 +1188,10 @@ class ShareService {
           event.id,
     };
     if (theirs.isEmpty) return 0;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return {
-      for (final row in await _db.alertRegistrationDao.pending())
-        if (row.fireAt > now && theirs.contains(row.eventId)) row.eventId,
-    }.length;
+    return (await _db.alertRegistrationDao.armedEventIds(
+      theirs,
+      DateTime.now(),
+    )).length;
   }
 
   /// The read and the write are one transaction, as the shared reader's

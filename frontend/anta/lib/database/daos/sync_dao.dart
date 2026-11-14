@@ -72,6 +72,14 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// transactions; `AlertRegistrationDao` is its only writer.
   static const String keyAlertStraysPending = 'alert_strays_pending';
 
+  /// What the app's last alert pass armed under that only its own engine
+  /// can read (`AlertGateway.armFacts`), for a pass that runs with no app
+  /// behind it (`docs/cloud-shared-freshness.md` §6). Device-local like the
+  /// marker above, and with the database for the same reason: what a
+  /// database's entries were armed under is that database's;
+  /// `AlertRegistrationDao` is its only writer.
+  static const String keyAlertArmFacts = 'alert_arm_facts';
+
   /// The id this database's counter taps are filed under in a value's
   /// PN-counter shards (D8 A). Two databases tapping under one id would each
   /// keep only the larger count, and a database file is copied whole — by
@@ -175,6 +183,24 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// database holds none. Written with the first shared read, deleted with
   /// the rows (`SharedRowDao`).
   static const String keySharedOwner = 'shared_owner';
+
+  /// Present once this database has had a partner to read from: set when
+  /// the reader begins for one (`SharedRowDao.begin`) — before any row is
+  /// held, on a phone that only gives as well — and by `removeAll` when it
+  /// removes a partner's rows a build before the mark stored. Never taken
+  /// away here — not when the pair ends, not by an unbind, not when another
+  /// account signs in: the body
+  /// index keeps a removed note's words in its segments until they merge,
+  /// so a copy that leaves the phone has its index rebuilt whenever this
+  /// says it may (`DatabaseManager._stripShared`, review A3). The copy
+  /// itself never carries it.
+  static const String keySharedEverHeld = 'shared_ever_held';
+
+  /// Present once the reader has emptied the partner's tombstones an
+  /// earlier build stored with their words (`SharedRowDao.emptyTombstones`,
+  /// review A6): every landing empties its own since, so once is enough.
+  /// Read with the waiting notes, in the statement every read makes anyway.
+  static const String keySharedTombstonesEmptied = 'shared_tombstones_emptied';
 
   /// The SQL condition, over a synced table's `owner_id`, for a row this
   /// device may push: one of its own, however the column spells that — NULL
@@ -330,31 +356,7 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// and the pair's end, never a folder or a note. One statement, inside
   /// its caller's transaction.
   Future<void> oweSharePoke({required String pairId, required bool urgent}) =>
-      raiseValue(
-        keySharePokeOwed(pairId),
-        urgent ? sharePokeUrgent : 'normal',
-      );
-
-  /// A normal poke owed to the pair each of [folderIds] is marked shared
-  /// into, in one statement — for a move the share census already said
-  /// changed a note's sharing; a folder without a mark owes nothing, and a
-  /// poke already owed stays as it is (normal never raises one).
-  Future<void> oweSharePokesForFolders(Iterable<String> folderIds) async {
-    final ids = folderIds.toSet().toList(growable: false);
-    if (ids.isEmpty) return;
-    await customInsert(
-      'INSERT INTO sync_metadata (key, value, updated_at) '
-      "SELECT DISTINCT '$sharePokeOwedPrefix' || shared_pair, 'normal', ? "
-      'FROM folders WHERE shared_pair IS NOT NULL AND id IN '
-      '(${List.filled(ids.length, '?').join(', ')}) '
-      'ON CONFLICT (key) DO NOTHING',
-      variables: [
-        Variable<DateTime>(DateTime.now()),
-        for (final id in ids) Variable<String>(id),
-      ],
-      updates: {syncMetadata},
-    );
-  }
+      raiseValue(keySharePokeOwed(pairId), urgent ? sharePokeUrgent : 'normal');
 
   /// [oweSharePoke] for each of [pairs] that is one.
   Future<void> oweSharePokes(
@@ -418,12 +420,13 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
 
   /// [valuesByPrefix] for every one of [prefixes] in one statement.
   Future<List<(String, String)>> valuesByPrefixes(List<String> prefixes) async {
-    final rows = await (select(syncMetadata)..where(
-          (s) => prefixes
-              .map((prefix) => _startsWith(s, prefix))
-              .reduce((a, b) => a | b),
-        ))
-        .get();
+    final rows =
+        await (select(syncMetadata)..where(
+              (s) => prefixes
+                  .map((prefix) => _startsWith(s, prefix))
+                  .reduce((a, b) => a | b),
+            ))
+            .get();
     return [for (final row in rows) (row.key, row.value)];
   }
 

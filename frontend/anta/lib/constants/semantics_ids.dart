@@ -49,6 +49,26 @@ abstract final class SemanticsIds {
   /// and so into the drag handles.
   static const String rowActionSelect = 'row-action-select';
 
+  /// The other entries of a browser row's long-press sheet, the folder's
+  /// and the note's alike: Rename, Move to folder, Send a copy, Delete.
+  static const String rowActionRename = 'row-action-rename';
+  static const String rowActionMove = 'row-action-move';
+  static const String rowActionSendCopy = 'row-action-send-copy';
+  static const String rowActionDelete = 'row-action-delete';
+
+  /// The folder page's ⋮ button — the browser's twin of [editorMore].
+  static const String folderMore = 'folder-more';
+
+  /// The folder picker of a move, a copy or a share: its search field, its
+  /// one confirm button whatever the pick is for, its Cancel, the address
+  /// bar's up arrow, and one row per folder by the folder's id — in the
+  /// list and in the search results alike.
+  static const String folderPickerSearch = 'folder-picker-search';
+  static const String folderPickerConfirm = 'folder-picker-confirm';
+  static const String folderPickerCancel = 'folder-picker-cancel';
+  static const String folderPickerUp = 'folder-picker-up';
+  static String folderPickerRow(String id) => 'folder-picker-row-$id';
+
   /// The browser bar's magnifier, and the query field it raises — the same
   /// field on the browser, the note lists and the search page.
   static const String searchOpen = 'search-open';
@@ -59,6 +79,10 @@ abstract final class SemanticsIds {
   static const String editorBody = 'editor-body';
   static const String editorToolbar = 'editor-toolbar';
   static const String editorMore = 'editor-more';
+
+  /// The editor ⋮ menu's first entry, which names the note's folder and
+  /// opens it.
+  static const String editorMenuFolder = 'editor-menu-folder';
 
   /// A level in the markdown bar's heading menu, 1 to 6.
   static String editorHeadingLevel(int level) => 'editor-heading-$level';

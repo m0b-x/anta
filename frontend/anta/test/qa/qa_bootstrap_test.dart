@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/core/qa/qa_bootstrap.dart';
+import 'package:anta/constants/alert_constants.dart';
 
 /// The QA build is driven entirely by files dropped next to the databases, so
 /// these are the seams that decide whether an automation run starts from a
@@ -371,6 +373,62 @@ void main() {
       await marker('qa_reset').writeAsString('');
       await build(databaseName: 'gym_notes').applyResetMarker();
       expect(QaBootstrap.log.single, startsWith('reset refused'));
+    });
+  });
+
+  group('the reset never empties what names the platform\'s entries before '
+      'the quiet has run (device leg 3c)', () {
+    test(
+      'the wipe clears the QA preferences and leaves the alarm plugin\'s '
+      'own list: what the quiet, and the first reconcile, cancel by',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          '${kAlarmPluginStoragePrefix}7': '{"id":7}',
+          '${kAlarmPluginStoragePrefix}8': '{"id":8}',
+          'active_database': 'qa',
+          'theme_mode': 'dark',
+          'shared_refresh_planned': '1',
+        });
+
+        await QaBootstrap.clearQaPreferences();
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getKeys(), {
+          '${kAlarmPluginStoragePrefix}7',
+          '${kAlarmPluginStoragePrefix}8',
+        });
+      },
+    );
+
+    // The app's own wiring runs only in a QA build, which no suite is: its
+    // order is held by reading the source.
+    final source = File(
+      'lib/core/qa/qa_bootstrap.dart',
+    ).readAsStringSync().replaceAll('\r\n', '\n');
+
+    test('the app\'s wipe is that one, and its quiet reads the platform\'s '
+        'pending notifications — the notices that still name an alarm', () {
+      expect(source, contains('clearPreferences: clearQaPreferences,'));
+      expect(source, contains('notifications.pendingNotificationRequests()'));
+      expect(
+        'SharedPreferences.getInstance()'.allMatches(source),
+        hasLength(1),
+        reason: 'the wipe alone opens the preferences here: no second one',
+      );
+    });
+
+    test('after the dependencies the quiet comes before the seed, whose '
+        'reconcile arms the new run\'s alarms', () {
+      final after = source.indexOf(
+        'static Future<void> afterDependencies() async {',
+      );
+      expect(after, isNonNegative);
+      final body = source.substring(after, source.indexOf('\n  }', after));
+
+      final quiet = body.indexOf('await bootstrap.applyResetQuiet();');
+      final seed = body.indexOf('await bootstrap.applySeedMarker();');
+      expect(quiet, isNonNegative);
+      expect(seed, greaterThan(quiet));
     });
   });
 }

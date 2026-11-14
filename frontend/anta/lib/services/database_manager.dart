@@ -7,15 +7,20 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart'
-    show Database, OpenMode, ResultSet, SqliteException, sqlite3;
+    show Database, OpenMode, SqliteException, sqlite3;
 
 import '../constants/settings_keys.dart';
 import '../constants/temp_file_names.dart';
 import '../core/qa/qa_mode.dart';
 import '../database/crdt/synced_tables.dart' show sharedTables;
+import '../database/daos/note_search_dao.dart';
 import '../database/daos/sync_dao.dart';
 import '../database/database.dart';
 import '../database/migrations/database_schema.dart';
+import '../models/alert_payload.dart';
+import '../models/nav_destination.dart';
+import 'database_replacing.dart';
+import 'fresh_preferences.dart';
 import 'sync/sync_space_registry.dart';
 
 /// Service for managing multiple SQLite databases
@@ -61,10 +66,18 @@ class DatabaseManager {
   @visibleForTesting
   static void resetForTesting() => _instance = null;
 
+  /// Whether a manager runs the launch's recovery as it is built. The check
+  /// that runs with the app closed turns it off for its own isolate before
+  /// it opens anything (`docs/cloud-shared-freshness.md` §6): the recovery
+  /// writes the active name back and clears the download's marker, and a
+  /// background isolate beside a live app must do neither — the manager it
+  /// builds only reads.
+  static bool recoversAtStart = true;
+
   static Future<DatabaseManager> _create() async {
     final manager = DatabaseManager._();
     manager._prefs = await SharedPreferences.getInstance();
-    await manager._recoverInterruptedDownload();
+    if (recoversAtStart) await manager._recoverInterruptedDownload();
     return manager;
   }
 
@@ -88,6 +101,28 @@ class DatabaseManager {
   String getActiveDatabaseName() {
     return _prefs.getString(_keyActiveDatabase) ??
         defaultDatabaseName(qaEnabled: QaMode.enabled);
+  }
+
+  /// The active database's name as the preferences hold it, read and
+  /// nothing else — for the check that runs with the app closed
+  /// (`docs/cloud-shared-freshness.md` §6). [getInstance] is the launch's:
+  /// its recovery writes the active name back and clears the download's
+  /// marker, and neither is a background isolate's to do.
+  ///
+  /// Read off the store itself ([FreshPreferences]): the preferences are a
+  /// copy per isolate, and the app's isolate may have switched databases
+  /// since this one loaded its own — the name of a database the person
+  /// left is the wrong file to measure and to keep notices under.
+  static Future<String> peekActiveDatabaseName() async {
+    final fresh = await FreshPreferences.read();
+    return fresh.getString(_keyActiveDatabase) ??
+        defaultDatabaseName(qaEnabled: QaMode.enabled);
+  }
+
+  /// [getDatabasePath] for a caller that holds no manager.
+  static Future<String> databasePathOf(String name) async {
+    final dbFolder = await getApplicationDocumentsDirectory();
+    return p.join(dbFolder.path, 'gym_notes', '$name.db');
   }
 
   /// Set the active database name
@@ -193,10 +228,7 @@ class DatabaseManager {
       SyncSpaceRegistry(_prefs, databaseExists: databaseExists);
 
   /// Get the full path to a database file by name
-  Future<String> getDatabasePath(String name) async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    return p.join(dbFolder.path, 'gym_notes', '$name.db');
-  }
+  Future<String> getDatabasePath(String name) => databasePathOf(name);
 
   /// The schema version the database file at [path] was last written at,
   /// read with SQLite alone and never through Drift, whose open would
@@ -328,7 +360,17 @@ class DatabaseManager {
   /// database would otherwise become the active database and could take the
   /// app down at launch. Whatever fails — a cancel, a full disk, a refusal —
   /// the temporary files go before the error reaches the caller.
+  ///
+  /// Marked for the check's isolate while it runs ([DatabaseReplacing]).
   Future<void> importDatabase(
+    String sourcePath,
+    String targetName, {
+    DatabaseImportProgress? progress,
+  }) => DatabaseReplacing.run(
+    () => _importDatabase(sourcePath, targetName, progress: progress),
+  );
+
+  Future<void> _importDatabase(
     String sourcePath,
     String targetName, {
     DatabaseImportProgress? progress,
@@ -856,6 +898,12 @@ class DatabaseManager {
   @visibleForTesting
   static void Function(String source, String snapshot)? debugSnapshotCopy;
 
+  /// [snapshotForShare]'s strip, over a copy a test made of a database no
+  /// manager holds — one of the sync harness's, opened again as the phone a
+  /// restore puts it on.
+  @visibleForTesting
+  static void debugStripCopy(String snapshot) => _stripShared(snapshot);
+
   /// [snapshotForShare]'s copy. Opens read-write, never create: a missing
   /// file must fail the share, not conjure an empty database to snapshot.
   static void _vacuumInto(String source, String snapshot) {
@@ -877,90 +925,62 @@ class DatabaseManager {
   /// shareable table, their notes' text and search index, and the reader's
   /// records (the owner, its cursors and counts, the hidden categories).
   /// The person's own rows, marks and alerts stay as a restore would read
-  /// them. Then the copy is compacted, so no freed page keeps their text.
+  /// them. Every search row that belongs to no live note goes too, shared
+  /// owner or not (share surfaces P1): one a removal left behind before the
+  /// removals took theirs along, or one the drain had not dropped yet, still
+  /// matches the words of a note that is gone — mine as well: a copy made
+  /// before the drain caught up with a note I deleted is written to, its
+  /// search rows dropped and its index rebuilt, and that is right, for the
+  /// words of a note I deleted do not travel in it either (review B6). Then
+  /// the copy is compacted, so no freed page keeps their text.
   ///
-  /// A copy holding no shared owner is left exactly as `VACUUM INTO` wrote
-  /// it: one read, no write.
+  /// The compaction is what clears the body index itself: it is
+  /// contentless, so a deleted note's rowid is only marked gone and its
+  /// trigrams stay in the segment blobs until they merge — and `VACUUM
+  /// INTO` copies those as they are. So a copy of a database that may ever
+  /// have held a partner's row is always rebuilt, whatever else it holds
+  /// ([_mayHaveHeldTheirs], reviews A3 and B1).
+  ///
+  /// Kept on purpose (review A5): the pair id in the marks on my own rows
+  /// (`shared_pair`, `shared_stamp`) — a mark is my row's state, and what a
+  /// restore of my own copy goes on sharing with, while the pairing rows are
+  /// a cache the server answers again — and the ids of the partner's
+  /// categories inside my own filter lists, saved filters, views, digests
+  /// and category alerts: a random id of a category the copy does not hold
+  /// says no word, no time and no person, and each list drops it at its
+  /// next store.
+  ///
+  /// A copy of a database that never held a partner's row, with its index
+  /// in step and no trace of the partner's, is left exactly as `VACUUM
+  /// INTO` wrote it: four reads at most and no write — [_mayHaveHeldTheirs]
+  /// one, the orphaned search rows two, the keyed traces one. Its own
+  /// orphans are not looked for (review C2).
   static void _stripShared(String snapshot) {
     final connection = sqlite3.open(snapshot, mode: OpenMode.readWrite);
     try {
-      final ResultSet rows;
-      try {
-        rows = connection.select(
-          'SELECT value FROM sync_metadata WHERE key = ?',
-          [SyncDao.keySharedOwner],
-        );
-      } on SqliteException catch (_) {
-        // A database from before sync: it never held a shared row.
+      final (:owner, :theirs) = _mayHaveHeldTheirs(connection);
+      if (!theirs &&
+          !_holdsOrphanedSearchRows(connection) &&
+          !_holdsPartnerTraces(connection)) {
         return;
       }
-      if (rows.isEmpty) return;
-      final owner = rows.single['value'] as String;
       connection.execute('BEGIN');
       try {
         // The fences' licence (`SharedRowDao.writing`): they stand down while
         // this key is present, and it is gone again before the commit.
-        connection.execute(
-          'INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) '
-          'VALUES (?, ?, 0)',
-          [SyncDao.keySharedWriting, '1'],
-        );
-        const theirNotes = 'SELECT rowid FROM notes WHERE owner_id = ?';
-        try {
+        if (owner != null) {
           connection.execute(
-            'DELETE FROM note_body_fts WHERE rowid IN ($theirNotes)',
-            [owner],
+            'INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) '
+            'VALUES (?, ?, 0)',
+            [SyncDao.keySharedWriting, '1'],
           );
-        } on SqliteException catch (e) {
-          // A build without the body index has none to clear.
-          debugPrint('[DatabaseManager] no body index to strip: $e');
+          _stripOwner(connection, owner);
+          connection.execute('DELETE FROM sync_metadata WHERE key = ?', [
+            SyncDao.keySharedWriting,
+          ]);
         }
-        connection.execute(
-          'DELETE FROM note_search_ledger WHERE note_rowid IN ($theirNotes)',
-          [owner],
-        );
-        connection.execute(
-          'DELETE FROM content_chunks WHERE note_id IN '
-          '(SELECT id FROM notes WHERE owner_id = ?)',
-          [owner],
-        );
-        for (final table in sharedTables.reversed) {
-          connection.execute('DELETE FROM $table WHERE owner_id = ?', [owner]);
-        }
-        connection.execute(
-          'DELETE FROM sync_metadata WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)',
-          [
-            SyncDao.keySharedOwner,
-            SyncDao.keySharedPair,
-            SyncDao.keySharedReadAt,
-            SyncDao.keySharedReadOkAt,
-            SyncDao.keySharedReadFailedAt,
-            SyncDao.keySharedFullAt,
-            SyncDao.keySharedNewerWire,
-            SyncDao.keyShareSending,
-          ],
-        );
-        for (final prefix in const [
-          SyncDao.sharedCursorPrefix,
-          SyncDao.sharedWaitingPrefix,
-          SyncDao.sharedRootPrefix,
-          SyncDao.sharedRefusedPrefix,
-          SyncDao.sharedBuiltInPrefix,
-          SyncDao.sharePokeOwedPrefix,
-        ]) {
-          connection.execute(
-            "DELETE FROM sync_metadata WHERE substr(key, 1, ?) = ?",
-            [prefix.length, prefix],
-          );
-        }
-        // The receiver's choices about a partner's rows, keyed by her ids.
-        connection.execute('DELETE FROM user_settings WHERE key IN (?, ?)', [
-          SettingsKeys.shareHiddenCategories,
-          SettingsKeys.shareFolderSorts,
-        ]);
-        connection.execute('DELETE FROM sync_metadata WHERE key = ?', [
-          SyncDao.keySharedWriting,
-        ]);
+        _stripPartnerTraces(connection, theirs: theirs);
+        _stripOrphanedSearchRows(connection);
         connection.execute('COMMIT');
       } catch (_) {
         connection.execute('ROLLBACK');
@@ -977,6 +997,341 @@ class DatabaseManager {
     } finally {
       connection.close();
     }
+  }
+
+  /// The shared owner [connection] names, and whether it may ever have held
+  /// a partner's row — so whether its index segments may still hold the
+  /// words of one removed — read in one statement. Three arms:
+  ///
+  /// - the shared owner: it holds them now;
+  /// - [SyncDao.keySharedEverHeld]: this database has had a partner to read
+  ///   from — set when the reader begins for one, before any row is held,
+  ///   on a phone that only gives too — or held theirs under a build before
+  ///   the mark (`SharedRowDao.removeAll` sets it as it removes them);
+  ///   nothing takes it away;
+  /// - any `pairing_` settings row — the legacy arm, for a database that
+  ///   paired before the mark existed. It rests on one row: the only writer
+  ///   of the pairing rows (`SettingsService.setPairingSettings`) deletes a
+  ///   row whose value is null or empty, but always writes
+  ///   `pairing_ended_notice_pending` as `true` or `false` — through an
+  ///   unpair, the partner's end and another account signing in alike.
+  static ({String? owner, bool theirs}) _mayHaveHeldTheirs(
+    Database connection,
+  ) {
+    try {
+      final row = connection.select(
+        'SELECT (SELECT value FROM sync_metadata WHERE key = ?1) AS owner, '
+        'EXISTS(SELECT 1 FROM sync_metadata WHERE key = ?2) '
+        'OR EXISTS(SELECT 1 FROM user_settings '
+        'WHERE substr(key, 1, ?3) = ?4) AS theirs',
+        [
+          SyncDao.keySharedOwner,
+          SyncDao.keySharedEverHeld,
+          SettingsKeys.pairingPrefix.length,
+          SettingsKeys.pairingPrefix,
+        ],
+      ).single;
+      final owner = row['owner'] as String?;
+      return (owner: owner, theirs: owner != null || row['theirs'] != 0);
+    } on SqliteException catch (_) {
+      // A database from before sync: it never held a shared row.
+      return (owner: null, theirs: false);
+    }
+  }
+
+  /// Whether [connection] holds a ledger row of a note that is gone,
+  /// tombstoned or renumbered, or an index row without a ledger row.
+  static bool _holdsOrphanedSearchRows(Database connection) {
+    try {
+      if (connection
+          .select('SELECT 1 FROM (${NoteSearchDao.orphanRowids}) LIMIT 1')
+          .isNotEmpty) {
+        return true;
+      }
+    } on SqliteException catch (_) {
+      // A database from before the body index: it holds none.
+      return false;
+    }
+    try {
+      return connection
+          .select(
+            'SELECT 1 FROM note_body_fts WHERE rowid NOT IN '
+            '(SELECT note_rowid FROM note_search_ledger) LIMIT 1',
+          )
+          .isNotEmpty;
+    } on SqliteException catch (_) {
+      // No body index this SQLite can open.
+      return false;
+    }
+  }
+
+  /// Drops the search rows [_holdsOrphanedSearchRows] looks for: run after
+  /// the partner's notes went, it takes theirs along with any left before.
+  static void _stripOrphanedSearchRows(Database connection) {
+    try {
+      connection.execute(
+        'DELETE FROM note_search_ledger WHERE note_rowid IN '
+        '(${NoteSearchDao.orphanRowids})',
+      );
+    } on SqliteException catch (e) {
+      debugPrint('[DatabaseManager] no search ledger to strip: $e');
+      return;
+    }
+    try {
+      connection.execute(
+        'DELETE FROM note_body_fts WHERE rowid NOT IN '
+        '(SELECT note_rowid FROM note_search_ledger)',
+      );
+    } on SqliteException catch (e) {
+      // A build without the body index has none to clear.
+      debugPrint('[DatabaseManager] no body index to strip: $e');
+    }
+  }
+
+  /// What `SharedRowDao.removeAll` removes, on the copy's own connection,
+  /// inside [_stripShared]'s transaction and licence.
+  static void _stripOwner(Database connection, String owner) {
+    connection.execute(
+      'DELETE FROM content_chunks WHERE note_id IN '
+      '(SELECT id FROM notes WHERE owner_id = ?)',
+      [owner],
+    );
+    for (final table in sharedTables.reversed) {
+      connection.execute('DELETE FROM $table WHERE owner_id = ?', [owner]);
+    }
+    connection.execute(
+      'DELETE FROM sync_metadata WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        SyncDao.keySharedOwner,
+        SyncDao.keySharedPair,
+        SyncDao.keySharedReadAt,
+        SyncDao.keySharedReadOkAt,
+        SyncDao.keySharedReadFailedAt,
+        SyncDao.keySharedFullAt,
+        SyncDao.keySharedNewerWire,
+        SyncDao.keyShareSending,
+      ],
+    );
+    for (final prefix in const [
+      SyncDao.sharedCursorPrefix,
+      SyncDao.sharedWaitingPrefix,
+      SyncDao.sharedRootPrefix,
+      SyncDao.sharedRefusedPrefix,
+      SyncDao.sharedBuiltInPrefix,
+    ]) {
+      connection.execute(
+        "DELETE FROM sync_metadata WHERE substr(key, 1, ?) = ?",
+        [prefix.length, prefix],
+      );
+    }
+  }
+
+  /// What names the partner or their rows outside the shareable tables,
+  /// held whether or not a shared row is (share surfaces P6) — a pair can
+  /// share nothing my way, or have ended:
+  ///
+  /// - every `pairing_` row: the pair, the partner's uid and name, an
+  ///   invite code. The pairing is a cache the server answers again at the
+  ///   next sign-in, and the JSON backup always left it out
+  ///   (`BackupService._exportSettings`). The `sync_space_` binding is mine
+  ///   and stays: a restore of my own copy claims or unbinds by it
+  ///   (`SyncBindingService._healClaim`).
+  /// - my choices about their rows, keyed by their ids: the hidden
+  ///   categories and my sorts of their folders. The looks I chose for
+  ///   their rows name nothing of theirs and stay, as a restore reads them.
+  /// - the notices a background check kept (their event titles and name),
+  ///   and the pokes owed to their phone, which name the pair.
+  static const List<String> _partnerSettings = [
+    SettingsKeys.shareHiddenCategories,
+    SettingsKeys.shareFolderSorts,
+  ];
+
+  /// The `sync_metadata` rows [_stripPartnerTraces] takes by key: the kept
+  /// notices, "Sending…" about shares (whether or not a partner's row is
+  /// held, review A5), the mark that this database ever held one, and the
+  /// record that its old tombstones were emptied.
+  static const List<String> _partnerMetadata = [
+    SyncDao.keyShareNoticesKept,
+    SyncDao.keyShareSending,
+    SyncDao.keySharedEverHeld,
+    SyncDao.keySharedTombstonesEmptied,
+  ];
+
+  /// Whether [connection] holds any row [_stripPartnerTraces] takes.
+  static bool _holdsPartnerTraces(Database connection) {
+    try {
+      final found = connection.select(
+        'SELECT EXISTS(SELECT 1 FROM user_settings '
+        'WHERE substr(key, 1, ?1) = ?2 OR key IN (?3, ?4)) '
+        'OR EXISTS(SELECT 1 FROM sync_metadata '
+        'WHERE key IN (?5, ?6, ?7, ?8) OR substr(key, 1, ?9) = ?10) AS found',
+        [
+          SettingsKeys.pairingPrefix.length,
+          SettingsKeys.pairingPrefix,
+          ..._partnerSettings,
+          ..._partnerMetadata,
+          SyncDao.sharePokeOwedPrefix.length,
+          SyncDao.sharePokeOwedPrefix,
+        ],
+      );
+      return found.single['found'] != 0;
+    } on SqliteException catch (_) {
+      // A database from before pairing: it never knew a partner.
+      return false;
+    }
+  }
+
+  /// The rows of mine that hang on an event or a note the copy does not
+  /// hold — after [_stripOwner], every one of the partner's, and one a
+  /// reader removed before (review A5), as `(table, condition, synced)`:
+  /// my alerts, presence marks and the scheduler's registrations on their
+  /// events, which give the days and times of those events; any day row of
+  /// mine on one; my counter values on their notes; and the editor's
+  /// remembered place and the money ledger's currency of their notes (the
+  /// editor saves a place for a read-only note too). The JSON export leaves
+  /// them out already. My own events and notes are always held — a delete
+  /// leaves a tombstone — so nothing of mine on my rows goes. A global
+  /// counter value (`note_id ''`), a digest's registration and a test
+  /// alarm's (`AlertPayload.testEventId`) name no event or note of anyone's.
+  ///
+  /// Looked for only where the database may have held a partner's row
+  /// ([_mayHaveHeldTheirs], review C2): elsewhere such a row is an orphan of
+  /// my own — an alert pulled before its event, a key an import could not
+  /// map — and travels as it always did.
+  ///
+  /// The live database keeps them, so a share given again finds them; and a
+  /// restore of the copy finds them again in my space: for each synced
+  /// table a row went from ([synced]), the copy forgets where that table's
+  /// pull stood ([_forgetPull], review C1). `alert_registrations` and the
+  /// settings rows are device-local — never pulled, a cache the scheduler
+  /// and the editor rebuild — and need nothing.
+  static final List<(String, String, bool)> _hangingRows = [
+    ('calendar_event_alerts', _noEvent, true),
+    ('calendar_event_absences', _noEvent, true),
+    ('calendar_event_occurrences', _noEvent, true),
+    ('calendar_event_skips', _noEvent, true),
+    (
+      'alert_registrations',
+      "source != 'digest' AND event_id != '${AlertPayload.testEventId}' "
+          'AND $_noEvent',
+      false,
+    ),
+    (
+      'counter_values',
+      "note_id != '' AND note_id NOT IN (SELECT id FROM notes)",
+      true,
+    ),
+    (
+      'user_settings',
+      '${_perNote(SettingsKeys.notePositionPrefix)} '
+          'OR ${_perNote(SettingsKeys.moneyNoteCurrencyPrefix)}',
+      false,
+    ),
+  ];
+
+  /// Makes the next pull read [table] from its start: its cursor, the mark
+  /// that the cursor was settled, and what the space's signal last said of
+  /// it, without which the table reads as stale and is pulled
+  /// (`SyncEngine._staleTables`) — the three a bind deletes for every table.
+  static void _forgetPull(Database connection, String table) {
+    connection.execute('DELETE FROM sync_metadata WHERE key IN (?, ?, ?)', [
+      SyncDao.keyPullCursor(table),
+      SyncDao.keyPullSettled(table),
+      SyncDao.keyPullSeen(table),
+    ]);
+  }
+
+  static const String _noEvent =
+      'event_id NOT IN (SELECT id FROM calendar_events)';
+
+  /// A `user_settings` key of [prefix] followed by the id of a note the copy
+  /// does not hold. [prefix] is a constant of `SettingsKeys`, never input.
+  static String _perNote(String prefix) =>
+      "(substr(key, 1, ${prefix.length}) = '$prefix' AND "
+      'substr(key, ${prefix.length + 1}) NOT IN (SELECT id FROM notes))';
+
+  /// Takes out what [_partnerSettings] and [_partnerMetadata] say, and,
+  /// where [theirs], what [_hangingRows] says and the remembered location
+  /// when [_stackNamesAbsentRows]; run after [_stripOwner].
+  static void _stripPartnerTraces(Database connection, {required bool theirs}) {
+    for (final (table, condition, synced) in [if (theirs) ..._hangingRows]) {
+      try {
+        connection.execute('DELETE FROM $table WHERE $condition');
+        if (synced && connection.updatedRows > 0) {
+          _forgetPull(connection, table);
+        }
+      } on SqliteException catch (e) {
+        debugPrint('[DatabaseManager] not stripped, $table: $e');
+      }
+    }
+    connection.execute(
+      'DELETE FROM user_settings WHERE substr(key, 1, ?) = ? OR key IN (?, ?)',
+      [
+        SettingsKeys.pairingPrefix.length,
+        SettingsKeys.pairingPrefix,
+        ..._partnerSettings,
+      ],
+    );
+    connection.execute(
+      'DELETE FROM sync_metadata WHERE key IN (?, ?, ?, ?) '
+      'OR substr(key, 1, ?) = ?',
+      [
+        ..._partnerMetadata,
+        SyncDao.sharePokeOwedPrefix.length,
+        SyncDao.sharePokeOwedPrefix,
+      ],
+    );
+    if (theirs && _stackNamesAbsentRows(connection)) {
+      connection.execute('UPDATE user_settings SET value = ? WHERE key = ?', [
+        NavDestination.encodeStack(const []),
+        SettingsKeys.lastLocationStack,
+      ]);
+    }
+  }
+
+  /// Whether the remembered location (`NavDestination`'s stack) names a
+  /// folder or a note the copy does not hold — after [_stripOwner], every
+  /// one of the partner's, and one a reader removed before. Its entries
+  /// carry a folder's title beside its id, so a stack standing in their
+  /// folder names it.
+  ///
+  /// The whole stack is emptied rather than the entries pruned: the stack is
+  /// a chain, and one with a hole is one the replay never recorded; it is
+  /// worth nothing where the copy is opened, an empty stack reads as "at the
+  /// root" (a deleted row would read as never migrated); and every param of
+  /// every kind is read — a newer build's kind included — so no entry has to
+  /// be understood to be judged. A row that cannot be read is emptied too,
+  /// as a launch would read it.
+  static bool _stackNamesAbsentRows(Database connection) {
+    final rows = connection.select(
+      'SELECT value FROM user_settings WHERE key = ?',
+      [SettingsKeys.lastLocationStack],
+    );
+    if (rows.isEmpty) return false;
+    final folders = <String>{};
+    final notes = <String>{};
+    try {
+      final stack = jsonDecode(rows.single['value'] as String);
+      if (stack is! Map || stack['stack'] is! List) return true;
+      for (final entry in stack['stack'] as List) {
+        final params = entry is Map ? entry['p'] : null;
+        if (params is! Map) continue;
+        if (params['folderId'] case final String id) folders.add(id);
+        if (params['noteId'] case final String id) notes.add(id);
+      }
+    } on FormatException catch (_) {
+      return true;
+    }
+    for (final (table, ids) in [('folders', folders), ('notes', notes)]) {
+      if (ids.isEmpty) continue;
+      final held = connection.select(
+        'SELECT count(*) AS n FROM $table WHERE id IN '
+        '(${List.filled(ids.length, '?').join(', ')})',
+        ids.toList(),
+      );
+      if (held.single['n'] != ids.length) return true;
+    }
+    return false;
   }
 
   /// Validate database name (alphanumeric, underscores, hyphens only)

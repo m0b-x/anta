@@ -1,12 +1,54 @@
-# The partner deletes its account (cloud-multi-user-roadmap §6.1): the
-# confirm, then the deletion's own row runs to "Account deleted" — the
-# account's cloud copy, the ended pair and the spent invite it was part of,
+# The partner deletes its account (cloud-multi-user-roadmap §6.1) while
+# paired, with a folder shared: the two pair again after 05a, the owner
+# shares Training from its menu and the partner sees it under "From …";
+# then the confirm, and the deletion's own row runs to "Account deleted" —
+# the account's cloud copy, its pair and the spent invite it was part of,
 # and the sign-in account itself — and the page is signed out. Nothing is
 # asked twice: the emulator build signs in again by itself where a phone
-# shows Google's sheet. The owner's side is untouched by it: still bound,
-# still up to date, ready to pair again.
+# shows Google's sheet. The owner's side ends unpaired, still bound and
+# up to date, ready to pair again, and its Training no longer wears the
+# shared sign. Kept last: the partner's account is gone after it.
+scroll-to id:sharing-pair --in id:sharing-list
+tap id:sharing-pair
+wait id:pairing-generate
+tap id:pairing-generate
+wait id:pairing-code --timeout 20
+text id:pairing-code --match "[2-9A-Z]{4}-[2-9A-Z]{4}" --capture invite4
+-d emulator-5558 scroll-to id:sharing-pair --in id:sharing-list
+-d emulator-5558 tap id:sharing-pair
+-d emulator-5558 wait id:pairing-code-field
+-d emulator-5558 tap id:pairing-code-field
+-d emulator-5558 type "{{var:invite4}}"
+-d emulator-5558 tap id:pairing-connect
+-d emulator-5558 wait id:sharing-paired --timeout 30
+wait id:sharing-paired --timeout 30
+# The mark 05a set under the ended pair is gone the moment this pair is
+# adopted: the entry offers "Share with …" at once, with no sync between.
+key back
+wait id:create-folder
+tap "Training"
+wait id:create-note
+tap id:folder-more
+wait id:folder-menu-share
+expect id:folder-menu-share "Share with" --absent "Shared with"
+tap id:folder-menu-share
+wait id:folder-menu-share --gone
+expect "Sharing Training with" --timeout 5
+key back
+wait id:create-folder
+# Right after a new pair the sign may still say "your partner".
+expect "Shared with" --timeout 10
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
 -d emulator-5558 key back
 -d emulator-5558 wait id:create-folder
+-d emulator-5558 expect id:browser-section-partner "Training" --timeout 30
 -d emulator-5558 tap id:nav-menu
 -d emulator-5558 wait id:drawer-account
 -d emulator-5558 tap id:drawer-account
@@ -22,7 +64,23 @@
 # The partner's guest is left as the pass leaves its own: fresh, signed
 # out, nothing armed.
 -d emulator-5558 relaunch --fresh
-expect id:sharing-pair --absent id:sharing-paired --timeout 15
-tap id:sharing-sync-now
+# The pair ended with the account: the owner's Sync & sharing says so.
+# The deleted account's name is no longer known there, so the sentence
+# names no one (until 2026-11-14 it began with an empty name).
+wait id:sharing-ended-close --timeout 60
+expect "Your partner ended sharing. Your notes and events stay on this device."
+shot owner-sharing-ended
+tap id:sharing-ended-close
+wait id:sharing-ended-close --gone
+tap id:sharing-sync-now --settle 3000
 expect id:sharing-sync-status "Up to date" --timeout 60
+expect id:sharing-pair --absent id:sharing-paired --timeout 60
+shot owner-unpaired
+key back
+wait id:create-folder
+expect "Training" --absent "Shared with" --timeout 15
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
 errors

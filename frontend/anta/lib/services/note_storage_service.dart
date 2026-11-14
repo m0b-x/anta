@@ -511,8 +511,8 @@ class NoteStorageService {
   Future<ShareSnapshot> shareSnapshot() => _shares();
 
   /// Every time the share facts may have changed — a share act, a merge,
-  /// the shared reader, a rebind ([ShareCensus.forgotten]).
-  Stream<void> get shareFactsChanged => _repository.shareCensus.forgotten;
+  /// the shared reader, a rebind ([NoteRepository.shareFactsChanged]).
+  Stream<void> get shareFactsChanged => _repository.shareFactsChanged;
 
   /// [note] as the surfaces read it, flagged against [shares]: whether it is
   /// the partner's, and which folder's mark shares it when it is the
@@ -642,37 +642,13 @@ class NoteStorageService {
         );
       }
     }
+    // The poke a move into or out of a share owes the partner's phone is the
+    // DAO's, in the move's transaction (share surfaces P5).
     final note = await _repository.moveNote(
       noteId: noteId,
       targetFolderId: targetFolderId,
     );
-    if (note != null && existing != null) {
-      await _owePokeForMove(await _shares(), {
-        noteId: existing.folderId,
-      }, targetFolderId);
-    }
     return note != null ? _toMetadata(note) : null;
-  }
-
-  /// After a move the census says took notes into or out of a shared folder,
-  /// the partner's phone is owed a poke for each pair
-  /// (`docs/cloud-shared-freshness.md` §7): a note that left a share sends a
-  /// document that names no pair. One statement then, none for a move that
-  /// changed no note's sharing — an account that never shared pays nothing.
-  Future<void> _owePokeForMove(
-    ShareSnapshot shares,
-    Map<String, String?> moved,
-    String targetFolderId,
-  ) async {
-    final into = shares.sharedThrough(targetFolderId);
-    final roots = <String>{};
-    for (final source in moved.values) {
-      final from = source == null ? null : shares.sharedThrough(source);
-      if (from == into) continue;
-      roots.addAll([?from, ?into]);
-    }
-    if (roots.isEmpty) return;
-    await _repository.oweSharePokesForFolders(roots);
   }
 
   /// Moves a whole selection in one transaction. Unlike [moveNote], a title
@@ -706,9 +682,6 @@ class NoteStorageService {
         ),
     };
     if (changes.isEmpty) return result;
-    await _owePokeForMove(shares, {
-      for (final id in changes.keys) id: result.moved[id],
-    }, targetFolderId);
     return result.withShareChanges(changes);
   }
 

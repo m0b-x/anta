@@ -17,7 +17,7 @@ tool\firebase\emulators.cmd                                   # a host shell of 
 ./tool/qa/qa fleet boot 1 && ./tool/qa/qa fleet boot 2        # anta_qa_1 (emulator-5556) and anta_qa_2 (emulator-5558), one at a time
 ./tool/qa/qa build --define ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define ANTA_QA_ACCOUNT=qa1:qa1@example.com
 ./tool/qa/qa fleet install                                    # the same APK on both
-./tool/qa/qa pass share -d emulator-5556                      # 16 flows on one seed: ≈ 5.6 min
+./tool/qa/qa pass share -d emulator-5556                      # 27 flows on one seed: ≈ 11 min
 ./tool/qa/qa fleet stop anta_qa_1 && ./tool/qa/qa fleet stop anta_qa_2
 ```
 
@@ -45,6 +45,10 @@ a step that names it.
 | `02_share_folder` | `share folder "Training"`; the partner's browser shows it at the top level, the folder inside it and that folder's two notes, and none of the owner's other folders |
 | `03_follows` | a folder the owner makes inside the shared one afterwards reaches the partner at the next sync, with no second act of sharing |
 | `04_made_private` | both made private (`--off`): after a sync on each side the folder is gone from the partner's browser and the event from its calendar, on the open pages, without a relaunch |
+| `04_n_folder_from_menu` | no seam: the owner shares Training from its page's ⋮ (`folder-menu-share`; "Sharing Training with …", the entry then "Shared with …"); after a sync each the partner's root lists it under `browser-section-partner`, its page shows `browser-partner-line` ("Read only") and a tap on `create-note` or `create-folder` opens nothing; Session 1 opens read-only (`shared-note-line`, no `editor-toolbar` after a tap on the body, its task list unchanged); "Copy to my notes" (`editor-more`, `shared-note-copy`) into the partner's own "My copies" opens an editable copy ("Later changes by …") that keeps "Partner kept this" |
+| `04_o_notes_follow` | January moved from Money into the shared Training (row sheet → picker search) reaches the partner; the owner's edit ("Paid in full") is what the partner reads; moved back to Money it leaves, and Session 2, deleted (`sheet-confirm`), leaves; the partner's search answers "No results found" for "coffee", "Deadlift" and "Paid in full", each after a query that finds Session 1 |
+| `04_p_read_only_doors` | the partner reaches Training from the Sharing page's Folders row (`sharing-theirs-folders` → `shared-folder-open-*`), Week 1 from the ⋮ folder entry of the note a search opened, and Training again from the folder page's breadcrumb: each page shows `browser-partner-line` and a tap on either create button opens nothing |
+| `04_q_folder_stopped` | the partner stands in Session 1 (the editor over Week 1) with Sync & sharing opened over it when the owner stops Training from its Folders sheet (`sharing-mine-folders`, `share-folder-unshare-*`: "No longer shared: Training"); after a sync each the partner's `sharing-paired` reads "Nothing is shared yet" and no bar has been said; Back lets the covered editor leave (it keeps its leave until it is in front again): both pages close onto the root — no `browser-section-partner`, no Training, "My copies" kept — and one bar says "… no longer shares this note", never "… this folder" with it, nothing after it leaves. Training ends private, as 04a on expects |
 | `04a_share_category` | the owner makes "Mobility drills" in Strength in the editor, then `share category "Strength"`: the partner's day panel lists it, each row read "From qa1@example.com" first; the Upcoming card of the category (`agenda-card-days-category-qa-category-strength`) opens a day list with both events under "Strength"; the partner's editor's picker never offers it (`--absent id:category-pick-qa-category-strength`); the owner adds "Core circuit" to Strength and moves "Mobility drills" to Cardio — after one sync each side the first arrived and the second left, with no second act |
 | `04b_category_renamed` | the owner renames Strength to "Power" in the category editor; the partner's Upcoming card reads "Power", and the day list it opens names "Power", not "Strength", over the two events still in it |
 | `04c_read_sheet` | a tap on the partner's "Core circuit" opens the read sheet (`shared-event-sheet`: "From …", the category "Power", Add alert, Copy) and neither the editor nor the detail sheet's Edit; Copy to my calendar closes it and opens the copy in the editor under the "Later changes by …" snackbar, which the flow closes unchanged (`event-close`) |
@@ -53,12 +57,16 @@ a step that names it.
 | `04f_category_deleted` | Power shared again and seen; the owner deletes it from the Categories page, moving its two events to Cardio (`category-delete-target`, `category-pick-cardio`): they leave the partner's calendar |
 | `04g_share_from_surfaces` | no seam: the owner makes Stretching shared from its editor's switch (`category-editor-share`), shares Gym from its row's ⋮ (`category-menu-gym`, `category-menu-share`), makes "Hip openers" in Stretching (its `event-share` reads "On for everything in Stretching", disabled) and shares "Lifting session" from its editor's switch; the Sharing page reads "Gym, Stretching" and "1 event"; the tick sheet (`share-categories-sheet`) takes Gym back ("No longer shared: Gym"); the Single events sheet's ✕ (`share-event-unshare-qa-event-weekly-lift`) stops the event and Undo (`snackbar-undo`) brings it back. The partner, after its sync: "… shares Stretching with you", whose View (`share-notice-view`) opens the Sharing page — Stretching and "1 event" under what it is shared — and its day panel draws "Hip openers" as "From qa1@example.com" |
 | `04h_receiver_chooses` | the partner switches Stretching off in "Categories from …" (`shared-categories-sheet`): "Hip openers" leaves its day panel with no sync, and comes back when switched on; under "Category alerts too" (`sharing-alerts-category`) the category's sheet (`shared-category-sheet`) takes an alert (`shared-category-add-alert` → `shared-category-alert-0`); the Categories page lists Stretching under `category-section-partner-header` with "Alerts on"; the calendar filter's picker lists it after `category-pick-create` under "From …"; the look row's Avatar and Outlined each shot on the day panel; ends on "Only alerts I add" and Outlined |
+| `04ha_only_mine_new_category` | D29: the partner filters its Upcoming list to its own categories as a group (`agenda-filter-categories`; every row of its own ticked, Stretching under "From …" not: "Gym, Cardio +7 more"); the owner makes Recovery shared from its editor (`category-editor-share`) with "Foam rolling" in it; after a sync each the event is on the partner's phone, yet the filtered list has no Recovery card (the Cardio card stays) and the summary reads as before, never Recovery; Select all ("All") brings the card |
+| `04hb_hide_bar` | D30: Recovery hidden in "Categories from …" with no alert of the partner's on it says no bar; the partner adds an alert to "Foam rolling" from its read sheet (`armed --expect some`); hidden again, the bar says "Recovery is hidden. Your alerts on it are off until you show it again." and `armed --expect none`; shown again, armed again. The owner makes Recovery private (`share category … --off`): "… no longer shares Foam rolling. Your alert is off.", nothing armed, the filter back to "All" |
 | `04i_stop_everything` | the partner adds "10 min before" to "Lifting session" from its read sheet (`shared-event-add-alert`); the owner's "Stop sharing everything" (`sharing-stop-all`, then `sheet-confirm`) leaves both "You share" entries "None"; after a sync each side the partner reads "… no longer shares Lifting session. Your alert is off.", its "shares with you" entries read "None", and its day panel and grid hold nothing of the owner's |
 | `04j_fresh_b1_no_work` | freshness B1 (`docs/cloud-shared-freshness.md` §10): with nothing shared the partner holds no scheduled work and nothing armed (`work --expect none`, `armed --expect none`) — the work 04i's alert scheduled was cancelled when the event left |
 | `04k_fresh_b4_b5_closed_app` | freshness B11, B4, B5, both tiers: the event shared again, the partner adds an alarm (30 min before) beside 04i's reminder; app open but sent home, the work is run and the check ends `forwarded`; the partner's process is ended (`kill-app`), the owner moves the event an hour later (`move-event`), the work is run and ends `read`, and both tiers' armed instants have moved by 3600 s with the app never opened; the owner makes the event private, the work runs, nothing is armed and no work is left; the next `launch` says "… no longer shares Lifting session. Your alert is off." from what the run kept with the database |
 | `04l_fresh_b10_launch_during_run` | freshness B10: shared again, process ended, the event moved, the work started and the app launched at once — the launch succeeds and both tiers end an hour later, whichever of the two read the change |
+| `04m_alerts_choice_per_pair` | D38: the partner chooses "Category alerts too"; the owner unpairs ("qa1@example.com ended sharing."); paired again with a new code, the partner's `sharing-alerts` reads "Only alerts I add"; "Category alerts too" chosen again survives `relaunch` of the partner's app (the same pair adopted again); ends on "Only alerts I add" |
 | `05_pair_ended` | the event shared again and seen; the owner unpairs on the Sharing page its Pairing row opens (`sharing-paired`, then `sharing-unpair` and `sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone |
-| `06_delete_account` | the partner deletes its account (`sharing-delete-account`, `sharing-delete-account-confirm`): the deletion's row ends as "Account deleted" (never "Finish deleting account"), the page is signed out; the owner's side is still bound, up to date and ready to pair; the partner's guest is relaunched fresh at the end — the first device pass of the roadmap's D2 |
+| `05a_pair_ended_folder` | paired again (a third code), the owner shares Training from its ⋮ and the partner sees it under "From …"; the owner unpairs: the partner's notice reads "qa1@example.com ended sharing.", after a sync its "From …" group and Training are gone, and the owner's Training row no longer reads "Shared with …" |
+| `06_delete_account` | paired again (a fourth code) with Training shared from the ⋮ and seen at the partner, the partner deletes its account (`sharing-delete-account`, `sharing-delete-account-confirm`): the deletion's row ends as "Account deleted" (never "Finish deleting account"), the page is signed out; after a sync the owner's side reads unpaired (`sharing-pair`), still bound and up to date, its Training no longer "Shared with …"; the partner's guest is relaunched fresh at the end — the roadmap's D2, now with the pair still active (the 2026-11-14 fold of the "account deleted with a folder shared" flow; kept last) |
 
 Green on 2026-11-12 on `anta_qa_1` + `anta_qa_2`, each run against a
 freshly started suite: the first six flows 6/6 in 117.6 s and in 120.6 s,
@@ -67,7 +75,24 @@ it the run that empties the account's space). With slice B's six flows,
 13/13 twice in a row on the same day, each on a freshly started suite and
 both guests freshly booted: 268.2 s and 267.9 s. With 04g–04i, 16/16
 twice in a row on 2026-11-13, on the build of the share surfaces, each
-on a freshly started suite: 350.3 s and 349.5 s.
+on a freshly started suite: 350.3 s and 349.5 s. With the folder flows
+(04_n–04_q), 23/23 twice on 2026-11-14 on the build with the freshness
+fix: 496.0 s and 498.2 s. With 04ha, 04hb, 04m, 05a and the folded 06
+(27 flows), each new flow green with `--only` on a fresh suite the same
+day; the whole pass then ended 23/27 in 716.3 s: 04l's launch-during-run
+race started a second process whose VM service never answered, the
+partner's connection fell to adb, and 04m's `type` of the invite code
+went nowhere ("no keyboard is up") — 05, 05a, 06 red behind it; `auto`
+now takes the agent back after such a fall (the traps below). On the
+final build of the day the whole pass ended 18/27 in 454.1 s
+(`share_20261114_081842_057`): 04hb and 04j red on two alerts an earlier
+pass had left in the alarm plugins' stores ("What it found"), the rest
+behind them; the pair tail 00–04, 04m, 05, 05a, 06 was 9/9 in 224.7 s
+with 06's two new assertions, and `qa pass sync` 5/5 in 46.0 s. With the
+leftovers cleared (`platform-alerts --native` on both guests) and 04m
+lifting its alerts row off the foot of the screen, **27/27 twice**, each
+on a freshly started suite: 610.3 s (`share_20261114_091136_671`) and
+610.0 s (`share_20261114_092207_850`).
 
 **The seams.** The flows up to 04f and 05 share through two harness
 verbs, which stood where the switches now are (04g–04i use the switches
@@ -120,9 +145,42 @@ no suite had:
   as gone, with where the row stood (`SyncAppliedRow.gone`,
   `FolderRepository.announceRemoved`, `NoteRepository.announceRemoved`).
 
-**What it does not cover.** A note's text opened on the partner's guest
-(the editor has no read-only mode yet, and a save there is refused); the
-partner's own presence mark or alert on a shared event; the same id on
+**What it found, 2026-11-14.** The first two are fixed in the app and
+pinned by 06 since the final build of the day (the ⋮ entry reads "Share
+with …" right after the new pair; the owner's notice reads "Your partner
+ended sharing. Your notes and events stay on this device."); the third
+was no defect of the build:
+
+- after the partner deleted its account while paired, the owner's
+  "Sharing ended" notice read " ended sharing. Your notes and events stay
+  on this device." — an empty name, neither the partner's nor "Your
+  partner";
+- a folder's share mark outlived its pair: after 05a's unpair the owner's
+  Training wore no sign, but at the next pair its ⋮ entry read "Shared
+  with your partner" at once and the partner received it with no new act;
+- 04hb, 04j and 04k went red on "2 armed, expected none" — a reminder
+  and an alarm of Lifting session's last occurrence in the window
+  (2026-12-10) — and read at first as a regression. They were leftovers:
+  an earlier pass that never reached a clean end left them in the alarm
+  plugins' own native stores; the QA reset clears the preferences the
+  alert tier reads them by before its quiet runs, so the quiet named
+  none of them (`platform-alerts` lists 0), and the plugins re-armed them
+  at every launch — through `fleet stop`, a cold boot and a reinstall.
+  The flows arm nothing of them: a reinstall cleared them and one
+  `relaunch --fresh` brought them back. **Recovery:** `qa -d <guest>
+  platform-alerts --native` (fleet guests only) — the alarm fork's
+  stop-all and the notifications plugin's cancel-all empty those stores;
+  `armed` then reads none, and still none after `relaunch --fresh`. The
+  durable fix landed in the build of 10:01: the QA reset's quiet also
+  reads the pending notification requests (a notice names its alarm) and
+  every id in the alarm plugin's own list. Proven on the partner left as
+  an aborted 04l leaves it (16 reminder-tier entries, 8 alarms): one
+  `relaunch --fresh` said `quiet: stopped 0 ring(s), cancelled 16
+  alarm(s), took down 0 notification(s)`, and `armed --expect none` held,
+  also after a plain relaunch. `--native` stays as the recovery for a
+  guest that holds entries from before that build.
+
+**What it does not cover.** The partner's own presence mark or alert on a shared event; the same id on
 both accounts; a newer wire; a second device of either account; an
 account deleted while its pair is still active (the flow deletes it after
 the pair ended); anything on the real project.
@@ -227,6 +285,36 @@ the pair ended); anything on the real project.
     re-authentication offers the build's account and the page says "That
     is another account — nothing was deleted".
   - `key home` needs `--via native`: the agent has no Home.
+  - After `kill-app` the work it runs starts the process again, on a VM
+    service port no launch forwarded, so the next `launch` only brings it
+    to the front. Until 2026-11-13 the recorded URI stayed the killed
+    process's and `auto` settled on adb for the rest of the pass: every
+    partner verb from 04k on took 2–4 s, and 06 missed its four-second
+    "Account deleted". `launch` of a running app now asks the agent and,
+    when it does not answer, finds the process's VM service in its log
+    (`agent: vm=… (a process no launch started — found in its log)`);
+    the tell of the old way is `note: driver auto → adb` in `pass.log`.
+  - 04l's launch can race the work: `pidof` finds nothing, `am start`
+    asks for a forwarded VM service port, and the activity lands in the
+    process the work started a moment before — whose Dart VM opened its
+    service on a port of its own before the activity existed, so the port
+    asked for never answers (45 s, then adb; the whole pass of 2026-11-14
+    went red at 04m on it). Since 2026-11-14 the launch's wait reads the
+    process's log, stops as soon as it names another port, and adopts that
+    process's agent (`agent: vm=… (the process was already up — the work
+    started it first …)`); and an `auto` that fell to adb takes the agent
+    back once a VM URI is recorded since the fall (`note: driver adb →
+    agent on …`).
+  - `work --run` cold-starts a killed process, and WorkManager's start-up
+    reconcile can stop the forced job it was started for ("Found unfinished
+    work, scheduling it" → `onStopJob`; 04k red twice on 2026-11-14 with
+    "no ending within the timeout"). `--await` now reads those lines too
+    and runs the rescheduled job once more ("WorkManager stopped the forced
+    run at its start-up reconcile … running it once more"). Not yet seen
+    firing on a device: the race came twice before it was in and never in
+    the runs after. A run that logs no ending now prints the WorkManager
+    lines its filtered log held and the jobs `dumpsys` lists, so the next
+    one says which of the two reads came back empty.
 - `work` reads `dumpsys jobscheduler`. On API 36 WorkManager's job has a
   namespace (`JOB androidx.work.systemjobscheduler:u0a217/7: … @androidx.
   work.systemjobscheduler@com.alexzamfir.anta/…SystemJobService`), and
@@ -237,3 +325,30 @@ the pair ended); anything on the real project.
   the job id `work` prints changes after every run.
 - 04h opens the filter sheet with `--settle 1000`: its next tap landed on
   the row under the sliding sheet once (`filter-categories` → "Priority").
+- **The folder flows (04_n–04_q, 2026-11-14).** A row keyed by a folder's
+  id carries an id the seed's import minted, so it is named by prefix:
+  an `id:` target ending in `*` matches the ids that start with the rest
+  (`id:share-folder-unshare-*`, `id:shared-folder-open-*`), and the lint
+  takes it only after a function-built id's fixed part
+  (`id:folder-picker-row-*` where the picker shows one row). The folder
+  page's ⋮ is `folder-more`, a row sheet's entries `row-action-move` and
+  `row-action-delete`, the picker's field `folder-picker-search` and its
+  one confirm `folder-picker-confirm`, the editor ⋮'s folder entry
+  `editor-menu-folder`: no flow taps a point. A picker search result
+  moves the note at once. The field takes a stem of the name ("Train"): the
+  whole name matches the field's own text exactly, which outranks the
+  row. Session 2's preview names Session 1 and sorts first, hence
+  `--nth`. The partner's bar is checked with `expect` (an acting `wait`
+  on its words fails the lint): present, then `--absent` with a timeout
+  until it leaves, then `--absent` once more — a second bar would be
+  queued behind the first and shown the frame it left.
+- **04k red on the 2026-11-14 tree (an app defect, not the harness).**
+  Every `SharedPreferences` write of the shared check threw `Bad state:
+  setPrefix cannot be called after getInstance` (`not applied`, `plan not
+  written down`, `retry not counted` in logcat), and the closed-app run
+  ended `trigger failed` in `AppSharedRefreshRunSteps.prepare`:
+  `QaBootstrap.namespacePreferences()` calls `setPrefix` on every
+  `PreferencesSharedRefreshMemory._store()` and `prepare()`, after the
+  isolate's first `getInstance`. QA builds only (the prefix is QA's), but
+  it ends 04k at `work --run --await read` and leaves the partner on the
+  launcher, so 04l–06 red after it.

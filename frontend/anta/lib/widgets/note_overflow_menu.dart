@@ -113,6 +113,7 @@ class NoteOverflowMenu extends StatelessWidget {
             icon: Icons.folder_outlined,
             label: folderName,
             trailing: l10n.openFolder,
+            identifier: SemanticsIds.editorMenuFolder,
           ),
           const PopupMenuDivider(height: AppTheme.menuDividerHeight),
           _row(
@@ -184,6 +185,22 @@ class NoteOverflowMenu extends StatelessWidget {
     bool enabled = true,
     String? identifier,
   }) {
+    final labelText = Text(
+      label,
+      // The menu's label style has no disabled state of its own: an off
+      // row's words dim with its glyph, or a write reads as live.
+      style: !enabled
+          ? TextStyle(
+              color: colorScheme.onSurface.withValues(
+                alpha: FormMetrics.disabledOpacity,
+              ),
+            )
+          : color == null
+          ? null
+          : TextStyle(color: color),
+      maxLines: FormMetrics.menuLabelLines,
+      overflow: TextOverflow.ellipsis,
+    );
     final row = Row(
       children: [
         Icon(
@@ -194,35 +211,32 @@ class NoteOverflowMenu extends StatelessWidget {
             alpha: enabled ? 1 : FormMetrics.disabledOpacity,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: FormMetrics.menuRowGap),
         Expanded(
-          child: Text(
-            label,
-            // The menu's label style has no disabled state of its own: an
-            // off row's words dim with its glyph, or a write reads as live.
-            style: !enabled
-                ? TextStyle(
-                    color: colorScheme.onSurface.withValues(
-                      alpha: FormMetrics.disabledOpacity,
+          child: trailing == null
+              ? labelText
+              // The value sits on the row's end while both fit, and goes
+              // under the name at large text — a long folder name — rather
+              // than either being cut, as the folder menu's Sort row.
+              : Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: FormMetrics.menuRowGap,
+                  children: [
+                    labelText,
+                    Text(
+                      trailing,
+                      textAlign: TextAlign.end,
+                      maxLines: FormMetrics.menuLabelLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppTheme.menuTrailingSize,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  )
-                : color == null
-                ? null
-                : TextStyle(color: color),
-            overflow: TextOverflow.ellipsis,
-          ),
+                  ],
+                ),
         ),
-        if (trailing != null) ...[
-          const SizedBox(width: 12),
-          Text(
-            trailing,
-            textAlign: TextAlign.end,
-            style: TextStyle(
-              fontSize: AppTheme.menuTrailingSize,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
       ],
     );
     return PopupMenuItem<_NoteMenuAction>(

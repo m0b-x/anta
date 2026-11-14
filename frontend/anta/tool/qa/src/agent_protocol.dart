@@ -30,6 +30,15 @@ abstract final class AgentOps {
   /// "unknown op".
   static const String moveEvent = 'move-event';
 
+  /// Every entry the platform holds for the app — the alert tier's own
+  /// list, whatever database its payload names — with what each payload
+  /// says; with [AgentKeys.clear] each is cancelled too. The QA reset's
+  /// quiet touches only the QA database's entries, so an entry whose
+  /// payload names another one survived it, a stop and a cold boot (the
+  /// share pass's partner, 2026-11-14). An older driver build answers
+  /// "unknown op".
+  static const String platformAlerts = 'platform-alerts';
+
   /// Scrolls the semantics node [AgentNodeKeys.semanticsId] names into view
   /// with `SemanticsAction.showOnScreen`, the action TalkBack uses, so a row
   /// a sheet has scrolled past is reached without a flow-authored swipe.
@@ -72,6 +81,12 @@ abstract final class AgentKeys {
   static const String replace = 'replace';
   static const String name = 'name';
   static const String clear = 'clear';
+
+  /// [AgentOps.platformAlerts] at the plugins' own level: the alarm fork's
+  /// stop-all and the notifications plugin's cancel-all, which empty their
+  /// native stores — the entries a QA reset orphaned and every launch
+  /// re-arms, which the alert tier's own list no longer names.
+  static const String native = 'native';
   static const String holdMs = 'holdMs';
   static const String action = 'action';
   static const String rss = 'rssBytes';

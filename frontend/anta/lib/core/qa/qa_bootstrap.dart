@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:alarm/alarm.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path/path.dart' as p;
@@ -131,10 +132,34 @@ class QaBootstrap {
   /// with no app — the check that runs with the app closed: it must read
   /// the QA build's own preferences, and with them its own database, and
   /// must leave the markers to the launch they were dropped for.
+  ///
+  /// Once per isolate, and before anything in it opens the preferences:
+  /// the plugin's `setPrefix` throws after the isolate's first
+  /// `getInstance()`. Each place that may be the isolate's first touch
+  /// calls this, so every call after the one that took is nothing
+  /// ([prefixOnce]) — called again as it was, the run's later steps and
+  /// the app's own isolate threw on every one (device pass, 2026-11-14). A
+  /// first call that comes too late still throws: a QA build reading the
+  /// un-prefixed store is a defect to see.
   static void namespacePreferences() {
     if (!QaMode.enabled) return;
-    SharedPreferences.setPrefix(QaMode.preferencesPrefix);
+    prefixOnce(() => SharedPreferences.setPrefix(QaMode.preferencesPrefix));
   }
+
+  static bool _prefixed = false;
+
+  /// [namespacePreferences]'s rule over [setPrefix], apart from the
+  /// compile-time switch a suite cannot turn on: asked until it has
+  /// succeeded once in this isolate, never after.
+  @visibleForTesting
+  static void prefixOnce(void Function() setPrefix) {
+    if (_prefixed) return;
+    setPrefix();
+    _prefixed = true;
+  }
+
+  @visibleForTesting
+  static void debugForgetPrefixed() => _prefixed = false;
 
   /// The reset's sign-out, the seed marker and the onboarding skip. Runs
   /// after `configureDependencies()`, since importing a backup needs the
@@ -163,7 +188,14 @@ class QaBootstrap {
   /// alarm rings days later (emulator pass, 2026-09-17). Kept, they are
   /// platform entries naming the QA database that the fresh plan does not
   /// contain, which is exactly what the first reconcile cancels.
-  static Future<void> _clearPreferences() async {
+  ///
+  /// So the reset's order is: this wipe, which leaves what names the
+  /// platform's entries; the dependencies, which build the gateway; then
+  /// the quiet ([applyResetQuiet]), which cancels by those names and — for
+  /// an alarm the list has lost all the same — by the notice that still
+  /// names it (`quietQaAlerts`).
+  @visibleForTesting
+  static Future<void> clearQaPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     for (final key in prefs.getKeys().toList()) {
       if (key.startsWith(kAlarmPluginStoragePrefix)) continue;
@@ -178,7 +210,7 @@ class QaBootstrap {
     final documents = (await getApplicationDocumentsDirectory()).path;
     return _appInstance = QaBootstrap(
       documentsPath: documents,
-      clearPreferences: _clearPreferences,
+      clearPreferences: clearQaPreferences,
       importSeed: (json) async {
         final backup = await BackupService.getInstance();
         final result = await backup.importFromJson(json);
@@ -209,6 +241,17 @@ class QaBootstrap {
                   (id: shown.id!, tag: shown.tag, payload: shown.payload),
             ];
           },
+          pending: () async {
+            if (!Platform.isAndroid) return const [];
+            return [
+              for (final request
+                  in await notifications.pendingNotificationRequests())
+                (id: request.id, tag: null, payload: request.payload),
+            ];
+          },
+          listed: () async => [
+            for (final alarm in await Alarm.getAlarms()) alarm.id,
+          ],
           dismiss: (shown) =>
               notifications.cancel(id: shown.id, tag: shown.tag),
         );

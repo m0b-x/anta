@@ -2199,4 +2199,74 @@ void main() {
 
     await close(tester);
   });
+
+  // Review 13 (B7): the page holds — and on leaving removes — only a route
+  // its opener pushed before it returned; another's on top is never taken
+  // for it.
+  group('the route an opener pushed', () {
+    late NavigatorState navigator;
+    late Route<void> theirs;
+
+    Future<void> host(WidgetTester tester) async {
+      final key = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: key, home: const SizedBox()),
+      );
+      navigator = key.currentState!;
+      theirs = DialogRoute<void>(
+        context: key.currentContext!,
+        builder: (_) => const Text('theirs'),
+      );
+      navigator.push(theirs).ignore();
+      await tester.pumpAndSettle();
+    }
+
+    Route<void> mine() => DialogRoute<void>(
+      context: navigator.context,
+      builder: (_) => const Text('mine'),
+    );
+
+    testWidgets('pushed before it returned: that route', (tester) async {
+      await host(tester);
+      final route = mine();
+
+      final held = routePushedBy(navigator, () {
+        navigator.push(route).ignore();
+      });
+
+      expect(held, same(route));
+      navigator.removeRoute(route);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('pushed after an await: none, and never the route of '
+        'another\'s on top then', (tester) async {
+      await host(tester);
+      final route = mine();
+
+      final held = routePushedBy(navigator, () {
+        Future<void>.delayed(Duration.zero, () {
+          navigator.push(route).ignore();
+        });
+      });
+      await tester.pumpAndSettle();
+
+      expect(held, isNull);
+      expect(find.text('mine'), findsOneWidget, reason: 'it did push');
+      navigator.removeRoute(route);
+      await tester.pumpAndSettle();
+      expect(find.text('theirs'), findsOneWidget);
+    });
+
+    testWidgets('pushed nothing: none, another\'s on top or not', (
+      tester,
+    ) async {
+      await host(tester);
+      expect(routePushedBy(navigator, () {}), isNull);
+
+      navigator.removeRoute(theirs);
+      await tester.pumpAndSettle();
+      expect(routePushedBy(navigator, () {}), isNull, reason: 'the page');
+    });
+  });
 }

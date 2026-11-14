@@ -54,6 +54,20 @@ void main() {
     await db.close();
   });
 
+  test('a re-parent into its own subtree, past the tombstone in it, answers '
+      'null — never a clash of names the move would not make (B5)', () async {
+    // Legs already holds a folder named as Training: the clash a move of
+    // Training under it would make, were it not a cycle.
+    await db.folderDao.createFolder(name: 'Training', parentId: legsId);
+    await db.syncOutboxDao.clear();
+
+    expect(
+      await folders.updateFolder(folderId: trainingId, parentId: legsId),
+      isNull,
+    );
+    expect(await db.syncOutboxDao.count(), 0, reason: 'nothing written');
+  });
+
   group('folderPathSegments', () {
     test('cuts the path where the crumbs cut it: nothing above the last '
         'tombstone (P fix pass PF-L9)', () async {

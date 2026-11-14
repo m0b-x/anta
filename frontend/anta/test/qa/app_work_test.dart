@@ -130,11 +130,18 @@ Active jobs:
       expect(
         raw.where((line) => line.trimLeft().startsWith('JOB ')),
         hasLength(3),
-        reason: 'the namespaced job, the plain one, and the look-alike '
+        reason:
+            'the namespaced job, the plain one, and the look-alike '
             'package\'s header, which names the package as a prefix',
       );
-      expect(raw, contains('    Unsatisfied constraints: TIMING_DELAY [0x80000000]'));
-      expect(raw.any((line) => line.contains('com.google.android.gms')), isFalse);
+      expect(
+        raw,
+        contains('    Unsatisfied constraints: TIMING_DELAY [0x80000000]'),
+      );
+      expect(
+        raw.any((line) => line.contains('com.google.android.gms')),
+        isFalse,
+      );
     });
 
     test('no job of the app is "none"', () {
@@ -257,6 +264,32 @@ Active jobs:
 
       expect(lastSharedRefreshEnding(log), 'read');
       expect(lastSharedRefreshEnding('nothing of it'), isNull);
+    });
+  });
+
+  group('forcedRunStoppedByReconcile', () {
+    test('the start-up reconcile that stops a forced run', () {
+      // The share pass's 04k, 2026-11-14.
+      const log = '''
+11-14 07:23:37.391 D/WM-SystemJobService(13055): onStartJob for WorkGenerationalId(workSpecId=b66bbf97, generation=0)
+11-14 07:23:37.405 D/WM-ForceStopRunnable(13055): Found unfinished work, scheduling it.
+11-14 07:23:37.415 D/WM-SystemJobService(13055): onStopJob for WorkGenerationalId(workSpecId=b66bbf97, generation=0)
+''';
+
+      expect(forcedRunStoppedByReconcile(log), isTrue);
+    });
+
+    test('a run that ended, or a reconcile that stopped nothing', () {
+      const ended = '''
+11-14 06:13:44.512 I/flutter ( 5168): [SharedRefresh] trigger(check) ended: forwarded
+11-14 06:13:44.560 D/WM-SystemJobService( 5168): onStopJob for WorkGenerationalId(workSpecId=956bbcb4, generation=0)
+''';
+      const reconciled = '''
+11-14 05:56:18.326 D/WM-ForceStopRunnable( 2021): Found unfinished work, scheduling it.
+''';
+
+      expect(forcedRunStoppedByReconcile(ended), isFalse);
+      expect(forcedRunStoppedByReconcile(reconciled), isFalse);
     });
   });
 

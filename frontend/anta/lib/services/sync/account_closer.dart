@@ -63,6 +63,12 @@ final class PairedAccountCloser implements AccountCloser {
   /// rather than a loop. An account holds a handful of pairs and invites.
   static const int maxPages = 50;
 
+  /// Set by DI, like `FirebaseAuthService.beforeSignOut`: what has to go
+  /// out as the account before it is deleted and its token with it — the
+  /// push registry's leave, which sends the urgent poke an end here asked
+  /// for (`docs/cloud-shared-freshness.md` §7). Bounded; never throws.
+  static Future<void> Function(String uid)? beforeAccountGone;
+
   final AuthService _auth;
   final PairingGateway _pairing;
   final Future<void> Function()? _forgetLocalPairing;
@@ -103,6 +109,7 @@ final class PairedAccountCloser implements AccountCloser {
       if (!stillWanted()) {
         throw const AccountCloseException(AccountCloseFailure.withdrawn);
       }
+      await beforeAccountGone?.call(accountUid);
       await _auth.deleteAccount();
     } on PairingException catch (e) {
       throw AccountCloseException(switch (e.error) {

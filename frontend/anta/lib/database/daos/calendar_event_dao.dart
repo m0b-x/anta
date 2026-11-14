@@ -511,6 +511,13 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
                 deletedAt: Value(remote.deletedAt),
                 updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
                 ownerId: Value(remote.ownerId),
+                // A partner's tombstone stays while it is granted, for the
+                // reader's count, but its words go — the title and the
+                // description (share surfaces P8). Its ids, category, dates,
+                // rule, colour and icon stay: no words, and what the grant
+                // and the day rows under it are read by.
+                title: shared ? const Value('') : const Value.absent(),
+                description: shared ? const Value(null) : const Value.absent(),
               ),
             );
           } else {

@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/chunking/content_chunker.dart';
 import 'package:anta/database/database.dart';
@@ -232,6 +233,43 @@ void main() {
             'missing key and a zero must not look different to it',
       );
     });
+  });
+
+  // Share surfaces record §16.9 B3: a browser page learns whether this
+  // database is paired from the census it reads anyway, never from a
+  // statement of its own.
+  group('the share census', () {
+    test('is one statement, and the stored pair rides in it', () async {
+      await _seedTree(db, roots: 3, depth: 3, notesPerFolder: 0);
+      await db.folderDao.setSharedPair('root0', 'pair-1');
+
+      counter.reset();
+      final unpaired = await db.folderDao.shareCensus();
+      expect(counter.count, 1, reason: counter.statements.join('\n'));
+      expect(unpaired.pairId, null);
+      expect(unpaired.outermost['root0_1'], 'root0');
+
+      await db.userSettingsDao.setValue(SettingsKeys.pairingPairId, 'pair-1');
+      counter.reset();
+      final paired = await db.folderDao.shareCensus();
+      expect(
+        counter.count,
+        1,
+        reason:
+            'the pair id is a scalar of the census\'s first row, never a '
+            'second read. Issued:\n${counter.statements.join('\n')}',
+      );
+      expect(paired.pairId, 'pair-1');
+      expect(paired.outermost, unpaired.outermost);
+    });
+
+    test(
+      'an empty stored pair reads as none, as the pairing reads it',
+      () async {
+        await db.userSettingsDao.setValue(SettingsKeys.pairingPairId, '');
+        expect((await db.folderDao.shareCensus()).pairId, null);
+      },
+    );
   });
 
   group('a bulk delete', () {
@@ -521,117 +559,116 @@ void main() {
     );
   });
 
+  test('reassigning a category is four statements whatever the row count', () async {
+    for (var i = 0; i < 20; i++) {
+      await db.calendarEventDao.upsert(_event('e$i'));
+    }
+
+    counter.reset();
+    final moved = await db.calendarEventDao.reassignCategory('gym', 'other');
+
+    expect(moved, 20);
+    // Deleting a category can touch an unbounded number of events, so this one
+    // cannot read-then-write: the version bump has to happen in SQL. Forgetting
+    // the stamping entirely would break nothing visible today and corrupt merge
+    // ordering the moment transport exists — that is what this pins. Since
+    // v43 the update returns the ids it moved and one batched insert queues
+    // them all; one `last_hlc` write covers their shared HLC. Since v56 one
+    // read of the two categories' marks says whether the move changed what
+    // the events are shared into — neither is marked here, so no day row
+    // is queued: four statements, whatever the row count.
+    expect(counter.matching('sync_outbox'), hasLength(1));
+    expect(counter.selects, hasLength(1));
+    expect(
+      counter.count,
+      4,
+      reason: 'issued:\n${counter.statements.join('\n')}',
+    );
+  });
+
   test(
-    'reassigning a category is four statements whatever the row count',
+    'an account that never shared anything pays one local statement '
+    'where a category\'s grant is decided, and only where it can change',
     () async {
       for (var i = 0; i < 20; i++) {
         await db.calendarEventDao.upsert(_event('e$i'));
       }
+      final rows = await db.calendarEventDao.getByIdsIncludingDeleted([
+        for (var i = 0; i < 20; i++) 'e$i',
+      ]);
 
+      // A push part with events: one join of their categories' marks, however
+      // many events the part carries.
       counter.reset();
-      final moved = await db.calendarEventDao.reassignCategory('gym', 'other');
-
-      expect(moved, 20);
-      // Deleting a category can touch an unbounded number of events, so this one
-      // cannot read-then-write: the version bump has to happen in SQL. Forgetting
-      // the stamping entirely would break nothing visible today and corrupt merge
-      // ordering the moment transport exists — that is what this pins. Since
-      // v43 the update returns the ids it moved and one batched insert queues
-      // them all; one `last_hlc` write covers their shared HLC. Since v56 one
-      // read of the two categories' marks says whether the move changed what
-      // the events are shared into — neither is marked here, so no day row
-      // is queued: four statements, whatever the row count.
-      expect(counter.matching('sync_outbox'), hasLength(1));
-      expect(counter.selects, hasLength(1));
+      expect(
+        await const CalendarEventsBinding().sharedPairs(db, rows),
+        isEmpty,
+      );
       expect(
         counter.count,
-        4,
+        1,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
-    },
-  );
+      expect(
+        counter.statements.single,
+        contains('LEFT JOIN calendar_categories'),
+      );
 
-  test('an account that never shared anything pays one local statement '
-      'where a category\'s grant is decided, and only where it can change',
-      () async {
-    for (var i = 0; i < 20; i++) {
-      await db.calendarEventDao.upsert(_event('e$i'));
-    }
-    final rows = await db.calendarEventDao.getByIdsIncludingDeleted([
-      for (var i = 0; i < 20; i++) 'e$i',
-    ]);
-
-    // A push part with events: one join of their categories' marks, however
-    // many events the part carries.
-    counter.reset();
-    expect(
-      await const CalendarEventsBinding().sharedPairs(db, rows),
-      isEmpty,
-    );
-    expect(
-      counter.count,
-      1,
-      reason: 'issued:\n${counter.statements.join('\n')}',
-    );
-    expect(
-      counter.statements.single,
-      contains('LEFT JOIN calendar_categories'),
-    );
-
-    // A save that moves an event to another category: the read of the row,
-    // and one read of the two categories' marks.
-    counter.reset();
-    await db.calendarEventDao.upsert(_event('e0', category: 'cardio'));
-    expect(
-      counter.selects,
-      hasLength(2),
-      reason: 'issued:\n${counter.statements.join('\n')}',
-    );
-    expect(counter.matching('FROM calendar_categories WHERE'), hasLength(1));
-
-    // A save that keeps its category reads no mark.
-    counter.reset();
-    await db.calendarEventDao.upsert(
-      _event(
-        'e0',
-        category: 'cardio',
-      ).copyWith(title: const Value('Arm day')),
-    );
-    expect(
-      counter.selects,
-      hasLength(1),
-      reason: 'issued:\n${counter.statements.join('\n')}',
-    );
-
-    // A merge that moves an event: its one read, and the same read of the
-    // marks; one that keeps the category, its read alone.
-    for (final (id, category, reads) in [
-      ('e1', 'cardio', 2),
-      ('e2', 'gym', 1),
-    ]) {
-      final row = rows.firstWhere((row) => row.id == id);
+      // A save that moves an event to another category: the read of the row,
+      // and one read of the two categories' marks.
       counter.reset();
-      await db.calendarEventDao.mergeRemoteEvent(
-        row.copyWith(
-          category: category,
-          title: 'Merged',
-          hlcTimestamp: 'ffffffffff00:0000:other',
-          deviceId: 'other',
-        ),
+      await db.calendarEventDao.upsert(_event('e0', category: 'cardio'));
+      expect(
+        counter.selects,
+        hasLength(2),
+        reason: 'issued:\n${counter.statements.join('\n')}',
+      );
+      expect(counter.matching('FROM calendar_categories WHERE'), hasLength(1));
+
+      // A save that keeps its category reads no mark.
+      counter.reset();
+      await db.calendarEventDao.upsert(
+        _event(
+          'e0',
+          category: 'cardio',
+        ).copyWith(title: const Value('Arm day')),
       );
       expect(
         counter.selects,
-        hasLength(reads),
-        reason: '$id issued:\n${counter.statements.join('\n')}',
+        hasLength(1),
+        reason: 'issued:\n${counter.statements.join('\n')}',
       );
-      expect(
-        counter.matching('FROM calendar_categories WHERE'),
-        hasLength(reads - 1),
-      );
-    }
-    // reassignCategory's one read of the marks is pinned with its other
-    // three statements above.
-  });
+
+      // A merge that moves an event: its one read, and the same read of the
+      // marks; one that keeps the category, its read alone.
+      for (final (id, category, reads) in [
+        ('e1', 'cardio', 2),
+        ('e2', 'gym', 1),
+      ]) {
+        final row = rows.firstWhere((row) => row.id == id);
+        counter.reset();
+        await db.calendarEventDao.mergeRemoteEvent(
+          row.copyWith(
+            category: category,
+            title: 'Merged',
+            hlcTimestamp: 'ffffffffff00:0000:other',
+            deviceId: 'other',
+          ),
+        );
+        expect(
+          counter.selects,
+          hasLength(reads),
+          reason: '$id issued:\n${counter.statements.join('\n')}',
+        );
+        expect(
+          counter.matching('FROM calendar_categories WHERE'),
+          hasLength(reads - 1),
+        );
+      }
+      // reassignCategory's one read of the marks is pinned with its other
+      // three statements above.
+    },
+  );
 
   test('a page of newly pulled events reads each one\'s category in the '
       'statement that looks for the event, never apart', () async {

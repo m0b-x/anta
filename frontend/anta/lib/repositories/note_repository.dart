@@ -67,6 +67,14 @@ class NoteRepository {
   /// (`FolderRepository.shareCensus`): one census per database.
   ShareCensus get shareCensus => ShareCensus.of(_db);
 
+  /// Every [ShareCensus.forget] of the database read now, and every
+  /// [rebindDatabase] ([ShareCensus.forgottenAcross]), so a page that
+  /// outlives an in-process switch keeps hearing its share facts change.
+  Stream<void> get shareFactsChanged => ShareCensus.forgottenAcross(
+    database: () => _db,
+    rebinds: _rebinds.stream,
+  );
+
   /// The ids among [ids] of notes [owner] — the partner — shares with this
   /// account.
   Future<List<String>> partnersAmong(List<String> ids, String owner) =>
@@ -582,12 +590,6 @@ class NoteRepository {
     }
     return result;
   }
-
-  /// Owes the partner's phone a poke for each pair [folderIds] are marked
-  /// shared into (`SyncDao.oweSharePokesForFolders`): a move the share
-  /// census says changed a note's sharing.
-  Future<void> oweSharePokesForFolders(Iterable<String> folderIds) =>
-      _db.syncDao.oweSharePokesForFolders(folderIds);
 
   /// Writes the custom order a drag left in [folderId] through
   /// [NoteDao.applyOrder] and announces only the notes whose position

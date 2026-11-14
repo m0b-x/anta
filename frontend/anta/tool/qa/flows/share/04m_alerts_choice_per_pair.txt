@@ -1,0 +1,90 @@
+# What may ring belongs to the pair (D38). The partner chooses "Category
+# alerts too"; the owner unpairs ("qa1@example.com ended sharing." on the
+# partner's notice); the two pair again with a new code — a new pair —
+# and the partner's "Alerts for shared events" reads "Only alerts I add"
+# again. The partner chooses "Category alerts too" once more and its app
+# is started again: the same pair, adopted again, keeps the choice. Ends
+# on "Only alerts I add", both on Sync & sharing, paired.
+# Revealed alone, the Sharing page's alerts row lands at the very foot of
+# the screen after 04l, where a tap on it opened nothing (2026-11-14): the
+# page's last row (Unpair) is scrolled to after it, which lifts it up.
+-d emulator-5558 expect --absent "no longer shares" --timeout 15
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-alerts --in id:sharing-page-list
+-d emulator-5558 scroll-to id:sharing-unpair --in id:sharing-page-list
+-d emulator-5558 tap id:sharing-alerts
+-d emulator-5558 wait id:sharing-alerts-category
+-d emulator-5558 tap id:sharing-alerts-category
+-d emulator-5558 wait id:sharing-alerts-category --gone
+-d emulator-5558 expect id:sharing-alerts "Category alerts too" --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+scroll-to id:sharing-paired --in id:sharing-list
+tap id:sharing-paired
+wait id:sharing-page
+scroll-to id:sharing-unpair --in id:sharing-page-list
+tap id:sharing-unpair
+wait id:sharing-unpair-confirm
+tap id:sharing-unpair-confirm
+wait id:sharing-pair --timeout 30
+# The partner stands on Sync & sharing: the notice comes up there.
+-d emulator-5558 wait id:sharing-ended-close --timeout 30
+-d emulator-5558 expect "qa1@example.com ended sharing."
+-d emulator-5558 tap id:sharing-ended-close
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect id:sharing-pair --absent id:sharing-paired --timeout 15
+# A new pair, as 00 makes one.
+scroll-to id:sharing-pair --in id:sharing-list
+tap id:sharing-pair
+wait id:pairing-generate
+tap id:pairing-generate
+wait id:pairing-code --timeout 20
+text id:pairing-code --match "[2-9A-Z]{4}-[2-9A-Z]{4}" --capture invite2
+-d emulator-5558 scroll-to id:sharing-pair --in id:sharing-list
+-d emulator-5558 tap id:sharing-pair
+-d emulator-5558 wait id:pairing-code-field
+-d emulator-5558 tap id:pairing-code-field
+-d emulator-5558 type "{{var:invite2}}"
+-d emulator-5558 tap id:pairing-connect
+-d emulator-5558 wait id:sharing-paired --timeout 30
+wait id:sharing-paired --timeout 30
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-alerts --in id:sharing-page-list
+-d emulator-5558 scroll-to id:sharing-unpair --in id:sharing-page-list
+-d emulator-5558 expect id:sharing-alerts "Only alerts I add" --timeout 10
+-d emulator-5558 shot new-pair-own-alerts
+-d emulator-5558 tap id:sharing-alerts
+-d emulator-5558 wait id:sharing-alerts-category
+-d emulator-5558 tap id:sharing-alerts-category
+-d emulator-5558 wait id:sharing-alerts-category --gone
+-d emulator-5558 expect id:sharing-alerts "Category alerts too" --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+# The same pair adopted again at a start of the app: the choice stays.
+# The sign-in account is held in memory, so it is told again (06).
+# The launch restores the page it was on: Sync & sharing.
+-d emulator-5558 relaunch
+-d emulator-5558 wait id:settings-bar-sharing --timeout 30
+-d emulator-5558 set account=qa2:qa2@example.com
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 scroll-to id:sharing-alerts --in id:sharing-page-list
+-d emulator-5558 scroll-to id:sharing-unpair --in id:sharing-page-list
+-d emulator-5558 expect id:sharing-alerts "Category alerts too" --timeout 15
+-d emulator-5558 shot same-pair-kept
+-d emulator-5558 tap id:sharing-alerts
+-d emulator-5558 wait id:sharing-alerts-own
+-d emulator-5558 tap id:sharing-alerts-own
+-d emulator-5558 wait id:sharing-alerts-own --gone
+-d emulator-5558 expect id:sharing-alerts "Only alerts I add" --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

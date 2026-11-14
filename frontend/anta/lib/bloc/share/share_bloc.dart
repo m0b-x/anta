@@ -66,21 +66,29 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
           emit,
           ShareAct.eventUnshared,
           (service) => service.setEventShared(eventId, false),
+          asker: event.asker,
         ),
         ShareFolderShared(:final folderId) => _act(
           emit,
           ShareAct.folderShared,
           (service) => service.setFolderShared(folderId, true),
+          asker: event.asker,
         ),
         ShareFolderUnshared(:final folderId) => _act(
           emit,
           ShareAct.folderUnshared,
           (service) => service.setFolderShared(folderId, false),
+          asker: event.asker,
         ),
         // One the close handed over is written there, never twice.
         ShareUndoRequested(:final change) =>
           _queuedUndos.remove(event)
-              ? _act(emit, ShareAct.undo, (service) => service.undo(change))
+              ? _act(
+                  emit,
+                  ShareAct.undo,
+                  (service) => service.undo(change),
+                  asker: event.asker,
+                )
               : Future<void>.value(),
         ShareStopAllRequested() => _onStopAll(emit),
       },
@@ -267,17 +275,24 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
   Future<void> _act(
     Emitter<ShareState> emit,
     ShareAct act,
-    Future<ShareChange> Function(ShareService service) write,
-  ) async {
+    Future<ShareChange> Function(ShareService service) write, {
+    Object? asker,
+  }) async {
     final sequence = ++_outcomes;
     try {
       final change = await write(await _resolve());
-      _outcome = ShareOutcome(sequence: sequence, act: act, change: change);
+      _outcome = ShareOutcome(
+        sequence: sequence,
+        act: act,
+        change: change,
+        asker: asker,
+      );
     } on ShareRefused {
       _outcome = ShareOutcome(
         sequence: sequence,
         act: act,
         failure: ShareFailure.refused,
+        asker: asker,
       );
     } catch (e, st) {
       debugPrint('[ShareBloc] ${act.name} failed: $e\n$st');
@@ -285,6 +300,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         sequence: sequence,
         act: act,
         failure: ShareFailure.failed,
+        asker: asker,
       );
     }
     await _reload(emit);

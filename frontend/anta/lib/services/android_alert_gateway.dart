@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -785,6 +786,86 @@ String alertArmContext({
   return '$backend$loudness$kAlertArmGrammarToken.$language.$clock';
 }
 
+/// What a pass arms under that only the app's own engine can read, as
+/// [AlertGateway.armFacts] carries it on Android to a pass with no app: the
+/// volume bucket and the clock style come from the activity and its view,
+/// which an engine started for background work has neither of.
+///
+/// [language] is the resolved one — what the entries are really written in
+/// — so a setting that follows the device needs no device to resolve it.
+/// [remindersGrouped] and [devicePixelRatio] move no token; they are here
+/// because an entry armed without them is a different entry: a loose
+/// reminder, an avatar drawn for another screen. Null where the app itself
+/// could not read one.
+@immutable
+class AlertArmFacts {
+  final AlertRingVolume volume;
+  final String language;
+  final bool use24Hour;
+  final bool? remindersGrouped;
+  final double? devicePixelRatio;
+
+  const AlertArmFacts({
+    required this.volume,
+    required this.language,
+    required this.use24Hour,
+    this.remindersGrouped,
+    this.devicePixelRatio,
+  });
+
+  /// One spelling per set of facts, so the scheduler's "is it what stands"
+  /// is a string comparison and an unchanged phone costs no write.
+  String encode() => jsonEncode({
+    'volume': volume.name,
+    'language': language,
+    'h24': use24Hour,
+    'grouped': ?remindersGrouped,
+    'dpr': ?devicePixelRatio,
+  });
+
+  /// Null for anything this build cannot read whole — another build's
+  /// spelling, a volume bucket it does not know: a pass with no app then
+  /// arms nothing, rather than under a guess.
+  static AlertArmFacts? tryDecode(String stored) {
+    try {
+      final map = jsonDecode(stored);
+      if (map is! Map<String, dynamic>) return null;
+      final volume = AlertRingVolume.values
+          .where((v) => v.name == map['volume'])
+          .firstOrNull;
+      final language = map['language'];
+      final use24Hour = map['h24'];
+      final grouped = map['grouped'];
+      final ratio = map['dpr'];
+      if (volume == null ||
+          language is! String ||
+          language.isEmpty ||
+          use24Hour is! bool ||
+          (grouped != null && grouped is! bool) ||
+          (ratio != null && ratio is! num)) {
+        return null;
+      }
+      return AlertArmFacts(
+        volume: volume,
+        language: language,
+        use24Hour: use24Hour,
+        remindersGrouped: grouped as bool?,
+        devicePixelRatio: (ratio as num?)?.toDouble(),
+      );
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// The token these facts arm under.
+  String contextFor(String backend) => alertArmContext(
+    backend: backend,
+    volume: volume,
+    language: language,
+    use24Hour: use24Hour,
+  );
+}
+
 /// The side of a notification's large icon, in logical pixels: what the
 /// platform's own templates draw one at.
 const double kAlertLargeIconDp = 48;
@@ -943,9 +1024,22 @@ class AndroidAlertGateway extends AlertGateway {
   /// The activity's own pushes are answered from construction on: nothing
   /// here reaches the platform, and a warm show intent arriving before
   /// [initialize] has finished must not land on a channel with no handler.
-  AndroidAlertGateway() {
+  AndroidAlertGateway({this.presentsAlarms = true}) {
     _platform.setMethodCallHandler(_handlePlatformCall);
   }
+
+  /// Whether a ring may be presented to this binding: true for the app's,
+  /// false for one built in an engine with no app behind it — the shared
+  /// check's run (`docs/cloud-shared-freshness.md` §6).
+  ///
+  /// That engine arms and cancels like the app's and must never be where an
+  /// alarm shows. With no app in the process it was the only engine the
+  /// plugin's host could tell, so a ring during a run was reported to the
+  /// run: its page went nowhere, and the Silence-after timer started here
+  /// died with the engine seconds later. A binding that does not present
+  /// resigns to the host as it comes up ([_initialize]), starts the plugin
+  /// without its reconciliation, and listens to none of its streams.
+  final bool presentsAlarms;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -1096,6 +1190,15 @@ class AndroidAlertGateway extends AlertGateway {
   /// activity has said which Android it is running — see [_groupsReminders].
   bool? _remindersGrouped;
 
+  /// What the last [refreshArmContext] read, or what [adoptArmFacts] was
+  /// handed in its place.
+  AlertArmFacts? _armFacts;
+
+  /// The screen density a pass with no app draws its avatars for — the
+  /// app's own, since its engine has no view; null in the app, which asks
+  /// its view.
+  double? _adoptedPixelRatio;
+
   static const MethodChannel _platform = MethodChannel(
     'com.alexzamfir.anta/alerts',
   );
@@ -1153,6 +1256,11 @@ class AndroidAlertGateway extends AlertGateway {
   }
 
   Future<void> _initialize() async {
+    // First of all where nothing is presented: until the plugin's host is
+    // told, a ring that starts now is reported to this engine. In place of
+    // `Alarm.init()` below, which re-arms every stored alarm and drains the
+    // host's markers — both the presenting isolate's to do.
+    if (!presentsAlarms) await Alarm.initWithoutPresenting();
     await _reportRingsInProgress();
     if (!_languageReadAtStart) {
       _languageReadAtStart = true;
@@ -1232,6 +1340,11 @@ class AndroidAlertGateway extends AlertGateway {
       if (line != null) debugPrint(line);
     });
 
+    // The plugin is up already, and neither of its streams is this
+    // binding's to follow: a ring heard here would be tracked, timed and
+    // announced in an isolate about to end.
+    if (!presentsAlarms) return;
+
     // Before `init`, which drains the host's markers onto this stream; a
     // retried initialize re-subscribes and is replayed the buffer, which the
     // `(id, recordedAt)` key absorbs. The manual acknowledgement boundary
@@ -1255,6 +1368,10 @@ class AndroidAlertGateway extends AlertGateway {
   /// Recorded as a plugin ring, so the first `Alarm.ringing` emission that
   /// lacks it ends it like any other. Best-effort: a failure here leaves the
   /// ring to `Alarm.init()`, as before.
+  ///
+  /// A binding that presents nothing only notes them ([ringingIds]): its
+  /// pass must not arm over an alarm that is sounding, and nothing more is
+  /// its business — no page, no timer, no word on [ringing].
   Future<void> _reportRingsInProgress() async {
     try {
       final now = DateTime.now();
@@ -1263,6 +1380,10 @@ class AndroidAlertGateway extends AlertGateway {
         if (!await Alarm.isRinging(alarm.id)) continue;
         final payload = AlertPayload.decode(alarm.payload);
         if (payload == null) continue;
+        if (!presentsAlarms) {
+          _rings[alarm.id] = _ringReport(payload, alarm);
+          continue;
+        }
         _pluginRings.add(alarm.id);
         _emitRing(_ringReport(payload, alarm));
       }
@@ -1736,7 +1857,9 @@ class AndroidAlertGateway extends AlertGateway {
     try {
       final icon = _iconOf(payload);
       final color = _tintOf(payload);
-      final pixels = alertLargeIconPixels(_devicePixelRatio());
+      final pixels = alertLargeIconPixels(
+        _adoptedPixelRatio ?? _devicePixelRatio(),
+      );
       final name = alertLargeIconFileName(icon, color, pixels);
       return await (_iconFiles[name] ??= _findOrDrawIcon(
         name,
@@ -1887,15 +2010,64 @@ class AndroidAlertGateway extends AlertGateway {
     _ringVolume = alertRingVolumeFor(await _alarmStreamVolume());
     _languageCode = await _rereadLanguageCode();
     final labels = _labels = _labelsFor(_languageCode);
-    return alertArmContext(
-      backend: backendName,
+    _adoptedPixelRatio = null;
+    // Asked here so a pass with no app knows it too: once per process, and
+    // left null when the activity gave no answer. Only where such a pass
+    // can exist: elsewhere it is asked when a reminder is armed, as before
+    // there was one.
+    if (_keepsArmFacts) await _groupsReminders();
+    _armFacts = AlertArmFacts(
       volume: _ringVolume,
       // What the pass will really write in, not what the setting says: a
       // setting that follows the device resolves to a language, and it is
       // the language that is frozen into an entry.
       language: labels.languageCode,
       use24Hour: labels.use24Hour,
+      remindersGrouped: _remindersGrouped,
+      devicePixelRatio: _devicePixelRatio(),
     );
+    return _armFacts!.contextFor(backendName);
+  }
+
+  @override
+  String? get armFacts => _keepsArmFacts ? _armFacts?.encode() : null;
+
+  /// Off until the scheduler says a pass with no app can exist.
+  bool _keepsArmFacts = false;
+
+  @override
+  set keepsArmFacts(bool keeps) => _keepsArmFacts = keeps;
+
+  /// Everything [refreshArmContext] sets, set from [stored] instead: no
+  /// channel of the activity is asked and no view is read. The start is
+  /// waited for first — it reads the language once itself, and must not
+  /// land on top of what is adopted here.
+  @override
+  Future<String?> adoptArmFacts(String stored) async {
+    final facts = AlertArmFacts.tryDecode(stored);
+    if (facts == null) return null;
+    try {
+      await initialize();
+    } catch (e) {
+      debugPrint('[AndroidAlertGateway] start failed before adopting: $e');
+      // A binding that presents nothing and did not come up — it could not
+      // resign, or the plugin did not start — arms nothing: every later
+      // step of the pass asks for the start again and would throw after
+      // the pass had already swept, leaving the run failed with no
+      // successor. The app's own binding goes on: each `schedule` asks
+      // again and fails by itself.
+      if (!presentsAlarms) return null;
+    }
+    _armFacts = facts;
+    _ringVolume = facts.volume;
+    _languageCode = facts.language;
+    _labels = AlertLabels(
+      strings: alertGatewayStrings(facts.language),
+      use24Hour: facts.use24Hour,
+    );
+    _remindersGrouped = facts.remindersGrouped ?? _remindersGrouped;
+    _adoptedPixelRatio = facts.devicePixelRatio;
+    return facts.contextFor(backendName);
   }
 
   // ── Scheduling ───────────────────────────────────────────────────────
@@ -2503,6 +2675,13 @@ class AndroidAlertGateway extends AlertGateway {
 
   @override
   Set<int> get ringingIds => Set<int>.unmodifiable(_rings.keys);
+
+  /// The app's binding follows the plugin's own stream and asks nothing.
+  @override
+  Future<void> noteRinging() async {
+    if (presentsAlarms) return;
+    await _reportRingsInProgress();
+  }
 
   @override
   List<AlertPayload> get ringingPayloads =>

@@ -5,6 +5,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/digest_planner.dart';
 
 /// The digest planner is the alert planner's twin and pure the same way:
@@ -634,6 +635,66 @@ void main() {
         ('mine', DateTime.utc(2026, 10, 4)),
       ]);
       expect(planned(includePartner: true), planned(includePartner: false));
+    });
+
+    /// A report holds no part of theirs (D15). Its stored list can still
+    /// name their group — written on my other device, or left from before
+    /// it became a report — and the setting that lets their events reach an
+    /// upcoming digest never reaches a report.
+    group('and a report', () {
+      // From Tuesday 15 September the weekly report next fires on Monday
+      // the 21st, over Monday 14 – Sunday 20.
+      final mineInSpan = eventOf('mine-w', DateTime.utc(2026, 9, 16));
+      final theirsInSpan = CalendarEvent(
+        id: 'theirs-w',
+        title: 'theirs-w',
+        categoryId: 'birthday',
+        startDate: DateTime.utc(2026, 9, 17),
+        fromPartner: true,
+      );
+
+      List<PlannedDigest> reportPlan(
+        Set<String> categoryIds, {
+        required List<CalendarEvent> events,
+      }) => DigestPlanner.plan(
+        digests: [
+          digestOf(
+            cadence: DigestCadence.weeklyReport,
+            anchor: DateTime.monday,
+            categoryIds: categoryIds,
+            includeEmpty: false,
+          ),
+        ],
+        events: events,
+        horizon: const DigestHorizon(perDigest: 1, maxDigests: 1),
+        now: now,
+        includePartner: true,
+      );
+
+      List<String> counted(Set<String> categoryIds) => [
+        for (final fire in reportPlan(
+          categoryIds,
+          events: [mineInSpan, theirsInSpan],
+        ))
+          for (final occurrence in fire.entries) occurrence.event.id,
+      ];
+
+      test('a list that names their group alone counts every category of '
+          'mine', () {
+        expect(counted(const {CategoryAllowlist.partnerEntry}), ['mine-w']);
+      });
+
+      test('a part of mine beside their group counts that part', () {
+        expect(counted(const {'birthday', CategoryAllowlist.partnerEntry}), [
+          'mine-w',
+        ]);
+        expect(counted(const {'gym', CategoryAllowlist.partnerEntry}), isEmpty);
+      });
+
+      test('their events are never counted and never arm it alone', () {
+        expect(counted(const {}), ['mine-w']);
+        expect(reportPlan(const {}, events: [theirsInSpan]), isEmpty);
+      });
     });
   });
 }

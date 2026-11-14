@@ -1,7 +1,9 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../constants/settings_keys.dart';
 import '../../constants/shared_refresh_constants.dart';
 
 /// Single gate for whether this device reads what a partner shares while
@@ -19,6 +21,23 @@ abstract final class SharedRefreshAvailability {
   /// drawn on the machine the tests run on. Null is the platform's answer.
   @visibleForTesting
   static bool? debugSupported;
+
+  /// Whether anything could start a run of the check on this install: a
+  /// check was planned at some time, or a push address is held, so the
+  /// partner's change can arrive as a message. What an install that never
+  /// paired is spared goes by this — the timer that keeps the app's name,
+  /// and the arm facts kept for a run. From the preferences the launch has
+  /// already loaded; unreadable, the answer is yes.
+  static Future<bool> runsCanExist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.containsKey(SettingsKeys.sharedRefreshPlanned) ||
+          prefs.getString(SettingsKeys.pushAddressHeld) != null;
+    } catch (error) {
+      debugPrint('[SharedRefresh] triggers not known: $error');
+      return true;
+    }
+  }
 }
 
 /// The two unique names the check's work lives under, one at a time.
@@ -66,12 +85,30 @@ abstract interface class SharedRefreshScheduler {
   /// work that is running ([runningIn]): it is ending by itself.
   Future<void> cancel({SharedRefreshSlot? runningIn});
 
+  /// Whether the platform holds the check's work in [slot], waiting or
+  /// running. Null when it cannot tell — a binding with no platform, a
+  /// question that failed: the asker then goes by what it remembers.
+  ///
+  /// What the plan's memory is checked against before it is relied on to
+  /// schedule nothing (`SharedRefresh`): the memory is restored with the
+  /// phone's backup and the works are not, and a work can be consumed or
+  /// lost with nobody writing it off.
+  Future<bool?> stands(SharedRefreshSlot slot);
+
   /// Runs the check now for a relay message naming [pairId], under a work
-  /// of its own — in neither slot: after a message's run already going,
-  /// never in its place, and never touching the schedule's. [expedited]
-  /// lets it run on a phone asleep, where the platform can do so without a
-  /// notification.
-  Future<void> scheduleMessage(String pairId, {required bool expedited});
+  /// of its own — in neither slot, never touching the schedule's — and in
+  /// place of any message's work that stands: at most one does, the newest.
+  /// [expedited] lets it run on a phone asleep, where the platform can do
+  /// so without a notification.
+  ///
+  /// [behindRunning]: asked by a message's work that is running, for the
+  /// read it still owes — the fresh work goes behind it, and the work that
+  /// asks is left to end by itself.
+  Future<void> scheduleMessage(
+    String pairId, {
+    required bool expedited,
+    bool behindRunning = false,
+  });
 }
 
 /// The binding of a platform with no background work: the desktop builds,
@@ -86,8 +123,12 @@ class NoOpSharedRefreshScheduler implements SharedRefreshScheduler {
   Future<void> cancel({SharedRefreshSlot? runningIn}) async {}
 
   @override
+  Future<bool?> stands(SharedRefreshSlot slot) async => null;
+
+  @override
   Future<void> scheduleMessage(
     String pairId, {
     required bool expedited,
+    bool behindRunning = false,
   }) async {}
 }

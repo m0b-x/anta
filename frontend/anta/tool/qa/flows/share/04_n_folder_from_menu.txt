@@ -1,0 +1,92 @@
+# A folder shared from its own menu, read on the other phone — no seam.
+# The owner opens Training's ⋮ and taps "Share with …"; after a sync each
+# the partner finds it under "From …" at its root and opens it: the
+# read-only line under the bar, and the create buttons drawn disabled (a
+# tap on either opens nothing). A note in it opens read-only: no edit
+# mode, nothing to type into, its task list as it was. "Copy to my notes"
+# puts a copy into a folder of the partner's own, and the copy takes an
+# edit.
+key back
+wait id:create-folder
+tap "Training"
+wait id:create-note
+tap id:folder-more
+wait id:folder-menu-share
+tap id:folder-menu-share
+wait id:folder-menu-share --gone
+expect "Sharing Training with" --timeout 5
+tap id:folder-more
+wait id:folder-menu-share
+expect id:folder-menu-share "Shared with"
+key back
+wait id:folder-menu-share --gone
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 expect id:browser-section-partner "Training" --timeout 30
+# A folder of the partner's own first: the copy needs one, since a note
+# cannot live at the root.
+-d emulator-5558 tap id:create-folder
+-d emulator-5558 wait id:sheet-confirm
+-d emulator-5558 type "My copies"
+-d emulator-5558 tap id:sheet-confirm
+-d emulator-5558 wait id:sheet-confirm --gone
+-d emulator-5558 expect "My copies" --timeout 10
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect id:browser-partner-line "Read only" "Week 1"
+-d emulator-5558 tap id:create-note
+-d emulator-5558 tap id:create-folder
+-d emulator-5558 expect --absent id:editor-body --absent id:sheet-confirm
+-d emulator-5558 shot partner-folder
+-d emulator-5558 tap "Week 1"
+-d emulator-5558 wait id:browser-partner-line
+-d emulator-5558 expect "Session 1" --timeout 10
+# Session 2's preview names Session 1, and Session 2 sorts first (last
+# updated): Session 1's row is the second match.
+-d emulator-5558 tap "Session 1" --nth 1
+-d emulator-5558 wait id:shared-note-line --timeout 15
+-d emulator-5558 tap id:editor-body
+-d emulator-5558 expect id:shared-note-line "- [ ] Mobility flow" --absent id:editor-toolbar
+-d emulator-5558 shot read-only-note
+-d emulator-5558 tap id:editor-more
+-d emulator-5558 wait id:shared-note-copy
+-d emulator-5558 tap id:shared-note-copy
+# "My copies" is the one row the picker lists at the partner's root (its
+# id is keyed by a folder id minted on the device: matched by prefix).
+-d emulator-5558 wait id:folder-picker-confirm
+-d emulator-5558 tap id:folder-picker-row-*
+-d emulator-5558 expect "SUBFOLDERS OF MY COPIES" --timeout 5
+-d emulator-5558 tap id:folder-picker-confirm
+-d emulator-5558 wait id:editor-toolbar --timeout 15
+-d emulator-5558 expect "Later changes by" --absent id:shared-note-line --timeout 5
+-d emulator-5558 tap id:editor-body
+-d emulator-5558 type "Partner kept this"
+-d emulator-5558 expect "Partner kept this"
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-note-line
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-partner-line
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-partner-line
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap "My copies"
+-d emulator-5558 expect "Session 1" "Partner kept this" --absent id:browser-partner-line --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

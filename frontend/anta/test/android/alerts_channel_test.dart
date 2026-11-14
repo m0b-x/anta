@@ -1,6 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'package:anta/constants/alert_constants.dart';
 
 import 'package:anta/services/android_alert_gateway.dart';
 
@@ -169,6 +173,12 @@ void main() {
       // same two facts of them in the token: a fixed language here, or the
       // setting in place of what it resolves to, and a change of language or
       // of the phone's clock would stop re-arming what already stands.
+      //
+      // The token is spelled through the pass's facts since a pass with no
+      // app arms under the ones the app stored (shared freshness §6): the
+      // same four things reach `alertArmContext`, by way of one object the
+      // two paths share — so each link is read here, or a fact dropped on
+      // the way would move nothing.
       final method = codeOf(pass);
 
       expect(
@@ -179,12 +189,110 @@ void main() {
         method,
         matches(
           RegExp(
-            r'return alertArmContext\(\s*backend: backendName,\s*'
-            r'volume: _ringVolume,\s*language: labels\.languageCode,\s*'
-            r'use24Hour: labels\.use24Hour,?\s*\);',
+            r'_armFacts = AlertArmFacts\(\s*volume: _ringVolume,\s*'
+            r'language: labels\.languageCode,\s*'
+            r'use24Hour: labels\.use24Hour,',
           ),
         ),
       );
+      expect(method, contains('return _armFacts!.contextFor(backendName);'));
+      expect(
+        gatewayCode,
+        matches(
+          RegExp(
+            r'String contextFor\(String backend\) => alertArmContext\(\s*'
+            r'backend: backend,\s*volume: volume,\s*language: language,\s*'
+            r'use24Hour: use24Hour,?\s*\);',
+          ),
+        ),
+      );
+      expect(
+        'alertArmContext('.allMatches(gatewayCode),
+        hasLength(2),
+        reason:
+            'its declaration and the facts\' one call: no token is '
+            'spelled past the facts',
+      );
+    });
+
+    test('and a pass with no app arms with exactly what its adopted token '
+        'says: the stored volume, language and clock, and nothing asked of '
+        'the phone', () {
+      // The other way into the same token. What the token names and what the
+      // entries are then written with have to be the same stored facts: a
+      // label built from this engine's own clock style — which has no view,
+      // and so answers 12-hour — under a token that says 24 would write
+      // every new entry in words the app's next pass sees no reason to
+      // replace.
+      const adopt = 'Future<String?> adoptArmFacts(String stored) async {';
+      final method = codeOf(adopt);
+
+      expect(method, contains('_ringVolume = facts.volume;'));
+      expect(
+        method,
+        matches(
+          RegExp(
+            r'_labels = AlertLabels\(\s*'
+            r'strings: alertGatewayStrings\(facts\.language\),\s*'
+            r'use24Hour: facts\.use24Hour,?\s*\);',
+          ),
+        ),
+      );
+      expect(method, contains('return facts.contextFor(backendName);'));
+      // What every title and action is worded in, and what the avatar is
+      // drawn at: adopted too, or the run words in this engine's own
+      // language and draws at a view it does not have.
+      expect(method, contains('_languageCode = facts.language;'));
+      expect(method, contains('_adoptedPixelRatio = facts.devicePixelRatio;'));
+      // Facts this build cannot read are no token at all.
+      expect(method, contains('if (facts == null) return null;'));
+      for (final asked in [
+        '_platform.',
+        '_alarmStreamVolume(',
+        '_labelsFor(',
+        '_rereadLanguageCode(',
+        '_groupsReminders(',
+        '_devicePixelRatio(',
+        'alwaysUse24HourFormat',
+      ]) {
+        expect(method, isNot(contains(asked)), reason: asked);
+      }
+    });
+
+    test('built to present nothing, the binding resigns before it adopts '
+        'anything — and one that could not resign adopts nothing, so the '
+        'run arms nothing instead of throwing mid-pass (review R3c)', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      const presenter = MethodChannel('com.gdelataillade.alarm/presenter');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final asked = <String>[];
+      messenger.setMockMethodCallHandler(presenter, (call) async {
+        asked.add(call.method);
+        throw PlatformException(code: 'unavailable');
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(presenter, null);
+        debugDefaultTargetPlatformOverride = null;
+      });
+      final stored = const AlertArmFacts(
+        volume: AlertRingVolume.follow,
+        language: 'ro',
+        use24Hour: true,
+        remindersGrouped: true,
+        devicePixelRatio: 2.625,
+      ).encode();
+      final run = AndroidAlertGateway(presentsAlarms: false);
+
+      // Facts this build cannot read ask the platform nothing.
+      expect(await run.adoptArmFacts('not facts'), isNull);
+      expect(asked, isEmpty);
+
+      expect(await run.adoptArmFacts(stored), isNull);
+      expect(asked, ['resign']);
+      expect(run.armFacts, isNull);
+      debugDefaultTargetPlatformOverride = null;
     });
   });
 
@@ -261,13 +369,61 @@ void main() {
     });
 
     test('remembers an answer and never a failure', () {
-      // Written once in the whole file, by the rule's own line. A no kept
-      // from one bad round trip at launch would arm every reminder of the
-      // process loose, and a yes written anywhere else is nobody's answer.
+      // Written in two places in the whole file, and both times an answer:
+      // by the rule's own line, and where a pass with no app adopts the
+      // answer the app's own activity gave (shared freshness §6) — an engine
+      // with no activity cannot ask. A no kept from one bad round trip at
+      // launch would arm every reminder of the process loose, and a yes
+      // written anywhere else is nobody's answer.
+      final writes = [
+        for (final write in RegExp(
+          r'_remindersGrouped\s*[?|&^]*=(?!=)[^;]*;',
+        ).allMatches(gatewayCode))
+          write.group(0),
+      ];
+
+      expect(writes, [
+        // In file order: the adoption, then the rule's line, as the class
+        // is written.
+        '_remindersGrouped = facts.remindersGrouped ?? _remindersGrouped;',
+        '_remindersGrouped = alertRemindersGroupedOn(sdkInt);',
+      ]);
+    });
+
+    test('hands a pass with no app the answer itself, never the "no" of a '
+        'read that failed — and adopting nothing keeps what it had', () {
+      // What is stored for that pass is the remembered answer, null while
+      // there is none: `_groupsReminders()` answers false for a call that
+      // threw, and that false stored would be the failure remembered after
+      // all, by another process and for as long as the facts stand.
+      final pass = codeOf('Future<String> refreshArmContext() async {');
+
+      expect(pass, contains('remindersGrouped: _remindersGrouped,'));
       expect(
-        RegExp(r'_remindersGrouped\s*[?|&^]*=(?!=)').allMatches(gateway),
-        hasLength(1),
+        RegExp(
+          r'remindersGrouped:\s*(await\s+)?_groupsReminders\(',
+        ).hasMatch(gatewayCode),
+        isFalse,
       );
+      // Asked before the facts are built, so an answer is there to hand on.
+      expect(
+        pass.indexOf('await _groupsReminders();'),
+        inInclusiveRange(0, pass.indexOf('_armFacts = AlertArmFacts(')),
+      );
+      // And only where a pass with no app can exist (review R6): an
+      // install that never paired makes this call when it arms a reminder,
+      // as it did before there was such a pass, and hands no facts on.
+      expect(pass, contains('if (_keepsArmFacts) await _groupsReminders();'));
+      expect(
+        gatewayCode,
+        contains(
+          'String? get armFacts => '
+          '_keepsArmFacts ? _armFacts?.encode() : null;',
+        ),
+      );
+      expect(gatewayCode, contains('bool _keepsArmFacts = false;'));
+      // Unsaid stays unsaid on the way: null is left out of what is stored.
+      expect(gatewayCode, contains("'grouped': ?remindersGrouped,"));
     });
 
     test('asks for a reminder alone, so the fallback alarm stays loose', () {

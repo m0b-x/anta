@@ -426,6 +426,21 @@ void main() {
       expect(find.text('Undo'), findsNothing);
     });
 
+    // Last review, finding 4: a pick deleted between the search and the
+    // pick wrote nothing and was met with silence.
+    testWidgets('a pick that wrote nothing and has no name any more says the '
+        'change failed', (tester) async {
+      picked = 'gone';
+      service.nextChange = ShareChange.none;
+      await openMine(tester);
+
+      await tester.tap(add());
+      await settle(tester);
+
+      expect(find.text(en.shareChangeFailed), findsOneWidget);
+      expect(find.text('Undo'), findsNothing);
+    });
+
     testWidgets('a cancelled pick writes nothing; a refused one says why', (
       tester,
     ) async {
@@ -443,6 +458,41 @@ void main() {
 
       expect(service.folderShares, isEmpty);
       expect(find.text('Turn on sync to share'), findsOneWidget);
+    });
+
+    // Review 11 (B6): the sheet reopened at once after a dismissal with a
+    // pick still running answers only for its own pick — the old one's
+    // failure is said once, on the app's messenger, and the new pick is
+    // still told by its own folder.
+    testWidgets('reopened while the dismissed sheet\'s pick runs: the old '
+        'failure said once, past it; the new pick answered by its own name', (
+      tester,
+    ) async {
+      await openMine(tester);
+      final hold = service.hold = Completer<void>();
+      await tester.tap(add());
+      await settle(tester);
+      expect(service.folderShares, [('pick', true)]);
+      await tester.tap(sheetClose());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      picked = 'lisbon';
+      await tester.tap(add());
+      await settle(tester);
+
+      hold.completeError(StateError('disk'));
+      await settle(tester);
+
+      expect(find.text(en.shareChangeFailed), findsOneWidget);
+      expect(
+        find.widgetWithText(SnackBar, en.shareChangeFailed),
+        findsOneWidget,
+        reason: 'the app messenger\'s, for the sheet that is gone',
+      );
+      expect(service.folderShares, [('pick', true), ('lisbon', true)]);
+      expect(find.text('Lisbon is already shared'), findsOneWidget);
     });
 
     testWidgets('empty, it says one line, "Share a folder" under it', (

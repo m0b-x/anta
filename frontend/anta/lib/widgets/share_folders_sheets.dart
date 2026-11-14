@@ -99,12 +99,13 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
 
   /// The Undos the bloc was asked for, oldest first: the folder an un-share
   /// Undo brings back, null for a share's, which brings nothing back. The
-  /// bloc runs its acts in order and none but this sheet's can be asked for
-  /// while it is up, so each undo outcome answers the oldest.
+  /// bloc runs its acts in order and this sheet hears only the outcomes of
+  /// the acts it asked for (`ShareActEvent.asker`), so each undo outcome
+  /// answers the oldest.
   final List<String?> _undoing = [];
 
   /// The folders picked to share, oldest first, each answered by the next
-  /// share outcome.
+  /// share outcome of this sheet's.
   final List<String> _sharing = [];
 
   /// While the picker is up, so a second tap opens no second picker.
@@ -121,12 +122,6 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
   /// is said once it has gone.
   ScaffoldMessengerState? _messenger;
   AppLocalizations? _l10n;
-
-  static const Set<ShareAct> _acts = {
-    ShareAct.folderUnshared,
-    ShareAct.folderShared,
-    ShareAct.undo,
-  };
 
   @override
   void initState() {
@@ -148,7 +143,7 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     if (l10n != null) {
       sayShareFailuresPastSheet(
         bloc: widget.bloc,
-        acts: _acts,
+        asker: this,
         pending: _pending,
         seen: _seenOutcome,
         messenger: _messenger,
@@ -174,7 +169,7 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _leaving.add(folder.id));
     _pending++;
-    bloc.add(ShareFolderUnshared(folder.id));
+    bloc.add(ShareFolderUnshared(folder.id, asker: this));
     // Said at the tap, as the events sheet says it: the reload that drops
     // the row may land after the finger has moved on.
     final change = ShareChange(
@@ -202,7 +197,7 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     if (picked == null || picked.isEmpty || !mounted || bloc.isClosed) return;
     _sharing.add(picked);
     _pending++;
-    bloc.add(ShareFolderShared(picked));
+    bloc.add(ShareFolderShared(picked, asker: this));
   }
 
   /// The bar with Undo for [change], over the sheet. Its Undo may be tapped
@@ -239,11 +234,16 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
           l10n: l10n,
         );
         if (!bloc.isClosed) {
-          if (mounted) {
+          // Tapped once the sheet has gone, the Undo is no one's: the page
+          // says how it ended.
+          final asker = mounted ? this : null;
+          if (asker != null) {
             _undoing.add(restores);
             _pending++;
           }
-          bloc.add(ShareUndoRequested(change, pastBloc: pastBloc));
+          bloc.add(
+            ShareUndoRequested(change, pastBloc: pastBloc, asker: asker),
+          );
           return;
         }
         unawaited(pastBloc(change));
@@ -261,7 +261,10 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     final outcome = state.outcome;
     if (outcome == null || outcome.sequence == _seenOutcome) return;
     _seenOutcome = outcome.sequence;
-    if (_acts.contains(outcome.act) && _pending > 0) _pending--;
+    // Another's act — a sheet dismissed before it answered, the page's —
+    // is said by whoever asked for it.
+    if (!identical(outcome.asker, this)) return;
+    if (_pending > 0) _pending--;
     final failure = outcome.failure;
     switch (outcome.act) {
       case ShareAct.folderUnshared:
@@ -296,7 +299,9 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
 
   /// One sentence per pick: an inner folder the share now covers is told
   /// as covered — the first of several — since its own row leaves the list;
-  /// a pick that wrote nothing was shared already.
+  /// a pick that wrote nothing was shared already — or, with no name any
+  /// more, deleted between the search and the pick, which is a change that
+  /// failed.
   Future<void> _sayShared(ShareChange change, String picked) async {
     final l10n = AppLocalizations.of(context)!;
     final message = ShareCopy.folderAct(
@@ -306,7 +311,15 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     );
     if (message == null) {
       final name = await widget.folderName(picked);
-      if (!mounted || name == null) return;
+      if (!mounted) return;
+      if (name == null) {
+        OverlaySnackbar.show(
+          context,
+          l10n.shareChangeFailed,
+          duration: AppConstants.snackbarErrorDuration,
+        );
+        return;
+      }
       OverlaySnackbar.show(context, l10n.shareFolderAlready(name));
       return;
     }

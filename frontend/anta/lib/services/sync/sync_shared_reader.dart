@@ -73,8 +73,11 @@ class _SharedReader {
   /// [asked]: the user asked for this run, which reads now whatever the
   /// interval says.
   Future<void> read(SyncBinding bound, {required bool asked}) async {
+    _e._sharedReadFoundNoPartner = false;
     final source = _e._partners;
-    if (source == null || !_inReach) return;
+    // With no partner source nothing can ever be read: not owed.
+    if (source == null) return _e._awayReadSettled();
+    if (!_inReach) return;
     final db = _e._db;
     final touched = <SyncInvalidation>{};
     var stamps = false;
@@ -87,6 +90,10 @@ class _SharedReader {
     // Past the never-paired return: only then is there a read to fail —
     // an account that never paired is never told "Could not check".
     var paired = false;
+    // What a caller that asked while away is still owed
+    // ([SyncEngine.awayReadOwed]): the read was cut, or failed for a cause
+    // that passes by itself.
+    var owed = false;
     try {
       final uid = bound.accountUid;
       final holder = await db.sharedRowDao.owner();
@@ -116,6 +123,7 @@ class _SharedReader {
         await _keepHiddenShared(touched, shared: const {});
       }
       if (partner == null) {
+        _e._sharedReadFoundNoPartner = true;
         completed = true;
         return;
       }
@@ -144,6 +152,7 @@ class _SharedReader {
         );
         if (!read) {
           complete = false;
+          owed = true;
           break;
         }
       }
@@ -163,11 +172,18 @@ class _SharedReader {
       // out — rules not deployed yet answer the same every time.
       stamps = paired && error.failure != SyncGatewayFailure.offline;
       failed = paired;
+      owed = error.failure.healsByItself;
       debugPrint('[SyncEngine] shared rows not read: $error');
     } catch (error, stack) {
       failed = paired;
+      owed = SyncGatewayFailure.unknown.healsByItself;
       _warn('reading shared rows failed: $error\n$stack');
     } finally {
+      // Only the read of a run that carries an away read answers for it: a
+      // run in flight when that read was asked for is not the one that
+      // makes it.
+      // And only for the asks that run carries: another's stays raised.
+      if (_e._awayRead && !owed) _e._awayReadSettled();
       if (stamps || failed) {
         try {
           final at = '${_e._now().millisecondsSinceEpoch}';
@@ -182,6 +198,9 @@ class _SharedReader {
           _warn('the shared read was not stamped: $error\n$stack');
         }
       }
+      // Before the hooks' pass: a read made to its end is what lets that
+      // pass plan the check from now.
+      if (completed) SyncEngine.onSharedReadCompleted?.call();
       await _e._puller.notifyRun(touched, shared: _changes());
     }
   }
@@ -488,9 +507,14 @@ class _SharedReader {
         await _apply(bound, partner, table, page, touched);
       } else if (moved) {
         // Nothing but skipped documents: no shared row is written, so this
-        // needs no way past the fences.
+        // needs no way past the fences. Recorded here alone, when the cursor
+        // moved: the gateway's cursor passes every document a page lists,
+        // skipped ones too, at the read that first meets them, so a page
+        // that did not move it is an overlap re-read of documents already
+        // recorded.
         await db.transaction(() async {
           await _stillReading(bound, partner);
+          await db.sharedRowDao.noteUnheld(name, page.skipped);
           await db.syncDao.setValue(key, next.value);
         });
       }
@@ -520,6 +544,11 @@ class _SharedReader {
   /// - one whose merge refuses it — it would take the place of a row of
   ///   this person's own ([SharedRowRefused]), or it is malformed.
   ///
+  /// Every one of the partner's met and not stored is recorded by key — a
+  /// refused one as refused, the rest as known and not held
+  /// ([SharedRowDao.noteUnheld]) — since the server's count still holds it
+  /// ([_readTable]).
+  ///
   /// A note whose text could not be read is kept as waiting, with the space
   /// its document lies in ([SyncDao.keySharedWaiting]); one that was stored
   /// stops waiting, in the same transaction. [retrying] counts a try
@@ -542,6 +571,10 @@ class _SharedReader {
     final name = table.table;
     final envelopes = <SyncEnvelope>[];
     int? newer;
+    // The documents of this page met and not stored — passed over, newer,
+    // unreadable, waiting — which the count must still account for (share
+    // surfaces P3).
+    final unheld = [...page.skipped];
     for (final envelope in page.envelopes) {
       if (envelope.ownerId != partner.partnerUid ||
           envelope.sharedPair != partner.pairId) {
@@ -551,6 +584,7 @@ class _SharedReader {
       final wire = envelope.wire;
       if (wire != null && wire > _e._schema) {
         if (newer == null || wire > newer) newer = wire;
+        unheld.add(envelope.rowKey);
         continue;
       }
       envelopes.add(envelope);
@@ -657,6 +691,8 @@ class _SharedReader {
               live: !isTombstone(envelope),
               builtIn: error.builtIn,
             );
+          } else {
+            unheld.add(envelope.rowKey);
           }
           if (error is ChunksMissing && space != null) {
             waits[envelope.rowKey] = (
@@ -725,6 +761,7 @@ class _SharedReader {
       await db.sharedRowDao.noteStored(name, [
         for (final row in rows) row.rowKey,
       ]);
+      await db.sharedRowDao.noteUnheld(name, unheld);
       final dao = db.syncDao;
       for (final noteId in stored) {
         if (_waiting.containsKey(noteId)) {
@@ -776,12 +813,24 @@ class _SharedReader {
 
   /// The waiting notes as stored: `<tries>|<owner uid>/<space id>` under
   /// each note's key. A value that does not read so is dropped.
+  ///
+  /// The same statement says whether the partner's tombstones an earlier
+  /// build stored with their words were emptied
+  /// ([SyncDao.keySharedTombstonesEmptied]); once per database they are,
+  /// here — the one read every shared read makes with a partner, so the
+  /// sweep costs no statement once it ran (review A6).
   Future<Map<String, ({int tries, SyncSpaceRef space})>>
   _storedWaiting() async {
     final waiting = <String, ({int tries, SyncSpaceRef space})>{};
-    for (final (key, value) in await _e._db.syncDao.valuesByPrefix(
+    var emptied = false;
+    for (final (key, value) in await _e._db.syncDao.valuesByPrefixes([
       SyncDao.sharedWaitingPrefix,
-    )) {
+      SyncDao.keySharedTombstonesEmptied,
+    ])) {
+      if (key == SyncDao.keySharedTombstonesEmptied) {
+        emptied = true;
+        continue;
+      }
       final bar = value.indexOf('|');
       final slash = value.indexOf('/', bar + 1);
       final tries = bar < 0 ? null : int.tryParse(value.substring(0, bar));
@@ -797,7 +846,23 @@ class _SharedReader {
         ),
       );
     }
+    if (!emptied) await _emptyOldTombstones();
     return waiting;
+  }
+
+  /// [SharedRowDao.emptyTombstones], once, with its record in the same
+  /// transaction. A failure is logged and tried again at the next read.
+  Future<void> _emptyOldTombstones() async {
+    final db = _e._db;
+    try {
+      await db.sharedRowDao.writing(() async {
+        final owner = await db.sharedRowDao.owner();
+        if (owner != null) await db.sharedRowDao.emptyTombstones(owner);
+        await db.syncDao.setValue(SyncDao.keySharedTombstonesEmptied, '1');
+      });
+    } catch (error, stack) {
+      _warn('the old shared tombstones were not emptied: $error\n$stack');
+    }
   }
 
   /// Asks again for each note that waits for its text — its own document,

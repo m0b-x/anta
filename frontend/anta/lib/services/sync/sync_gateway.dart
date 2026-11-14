@@ -152,7 +152,18 @@ enum SyncGatewayFailure {
   /// to be parked, not retried. A malformed row is a rule refusal and
   /// arrives as [permissionDenied] instead.
   invalidData,
-  unknown,
+  unknown;
+
+  /// Whether the cause passes with no act of the person's or the app's — a
+  /// connection, a day's quota, a fault nobody can name — so what failed on
+  /// it is worth trying again unasked. A refusal answers the same every
+  /// time: a work that retried on one would loop
+  /// (`docs/cloud-shared-freshness.md` §6). Exhaustive, so a new failure
+  /// has to say which it is.
+  bool get healsByItself => switch (this) {
+    offline || quotaExhausted || unknown => true,
+    permissionDenied || invalidData => false,
+  };
 }
 
 /// Where a pull resumes. Opaque to the engine: each gateway defines its own

@@ -846,6 +846,77 @@ void _hardeningTests() {
     });
   });
 
+  group('after auto fell to adb', () {
+    const fell = 'http://127.0.0.1:60710/';
+    const found = 'http://127.0.0.1:39323/mx0SfPZcW1c=/';
+
+    test('a VM URI recorded since the fall makes the choice again', () {
+      expect(
+        autoRedecides(onNative: true, fellOn: null, recordedNow: found),
+        isTrue,
+      );
+      expect(
+        autoRedecides(onNative: true, fellOn: fell, recordedNow: found),
+        isTrue,
+      );
+    });
+
+    test('nothing new recorded, or not on adb, keeps the choice', () {
+      expect(
+        autoRedecides(onNative: true, fellOn: fell, recordedNow: fell),
+        isFalse,
+      );
+      expect(
+        autoRedecides(onNative: true, fellOn: fell, recordedNow: null),
+        isFalse,
+      );
+      expect(
+        autoRedecides(onNative: false, fellOn: null, recordedNow: found),
+        isFalse,
+      );
+    });
+
+    test('the note names the device and the URI the agent came back on', () {
+      final note = autoRejoinNote(deviceId: 'emulator-5558', vm: found);
+      expect(note, contains('adb → agent'));
+      expect(note, contains('emulator-5558'));
+      expect(note, contains(found));
+    });
+  });
+
+  group('announcedByAnotherStart', () {
+    test(
+      'a service on another port is a process this launch did not start',
+      () {
+        expect(
+          announcedByAnotherStart(
+            announced: 'http://127.0.0.1:39323/mx0SfPZcW1c=/',
+            requestedPort: 60710,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('the port asked for, or nothing announced yet, keeps waiting', () {
+      expect(
+        announcedByAnotherStart(
+          announced: 'http://127.0.0.1:60710/abc=/',
+          requestedPort: 60710,
+        ),
+        isFalse,
+      );
+      expect(
+        announcedByAnotherStart(announced: null, requestedPort: 60710),
+        isFalse,
+      );
+      expect(
+        announcedByAnotherStart(announced: 'not a uri', requestedPort: 60710),
+        isFalse,
+      );
+    });
+  });
+
   group('chooseDriver', () {
     test('auto picks the agent only when it can be reached', () {
       expect(

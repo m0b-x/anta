@@ -17,14 +17,16 @@ abstract interface class PushAddressSource {
   /// an install that never paired never registers.
   Future<String?> current();
 
-  /// Whether this install holds an address, or still owes the end of one:
-  /// what every leave asks before it does anything. Read from preferences
-  /// already in memory — no statement, no network.
+  /// Whether this install holds an address: what every leave, and the
+  /// receiver at launch, asks before it does anything. An end still owed is
+  /// not an address — [payOwed] and the next [current] finish it. Read from
+  /// preferences already in memory — no statement, no network.
   Future<bool> holds();
 
   /// Ends the address for good (decision n): the old one can no longer
   /// receive, and the next [current] names a different one. Nothing is
-  /// asked of the platform unless [holds].
+  /// asked of the platform unless [holds] — or the end of an earlier
+  /// address is still owed, which this then finishes like [payOwed].
   Future<void> giveUp();
 
   /// Finishes the end of an address a [giveUp] could not complete — at a

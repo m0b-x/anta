@@ -61,6 +61,14 @@ class _Pusher {
   /// keyed read, and a transaction only when something is owed and nothing
   /// of the shareable tables is still to be sent. Never waits on the relay;
   /// a failure here is logged and changes nothing of the run.
+  ///
+  /// Only the active pair is poked (review A7): a stale mark of an ended pair
+  /// makes a writer owe that pair a poke, and its phone is nobody's to wake.
+  /// The active pair is the one this phone's own pairing record names
+  /// (`SharePartnerSource.localPairId`, review C4) — written at the moment
+  /// of pairing, where the shared read's key would lag by a read; an entry
+  /// owed to any other is dropped unsent. With none stored, what is owed is
+  /// sent as it was owed: the relay refuses a pair the caller is not in.
   Future<void> pokeAfterDrain() async {
     try {
       final relay = GetIt.I.isRegistered<PushRelay>()
@@ -73,16 +81,20 @@ class _Pusher {
       const prefix = SyncDao.sharePokeOwedPrefix;
       if ((await db.syncDao.valuesByPrefix(prefix)).isEmpty) return;
       if (await _stillSending()) return;
-      final owed = await db.transaction(() async {
+      final uid = _e._currentUser()?.uid;
+      final partners = _e._partners;
+      final (owed, active) = await db.transaction(() async {
         final owed = await db.syncDao.valuesByPrefix(prefix);
+        final active = uid == null || partners == null
+            ? null
+            : await partners.localPairId(uid);
         await db.syncDao.deleteByPrefix(prefix);
-        return owed;
+        return (owed, active);
       });
       for (final (key, value) in owed) {
-        relay.poke(
-          key.substring(prefix.length),
-          urgent: value == SyncDao.sharePokeUrgent,
-        );
+        final pair = key.substring(prefix.length);
+        if (active != null && pair != active) continue;
+        relay.poke(pair, urgent: value == SyncDao.sharePokeUrgent);
       }
     } catch (e, st) {
       debugPrint('[SyncEngine] no poke: $e\n$st');

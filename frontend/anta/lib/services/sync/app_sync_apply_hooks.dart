@@ -1,6 +1,6 @@
 import 'dart:ui' show Locale, PlatformDispatcher;
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:get_it/get_it.dart';
 
 import '../../database/database.dart';
@@ -130,20 +130,46 @@ class AppSyncApplyHooks implements SyncApplyHooks {
            editorClaimsFiling ?? OpenNoteRegistry.claimsConflictFiling,
        _now = now ?? DateTime.now;
 
+  /// The hooks of the check that runs with the app closed
+  /// (`SyncEngine.awayFromApp`, `docs/cloud-shared-freshness.md` §6): the
+  /// app's own in everything but two. [notify] takes what the read would
+  /// have told the person, since nobody listens there; and who ended a pair
+  /// is asked with no pairing service built ([pairEndingRead]) — that
+  /// isolate must be one call short of nothing that follows a pair.
+  AppSyncApplyHooks.awayFromApp({
+    required void Function(ShareNotice notice) notify,
+  }) : this(notify: notify, pairEnding: pairEndingRead);
+
   /// What an unbind that removed the rows another account shared runs
   /// (`SyncBindingService.onSharedRowsRemoved`): the screens reload as after
   /// a pull that removed them, and the alert pass that follows the calendar
   /// reload takes what was armed on them off the platform at once — "Stop
   /// syncing" leaves no later run to do it (share surfaces D31). No leave
   /// notice: the act was the person's own, and its confirmation said so.
-  static Future<void> afterSharedRowsRemoved() => AppSyncApplyHooks().afterRun(
-    const {
-      SyncInvalidation.notes,
-      SyncInvalidation.folders,
-      SyncInvalidation.calendar,
-      SyncInvalidation.alerts,
-    },
-  );
+  static Future<void> afterSharedRowsRemoved() =>
+      AppSyncApplyHooks().afterRun(const {
+        SyncInvalidation.notes,
+        SyncInvalidation.folders,
+        SyncInvalidation.calendar,
+        SyncInvalidation.alerts,
+      });
+
+  /// What the app reloads when a check's run may have written behind it —
+  /// it took the app for dead and read the share from an isolate of its own
+  /// (`SharedRefreshApp.caughtUp`). Which tables it touched is unknown
+  /// here, so everything a shared read can touch is read again whole: the
+  /// note and folder caches are dropped, the share marks and the whole
+  /// event store reloaded with the alert services, and an alert pass
+  /// follows. One event-store load and one pass, after a stall of the main
+  /// isolate long enough to miss three pings — never on an ordinary resume.
+  static Future<void> afterWritesBehindTheApp() =>
+      AppSyncApplyHooks().afterRun(const {
+        SyncInvalidation.notes,
+        SyncInvalidation.folders,
+        SyncInvalidation.shareMarks,
+        SyncInvalidation.calendar,
+        SyncInvalidation.alerts,
+      });
 
   @override
   Future<void> beforePage(String table) async {
@@ -265,8 +291,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     // brings back events no page named: the run's tables then read as
     // unknown, which reloads the event cache whole.
     final CalendarPullScope scope = (
-      tables:
-          _runTables.isEmpty || touched.contains(SyncInvalidation.unhidden)
+      tables: _runTables.isEmpty || touched.contains(SyncInvalidation.unhidden)
           ? null
           : Set.unmodifiable(_runTables),
       eventIds: Set.unmodifiable(_runEventIds),
@@ -614,15 +639,17 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     'event marks': CalendarEventService.refreshShareMarks,
   });
 
-  /// Which of [eventIds] an armed registration of this phone names; one
-  /// read of the handful still pending.
-  static Future<Set<String>> _appArmedEvents(Set<String> eventIds) async {
-    final db = await AppDatabase.getInstance();
-    return {
-      for (final row in await db.alertRegistrationDao.pending())
-        if (eventIds.contains(row.eventId)) row.eventId,
-    };
-  }
+  static Future<Set<String>> _appArmedEvents(Set<String> eventIds) async =>
+      armedEventsIn(await AppDatabase.getInstance(), eventIds);
+
+  /// Which of [eventIds] an alert of [db] is still armed for — the rule
+  /// `ShareService.armedOnPartner` counts by: one that already rang is
+  /// not what a leave takes off.
+  @visibleForTesting
+  static Future<Set<String>> armedEventsIn(
+    AppDatabase db,
+    Set<String> eventIds,
+  ) => db.alertRegistrationDao.armedEventIds(eventIds, DateTime.now());
 
   /// [PairingService.endingOf] — the pairing of this database, resolved as
   /// the account closer resolves it.
@@ -633,6 +660,16 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     );
     return pairing.endingOf(endedPair);
   }
+
+  /// [_appPairEnding] as one read, over the same identity and gateway and
+  /// the open database's settings ([PairingService.endingRead]).
+  static Future<PairEnding> pairEndingRead(String? endedPair) async =>
+      PairingService.endingRead(
+        endedPair,
+        auth: GetIt.I<AuthService>(),
+        gateway: GetIt.I<PairingGateway>(),
+        settings: await SettingsService.getInstance(),
+      );
 
   /// Every category the partner shares with this database now: their own
   /// held here and the built-ins they share.

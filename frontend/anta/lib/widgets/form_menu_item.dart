@@ -680,8 +680,6 @@ class FormMenuItemRow extends StatelessWidget {
   /// Delete). Null keeps the anatomy's own colours.
   final Color? color;
 
-  static const double _gap = 12;
-
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -725,11 +723,11 @@ class FormMenuItemRow extends StatelessWidget {
             size: FormMetrics.menuIconSize,
             color: color ?? colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(width: _gap),
+          const SizedBox(width: FormMetrics.menuRowGap),
         ],
         Expanded(child: text),
         if (checked) ...[
-          const SizedBox(width: _gap),
+          const SizedBox(width: FormMetrics.menuRowGap),
           Icon(
             Icons.check_rounded,
             size: FormMetrics.menuIconSize,

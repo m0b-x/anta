@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
@@ -500,5 +501,27 @@ void main() {
 
       expect(await owed(), 'urgent');
     });
+  });
+
+  test('the share facts follow a database switch: the new census\'s forget '
+      'is heard, and the switch itself is told', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final other = await openTestDatabase();
+    addTearDown(other.close);
+    var heard = 0;
+    final sub = notes.shareFactsChanged.listen((_) => heard++);
+    addTearDown(sub.cancel);
+
+    repository.rebindDatabase(other);
+    await pumpEventQueue();
+    expect(heard, 1, reason: 'a switch changes every fact at once');
+
+    ShareCensus.of(other).forget();
+    await pumpEventQueue();
+    expect(heard, 2);
+
+    ShareCensus.of(db).forget();
+    await pumpEventQueue();
+    expect(heard, 2, reason: 'the closed database is no longer heard');
   });
 }

@@ -45,7 +45,7 @@ $q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
 $q pass settings -d emulator-5556      # the settings suite: a fresh basic.json seed before each flow, no prelude (each starts on the folder root)
 $q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no): ≈ 4.5 min
 $q pass sync -d emulator-5556          # the Sync section on a syncing database: the cloud-define build + a freshly started emulator suite (references/sync-pass.md): ≈ 45 s
-$q pass share -d emulator-5556         # two accounts on two guests (anta_qa_1 + anta_qa_2 booted, the same cloud-define build on both, a freshly started emulator suite — restarted, never reset, between passes): pair, share an event, a folder and a category, follow, un-share, then give, receive and stop through the share surfaces, end the pair — 16 flows (references/share-pass.md): ≈ 5.6 min
+$q pass share -d emulator-5556         # two accounts on two guests (anta_qa_1 + anta_qa_2 booted, the same cloud-define build on both, a freshly started emulator suite — restarted, never reset, between passes): pair, share an event, a folder and a category, follow, un-share, then give, receive and stop through the share surfaces, the freshness checks, the folder flows, end the pair and delete an account — 27 flows (references/share-pass.md): ≈ 11 min
 $q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
 $q pass --history calendar             # per flow over the newest twenty reports: runs, reds, recoveries, a flaky mark

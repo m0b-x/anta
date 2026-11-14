@@ -64,8 +64,19 @@ final class ShareHiddenWithAlerts extends ShareNotice {
   /// by the person's own label for it.
   final String name;
 
-  const ShareHiddenWithAlerts({required this.categoryId, required this.name});
+  /// The opening of the database the hide was made in
+  /// (`ShareService.databaseGeneration`), read at the act: its alert pass
+  /// comes before the notice is posted, and a switch during that pass must
+  /// not pass the notice on to the next database. Null from a poster that
+  /// names none; the surface then goes by when the notice reached it.
+  final int? generation;
+
+  const ShareHiddenWithAlerts({
+    required this.categoryId,
+    required this.name,
+    this.generation,
+  });
 
   @override
-  List<Object?> get props => [categoryId, name];
+  List<Object?> get props => [categoryId, name, generation];
 }

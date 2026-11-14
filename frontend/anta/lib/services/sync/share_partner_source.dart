@@ -27,6 +27,12 @@ abstract interface class SharePartnerSource {
   /// skip the question below, and with it every read sharing would cost.
   Future<bool> pairedLocally(String uid);
 
+  /// The pair this database's own record says [uid] is in now, null for
+  /// none: local, no network, written at the moment of pairing — so it
+  /// names a new pair before any shared read has met it. What a poke is
+  /// checked against before it is sent (review C4).
+  Future<String?> localPairId(String uid);
+
   /// The active pair of [uid] as the server shows it now; null when it has
   /// none.
   ///
@@ -53,6 +59,12 @@ class PairingSharePartnerSource implements SharePartnerSource {
   Future<bool> pairedLocally(String uid) async {
     final stored = await (await _settings()).getPairingSettings();
     return stored.pairId != null && stored.accountUid == uid;
+  }
+
+  @override
+  Future<String?> localPairId(String uid) async {
+    final stored = await (await _settings()).getPairingSettings();
+    return stored.accountUid == uid ? stored.pairId : null;
   }
 
   @override

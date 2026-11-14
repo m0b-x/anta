@@ -117,6 +117,13 @@ class OptimizedNoteEditorPage extends StatefulWidget {
   static Future<ShareService> Function() shareService =
       ShareService.getInstance;
 
+  /// What the share service built for the open database last evaluated,
+  /// read from memory with no await: the partner a page names from its
+  /// first frame. A suite hands in its own.
+  @visibleForTesting
+  static ShareAvailability? Function() knownShare = () =>
+      ShareService.knownAvailability;
+
   /// The auto-save a page's save coordinator is built over; null builds the
   /// app's. A suite records what the coordinator asks of it.
   @visibleForTesting
@@ -286,8 +293,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   late bool _inSharedFolder = widget.metadata?.inSharedFolder ?? false;
 
   /// The partner's name and face, read once for a page that says either.
-  String? _partnerName;
-  AppUser? _partner;
+  /// Seeded from what the share service already holds, so the bar's sign
+  /// names her from the first frame instead of "your partner" until the
+  /// read answers.
+  String? _partnerName =
+      OptimizedNoteEditorPage.knownShare()?.audience?.displayName;
+  AppUser? _partner =
+      OptimizedNoteEditorPage.knownShare()?.audience?.members.firstOrNull;
 
   /// Whether the partner's name has been read; a read-only page's body
   /// waits for it, since its line is fixed for the visit.
@@ -501,6 +513,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     ShortcutHandlerFactory.counterHandler.setActiveNoteId(widget.noteId);
     _counterBloc = context.read<CounterBloc>();
     _counterBloc.add(SetNoteContext(noteId: widget.noteId));
+    ShareLeaveVoice.open(this, _leavesWithThisRun);
     if (_readOnly) {
       _saves.disableSaves();
     } else {
@@ -1721,26 +1734,54 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _saves.disableSaves();
     final l10n = AppLocalizations.of(context)!;
     // The partner's note leaves when it is un-shared, deleted or the pair
-    // ends; each reaches here as a removal, and all read as one thing —
-    // said once for the whole leave, her folder's pages under this one
-    // closing without a line of their own (ShareLeaveVoice).
-    if (_readOnly) {
-      final message = ShareCopy.sentence(
-        l10n.shareGoneNote(_partnerNameIn(l10n)),
-      );
-      ShareLeaveVoice.claim(() => CustomSnackbar.show(context, message));
-    } else {
-      CustomSnackbar.show(
-        context,
-        _goneAtLoad ? l10n.noteNotFound : l10n.syncNoteDeletedElsewhere,
-      );
-    }
-    Navigator.of(context).pop();
+    // ends; each reaches here as a removal, and all read as one thing. One
+    // bar per leave (ShareLeaveVoice): this page in front speaks, the pages
+    // under it that leave with it are silent — in the share's words when
+    // the note is hers, or when this page never learned whose it was and
+    // the share ended under it; in its own words when it is mine.
+    final hers = _readOnly;
+    final ownerKnown = _ownerKnown;
+    final shareLine = ShareCopy.sentence(
+      l10n.shareGoneNote(_partnerNameIn(l10n)),
+    );
+    final ownLine = _goneAtLoad
+        ? l10n.noteNotFound
+        : l10n.syncNoteDeletedElsewhere;
+    final page = context;
+    final navigator = Navigator.of(context);
+    unawaited(
+      ShareLeaveVoice.leave(this, ownerUnknown: !ownerKnown, (forShare) {
+        // Said after the pop when the pages around had to be asked.
+        final host = page.mounted ? page : navigator.context;
+        if (!host.mounted) return;
+        CustomSnackbar.show(
+          host,
+          hers || (!ownerKnown && forShare) ? shareLine : ownLine,
+        );
+      }),
+    );
+    navigator.pop();
   }
 
   /// The note's own load answered that it is gone ([_leaveRemotelyDeleted]
   /// says "Note not found" for a note of mine then, not "deleted elsewhere").
   bool _goneAtLoad = false;
+
+  /// Whether this page knows whose its note is: the opener said it is hers,
+  /// it is a new note, or its load was adopted ([_adoptShareFlags]). An
+  /// editor opened over cold caches does not until then, and a leave
+  /// before it is said in the share's words when the share ended under it.
+  late bool _ownerKnown = _readOnly || widget.noteId == null;
+
+  /// Whether this page closes on the run being announced now, asked by
+  /// [ShareLeaveVoice] when a page under it leaves: its note is gone and
+  /// nothing typed keeps the page open ([_onRemoteDelete]).
+  Future<bool> _leavesWithThisRun() async {
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
+    if (!mounted || noteId == null || _hasUnsavedText) return false;
+    final note = await GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
+    return note == null;
+  }
 
   /// Runs a delete [_leaveRemotelyDeleted] deferred, after the frame that
   /// made this page current again — never from inside the navigator's own
@@ -2125,8 +2166,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     unawaited(_saves.forceSave());
   }
 
+  /// Gone from in front the moment it is popped, not when its closing ends:
+  /// a leave heard meanwhile on a page of hers under it is said there.
+  @override
+  void didPop() => ShareLeaveVoice.popped(this);
+
   @override
   void dispose() {
+    ShareLeaveVoice.exit(this);
     _storageChanges.cancel();
     _shareFactsChanges.cancel();
     AppNavigator.routeObserver.unsubscribe(this);
@@ -3254,6 +3301,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// ever mounts. The other way round never happens, since the partner's
   /// notes never become mine, so it is not undone here.
   void _adoptShareFlags(NoteMetadata loaded) {
+    _ownerKnown = true;
     final readOnly = _readOnly || loaded.fromPartner;
     final inShared = !readOnly && loaded.inSharedFolder;
     if (readOnly == _readOnly && inShared == _inSharedFolder) return;
@@ -3405,6 +3453,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         context,
         folderId: folderId,
         title: folderId == _folderId ? _folderName ?? '' : '',
+        // A partner's note lies in her folder; anything else is left to
+        // the folder page.
+        fromPartner: folderId == _folderId && _readOnly ? true : null,
       );
     }
     if (mounted && _isCurrentRoute) {
@@ -3457,7 +3508,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   Future<void> _refreshSharedSign({bool returning = false}) async {
     if (_readOnly || PairingService.pairedInMemory == false) return;
     if (returning) {
-      final known = ShareService.knownAvailability;
+      final known = OptimizedNoteEditorPage.knownShare();
       final audience = known?.audience;
       setState(() {
         if (known != null) {

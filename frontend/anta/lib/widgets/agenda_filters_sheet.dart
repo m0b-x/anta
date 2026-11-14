@@ -242,22 +242,26 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   /// store reads the catalogue after the picker returns, so a category
   /// created inside it is on offer, and an answer that leaves it un-ticked
   /// must not collapse to "all".
-  Future<void> _pickCategories(List<CalendarCategory> partner) => _guarded(
-    () async {
-      final picked = await CategoryPickerSheet.pickMulti(
-        context,
-        selected: CategoryAllowlist.ticked(_draft.categoryIds),
-        partner: partner,
-        partnerLook: widget.partnerLook,
-      );
-      if (picked == null || !mounted) return;
-      _update(
-        _draft.copyWith(
-          categoryIds: CategoryAllowlist.fromPicker(_draft.categoryIds, picked),
-        ),
-      );
-    },
-  );
+  Future<void> _pickCategories(List<CalendarCategory> partner) =>
+      _guarded(() async {
+        final opening = CategoryAllowlist.opening(_draft.categoryIds);
+        final picked = await CategoryPickerSheet.pickMulti(
+          context,
+          selected: opening.ticked,
+          partner: partner,
+          partnerLook: widget.partnerLook,
+        );
+        if (picked == null || !mounted) return;
+        _update(
+          _draft.copyWith(
+            categoryIds: CategoryAllowlist.fromPicker(
+              _draft.categoryIds,
+              picked,
+              opening: opening,
+            ),
+          ),
+        );
+      });
 
   Future<void> _pickPriorities(AppLocalizations l10n) => _guarded(() async {
     final picked = await FilterCheckListSheet.show(
@@ -402,7 +406,12 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
         if (CategoryAllowlist.ticks(ids, c))
           CalendarCategories.labelOf(c, l10n),
     ];
-    if (names.isEmpty) return l10n.calendarFilterNoCategories;
+    if (names.isEmpty) {
+      // No category known yet names nothing, and claims nothing either.
+      return CategoryAllowlist.tickedCount(ids) == 0
+          ? l10n.calendarFilterNoCategories
+          : l10n.calendarCategories;
+    }
     return CalendarFilterSummary.namesReadBack(names, l10n);
   }
 

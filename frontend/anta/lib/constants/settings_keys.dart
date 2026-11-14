@@ -420,6 +420,14 @@ class SettingsKeys {
   /// told.
   static const String pairingEndedPair = 'pairing_ended_pair';
 
+  /// The last pair this database was in, written with every pair stored and
+  /// outliving its end: a pair lost locally — the server unreachable for a
+  /// moment — and adopted again under the same id is that pair, not another
+  /// one, and keeps what was chosen for it (share surfaces D38). A pairing
+  /// row like the others: under [pairingPrefix], in no export, written back
+  /// by no restore.
+  static const String pairingLastPair = 'pairing_last_pair';
+
   // What a partner shares with this database, as the receiver decides to see
   // it (`docs/cloud-share-surfaces-roadmap.md` §6.4, §6.7, §6.8). Preferences
   // of this phone's, not part of the grant: the partner never reads them.
@@ -483,6 +491,69 @@ class SettingsKeys {
   /// database, so a marker left behind switches back at launch (review
   /// BA-M2). Never in a backup.
   static const String syncDownloadInFlight = 'sync_download_in_flight';
+
+  /// Install-wide like [syncDownloadInFlight]: `'1'` while a restore or an
+  /// import is replacing a database's rows (`DatabaseReplacing`), for the
+  /// isolate that is not the app's to read before it opens anything. Never
+  /// in a backup.
+  static const String databaseReplacing = 'database_replacing';
+
+  /// Install-wide like [databaseReplacing]: how many times in a row a relay
+  /// message's work has ended asking to be run again — a give-way, a read
+  /// that failed, a run that was cut (`kSharedRefreshGiveWayAttempts`). In
+  /// the preferences because the run that counts has closed its database,
+  /// or never opened one. Absent is none. Never in a backup.
+  ///
+  /// Named `shared_refresh_gave_way` while it counted give-ways alone.
+  /// That key is not read any more and none is migrated: it held a count
+  /// of at most two, on development builds only.
+  static const String sharedRefreshMessageRetries =
+      'shared_refresh_message_retries';
+
+  /// For the schedule's own check: how many times in a row its work gave
+  /// way to another run before its successor was planned — its give-ways
+  /// only, unlike [sharedRefreshMessageRetries]. A count of its own, since
+  /// each of the two is retried by the platform by itself. Absent is none.
+  /// Never in a backup.
+  static const String sharedRefreshCheckGaveWay =
+      'shared_refresh_check_gave_way';
+
+  /// Install-wide like [pushAddressHeld]: `'1'` once a shared check was
+  /// ever scheduled on this install. With it or a held push address a
+  /// trigger can exist, and the app keeps its name against one on a timer
+  /// while it is in front (`SharedRefreshApp.inFront`); an install with
+  /// neither — one that never paired — runs no such timer. Never in a
+  /// backup.
+  static const String sharedRefreshPlanned = 'shared_refresh_planned';
+
+  /// Install-wide like [sharedRefreshPlanned]: when the shared check
+  /// scheduled in the platform's first slot is due, in milliseconds since
+  /// the epoch — until its work reports that it runs, or it is taken off
+  /// (`SharedRefreshMemory`). In the preferences because every launch and
+  /// every run is a new isolate, and each plans against what stands.
+  /// Absent is none. Never in a backup.
+  static const String sharedRefreshStandsFirst = 'shared_refresh_stands_first';
+
+  /// [sharedRefreshStandsFirst] for the second slot.
+  static const String sharedRefreshStandsSecond =
+      'shared_refresh_stands_second';
+
+  /// Install-wide: the device id of the install the device-state keys were
+  /// written on (`DeviceState`). The system's backup restores the
+  /// preferences onto another phone and not what those keys speak of; a
+  /// launch that finds another id here than its own clears them. Absent
+  /// until the first launch of a build that stamps.
+  static const String deviceStateOf = 'device_state_of';
+
+  /// Install-wide, one key per pair — this prefix and the pair's id: when a
+  /// relay message's work for that pair was handed to the platform and has
+  /// not started, in milliseconds since the epoch
+  /// (`SharedRefreshMessageGate`). While it is young a further message for
+  /// the pair schedules nothing. Written by the isolate a message arrives
+  /// in and taken off by the work as it starts, so each reads it off the
+  /// store. Never in a backup.
+  static const String sharedRefreshMessageWaitingPrefix =
+      'shared_refresh_message_waiting.';
 
   /// Install-wide like [syncBoundSpaces], beside it: the cloud copies whose
   /// deletion began on this install and has not finished

@@ -12,6 +12,7 @@ import '../core/di/injection.dart';
 import '../database/database.dart';
 import '../services/body_search_indexer.dart';
 import '../services/database_manager.dart';
+import '../services/device_state.dart';
 import '../services/import_export_service.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/custom_snackbar.dart';
@@ -1237,6 +1238,9 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     );
 
     try {
+      // The device id goes with the data; the phone, its scheduled works
+      // and its push address stay.
+      await DeviceState.idDeleted();
       await AppDatabase.deleteAllData();
 
       if (!mounted) return;

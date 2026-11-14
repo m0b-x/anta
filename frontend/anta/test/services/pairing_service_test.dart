@@ -1,16 +1,23 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:drift/drift.dart'
     show QueryExecutor, QueryInterceptor, driftRuntimeOptions;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
+import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/pair_record.dart';
+import 'package:anta/models/share_settings.dart';
+import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/app_sync_apply_hooks.dart';
 import 'package:anta/utils/pairing_error.dart';
 
 import '../database/support/db_test_support.dart';
@@ -31,6 +38,7 @@ Future<_Device> _boot({
   required FakePairingGateway gateway,
   required FakeAuthService auth,
   AppDatabase? database,
+  Future<void> Function()? reconcileAlerts,
 }) async {
   DatabaseLifecycle.notifyDatabaseSwitching();
   SettingsService.reset();
@@ -41,8 +49,24 @@ Future<_Device> _boot({
     auth: auth,
     gateway: gateway,
     settings: settings,
+    reconcileAlerts: reconcileAlerts ?? () async {},
   );
   return _Device(db, auth, gateway, service);
+}
+
+/// A server that, while [empty], names no pair and cannot be read: a link
+/// that dropped mid-answer.
+class _TransientlyEmpty extends FakePairingGateway {
+  bool empty = false;
+
+  @override
+  Future<List<PairRecord>> findActivePairs(String uid) async =>
+      empty ? const [] : await super.findActivePairs(uid);
+
+  @override
+  Future<PairRecord?> readPair(String pairId) async => empty
+      ? throw const PairingException(PairingError.offline)
+      : await super.readPair(pairId);
 }
 
 /// [inner]'s pairs and invites, with every read of one pair failing as a
@@ -56,6 +80,24 @@ class _FailingReads extends FakePairingGateway {
   @override
   Future<PairRecord?> readPair(String pairId) async =>
       throw const PairingException(PairingError.permissionDenied);
+}
+
+/// A gateway that counts the listeners opened on it — a pair's and an
+/// invite's alike.
+class _WatchCounting extends FakePairingGateway {
+  int watches = 0;
+
+  @override
+  Stream<PairRecord?> watchPair(String pairId) {
+    watches++;
+    return super.watchPair(pairId);
+  }
+
+  @override
+  Stream<InviteRecord?> watchInvite(String code) {
+    watches++;
+    return super.watchInvite(code);
+  }
 }
 
 /// Once [armed], every write to the database fails — a full disk.
@@ -79,6 +121,24 @@ class _FailingWrites extends QueryInterceptor {
   ) => armed
       ? Future.error(StateError('disk full'))
       : super.runDelete(executor, statement, args);
+}
+
+/// Once [armed], every write of the setting [key] fails; every other
+/// statement runs.
+class _FailingKey extends QueryInterceptor {
+  _FailingKey(this.key);
+
+  final String key;
+  bool armed = false;
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) => armed && args.contains(key)
+      ? Future.error(StateError('disk full'))
+      : super.runInsert(executor, statement, args);
 }
 
 /// A gateway whose pair listener hears only what the test sends it — the
@@ -771,28 +831,31 @@ void main() {
         return pair;
       }
 
-      test('a new pair never inherits the name kept for one that ended', () async {
-        final gateway = FakePairingGateway();
-        addTearDown(gateway.dispose);
-        final pair = await endedByAlex(gateway);
-        await pair.me.dismissEndedNotice();
-        final me = pair.me;
-        final cara = await _boot(
-          gateway: gateway,
-          auth: FakeAuthService(
-            user: const AppUser(uid: 'uid-c', displayName: 'Cara'),
-          ),
-        );
-        final code = (await cara.service.generateInvite()).pendingCode!;
+      test(
+        'a new pair never inherits the name kept for one that ended',
+        () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final pair = await endedByAlex(gateway);
+          await pair.me.dismissEndedNotice();
+          final me = pair.me;
+          final cara = await _boot(
+            gateway: gateway,
+            auth: FakeAuthService(
+              user: const AppUser(uid: 'uid-c', displayName: 'Cara'),
+            ),
+          );
+          final code = (await cara.service.generateInvite()).pendingCode!;
 
-        final next = await me.redeem(code);
+          final next = await me.redeem(code);
 
-        expect((await me.endingOf(next.pairId)).name, isNot('Alex'));
-        expect((await me.endingOf(pair.pairId)).byPartner, isFalse);
-        await gateway.endPair(pairId: next.pairId!, endedBy: 'uid-c');
-        await me.load();
-        expect(me.status.endedPartnerName, isNot('Alex'));
-      });
+          expect((await me.endingOf(next.pairId)).name, isNot('Alex'));
+          expect((await me.endingOf(pair.pairId)).byPartner, isFalse);
+          await gateway.endPair(pairId: next.pairId!, endedBy: 'uid-c');
+          await me.load();
+          expect(me.status.endedPartnerName, isNot('Alex'));
+        },
+      );
 
       test('an invite of mine forgets the kept ending and its name', () async {
         final gateway = FakePairingGateway();
@@ -882,13 +945,467 @@ void main() {
         expect((await pair.me.endingOf(pair.pairId)).byPartner, isFalse);
       });
 
-      test('ended from another device of mine, not yet heard, is mine', () async {
+      test(
+        'ended from another device of mine, not yet heard, is mine',
+        () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final pair = await paired(gateway);
+          await gateway.endPair(pairId: pair.pairId, endedBy: userB.uid);
+
+          expect((await pair.me.endingOf(pair.pairId)).byPartner, isFalse);
+        },
+      );
+
+      group('asked with no service built — the check that runs with the app '
+          'closed (shared freshness §6)', () {
+        /// The same question in an isolate that has built no service: the
+        /// one of the scenario is dropped, as a new isolate never had it.
+        Future<PairEnding> readIn(_WatchCounting gateway, String pairId) async {
+          PairingService.reset();
+          gateway.watches = 0;
+          return PairingService.endingRead(
+            pairId,
+            auth: FakeAuthService(user: userB),
+            gateway: gateway,
+            settings: await SettingsService.getInstance(),
+          );
+        }
+
+        test('the partner ended it and nothing here has heard: one read of '
+            'the pair says so, with their name — and no service is built, '
+            'no pair followed', () async {
+          final gateway = _WatchCounting();
+          addTearDown(gateway.dispose);
+          final pair = await paired(gateway);
+          final name = pair.me.status.partner?.displayName;
+          await gateway.endPair(pairId: pair.pairId, endedBy: userA.uid);
+
+          final ending = await readIn(gateway, pair.pairId);
+
+          expect(ending, (byPartner: true, name: name));
+          expect(PairingService.pairedInMemory, isNull);
+          expect(gateway.watches, 0);
+        });
+
+        test(
+          'recorded as ended, the notice dismissed: told once with the '
+          'name, and the record goes with the answer — in the stored '
+          'pairing, where the app\'s own service then finds it gone',
+          () async {
+            final gateway = _WatchCounting();
+            addTearDown(gateway.dispose);
+            final pair = await endedByAlex(gateway);
+            await pair.me.dismissEndedNotice();
+
+            expect(await readIn(gateway, pair.pairId), (
+              byPartner: true,
+              name: 'Alex',
+            ));
+            expect(await readIn(gateway, pair.pairId), (
+              byPartner: false,
+              name: null,
+            ));
+            expect(PairingService.pairedInMemory, isNull);
+            expect(gateway.watches, 0);
+
+            final app = await PairingService.forTesting(
+              auth: FakeAuthService(user: userB),
+              gateway: gateway,
+              settings: await SettingsService.getInstance(),
+            );
+            expect(await app.endingOf(pair.pairId), (
+              byPartner: false,
+              name: null,
+            ));
+          },
+        );
+
+        test('my Unpair is mine, and another pair\'s ending is not this '
+            'one\'s', () async {
+          final gateway = _WatchCounting();
+          addTearDown(gateway.dispose);
+          final pair = await paired(gateway);
+
+          expect((await readIn(gateway, 'another-pair')).byPartner, isFalse);
+          final me = await PairingService.forTesting(
+            auth: FakeAuthService(user: userB),
+            gateway: gateway,
+            settings: await SettingsService.getInstance(),
+          );
+          await me.unpair();
+
+          expect((await readIn(gateway, pair.pairId)).byPartner, isFalse);
+        });
+
+        test('the hooks of that check ask this way — over the registered '
+            'identity and gateway and the open database\'s settings — and '
+            'the engine built for the check is given those hooks', () async {
+          final gateway = _WatchCounting();
+          addTearDown(gateway.dispose);
+          final pair = await paired(gateway);
+          await gateway.endPair(pairId: pair.pairId, endedBy: userA.uid);
+          PairingService.reset();
+          gateway.watches = 0;
+          GetIt.I
+            ..registerSingleton<AuthService>(FakeAuthService(user: userB))
+            ..registerSingleton<PairingGateway>(gateway);
+          addTearDown(GetIt.I.reset);
+
+          final ending = await AppSyncApplyHooks.pairEndingRead(pair.pairId);
+
+          expect(ending.byPartner, isTrue);
+          expect(PairingService.pairedInMemory, isNull);
+          expect(gateway.watches, 0);
+
+          // The two lines no suite can run — the engine of an isolate with
+          // no app is built over the app's real singletons — read instead.
+          final hooks = File(
+            'lib/services/sync/app_sync_apply_hooks.dart',
+          ).readAsStringSync();
+          expect(
+            hooks,
+            matches(
+              RegExp(
+                r'AppSyncApplyHooks\.awayFromApp\(\{\s*'
+                r'required void Function\(ShareNotice notice\) notify,\s*'
+                r'\}\) : this\(notify: notify, pairEnding: pairEndingRead\);',
+              ),
+            ),
+          );
+          final engine = File(
+            'lib/services/sync/sync_engine.dart',
+          ).readAsStringSync();
+          final away = RegExp(
+            // To the brace alone on its line: `  }) async {` closes only
+            // the parameters.
+            r'static Future<SyncEngine> awayFromApp\(\{[\s\S]*?^  \}\r?$',
+            multiLine: true,
+          ).stringMatch(engine);
+          expect(
+            away,
+            contains('hooks: AppSyncApplyHooks.awayFromApp(notify: notify),'),
+          );
+          expect(
+            'AppSyncApplyHooks.awayFromApp('.allMatches(engine),
+            hasLength(1),
+          );
+        });
+
+        test('a pair that cannot be read answers "not the partner", as the '
+            'service does', () async {
+          final inner = FakePairingGateway();
+          addTearDown(inner.dispose);
+          final pair = await paired(inner);
+          await inner.endPair(pairId: pair.pairId, endedBy: userA.uid);
+          PairingService.reset();
+
+          final ending = await PairingService.endingRead(
+            pair.pairId,
+            auth: FakeAuthService(user: userB),
+            gateway: _FailingReads(inner),
+            settings: await SettingsService.getInstance(),
+          );
+
+          expect(ending.byPartner, isFalse);
+        });
+      });
+    });
+
+    /// "Only alerts I add" / "Category alerts too" is chosen for a pair:
+    /// carried to the next one, it armed my category alerts on a built-in
+    /// that person shares without my having chosen it for them.
+    group('what may ring belongs to the pair (D38)', () {
+      tearDown(() => EventAlerts.configureShareAlerts(null));
+
+      // A device's database is left open, as `_boot`'s own are: a pair
+      // listener's write can still be on its way when a case ends, and into
+      // a closed database it fails whichever case runs next.
+
+      Future<String?> stored(AppDatabase db) =>
+          db.userSettingsDao.getValue(SettingsKeys.shareAlerts);
+
+      /// I — Ben — pair with Alex on [db], and choose [choice] for that pair.
+      Future<({PairingService me, String pairId})> pairedChoosing(
+        FakePairingGateway gateway,
+        AppDatabase db,
+        ShareAlerts choice, {
+        Future<void> Function()? reconcileAlerts,
+      }) async {
+        final alex = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final code = (await alex.service.generateInvite()).pendingCode!;
+        final me = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+          database: db,
+          reconcileAlerts: reconcileAlerts,
+        );
+        final status = await me.service.redeem(code);
+        await SettingsService.forTesting(db).setShareAlerts(choice);
+        return (me: me.service, pairId: status.pairId!);
+      }
+
+      Future<String> inviteFromCara(FakePairingGateway gateway) async {
+        final cara = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(
+            user: const AppUser(uid: 'uid-c', displayName: 'Cara'),
+          ),
+        );
+        return (await cara.service.generateInvite()).pendingCode!;
+      }
+
+      test('another pair starts at the shipped choice, published as a read '
+          'of it would be (A16)', () async {
         final gateway = FakePairingGateway();
         addTearDown(gateway.dispose);
-        final pair = await paired(gateway);
-        await gateway.endPair(pairId: pair.pairId, endedBy: userB.uid);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+        expect(await stored(db), 'category');
 
-        expect((await pair.me.endingOf(pair.pairId)).byPartner, isFalse);
+        await gateway.endPair(pairId: pair.pairId, endedBy: userA.uid);
+        await pair.me.load();
+        expect(await stored(db), 'category', reason: 'an ending resets none');
+        await pair.me.dismissEndedNotice();
+        final next = await pair.me.redeem(await inviteFromCara(gateway));
+
+        expect(next.pairId, isNot(pair.pairId));
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+        expect(EventAlerts.shareAlerts, ShareAlerts.own);
+      });
+
+      test('"Off" is reset like any other choice (N6): another pair starts '
+          'from "Only alerts I add" whatever stood, and each chooses '
+          'again', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.off);
+
+        await pair.me.unpair();
+        await pair.me.redeem(await inviteFromCara(gateway));
+
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      test('the same pair adopted again — a reconcile, and a launch — keeps '
+          'the choice', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+
+        await pair.me.load();
+        expect(await stored(db), 'category');
+
+        final relaunched = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+          database: db,
+        );
+        await relaunched.service.load();
+
+        expect(relaunched.service.status.pairId, pair.pairId);
+        expect(await stored(db), 'category');
+      });
+
+      test('a first pair ever, the shipped choice standing, writes nothing '
+          'for it', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final counter = StatementCounter();
+        final db = await openTestDatabase(interceptor: counter);
+        final alex = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final code = (await alex.service.generateInvite()).pendingCode!;
+        final me = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+          database: db,
+        );
+        counter.reset();
+
+        await me.service.redeem(code);
+
+        expect(await stored(db), isNull, reason: 'never written');
+        expect([
+          for (final statement in counter.captured)
+            if (!statement.isSelect &&
+                statement.args.contains(SettingsKeys.shareAlerts))
+              statement.sql,
+        ], isEmpty);
+      });
+
+      test('both or neither (N7a): a reset that cannot be written fails the '
+          'adoption — no pair is ever stored under the choice made for '
+          'another — and the next reconcile makes both', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final failing = _FailingKey(SettingsKeys.shareAlerts);
+        final db = await openTestDatabase(interceptor: failing);
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+        await pair.me.unpair();
+        final code = await inviteFromCara(gateway);
+        failing.armed = true;
+
+        await expectLater(pair.me.redeem(code), throwsA(anything));
+
+        // Off the database itself: the settings service is whichever
+        // device booted last.
+        expect(
+          await db.userSettingsDao.getValue(SettingsKeys.pairingPairId),
+          isNull,
+        );
+        expect(pair.me.status.pairId, isNull);
+        expect(await stored(db), 'category');
+
+        failing.armed = false;
+        final status = await pair.me.load();
+
+        expect(status.pairId, isNotNull);
+        expect(status.pairId, isNot(pair.pairId));
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      test('a pass follows a reset that changed the choice (N7b), after the '
+          'choice is published: what "Category alerts too" armed on rows '
+          'still stored does not stay armed until something else passes — '
+          'and no pass where nothing changed', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final passes = <ShareAlerts?>[];
+        final pair = await pairedChoosing(
+          gateway,
+          db,
+          ShareAlerts.category,
+          reconcileAlerts: () async => passes.add(EventAlerts.shareAlerts),
+        );
+        expect(passes, isEmpty, reason: 'a first pair changes nothing');
+
+        await pair.me.load();
+        expect(passes, isEmpty, reason: 'the same pair adopted again');
+
+        await pair.me.unpair();
+        await pair.me.redeem(await inviteFromCara(gateway));
+
+        expect(passes, [ShareAlerts.own]);
+      });
+
+      test('the same pair found again keeps its choice (N7c): lost locally '
+          'while the server could not be reached, it is not another pair '
+          'when it is adopted again under its own id', () async {
+        final gateway = _TransientlyEmpty();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+
+        gateway.empty = true;
+        expect((await pair.me.load()).pairId, isNull);
+        gateway.empty = false;
+        final found = await pair.me.load();
+
+        expect(found.pairId, pair.pairId);
+        expect(await stored(db), 'category');
+        expect(EventAlerts.shareAlerts, isNot(ShareAlerts.own));
+      });
+
+      test('a real re-pair with the same person is another pair: another '
+          'id, the shipped choice', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+        await pair.me.unpair();
+
+        // Alex's half, straight through the gateway: booting her service
+        // would take mine down.
+        final again = gateway.seedPair([userA.uid, userB.uid]);
+        final status = await pair.me.load();
+
+        expect(status.pairId, again.pairId);
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      test('the pair a reconcile swaps in — two were active, the stored one '
+          'the later — is another pair', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final earlier = gateway.seedPair([userB.uid, 'uid-c']);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+        expect(pair.pairId, isNot(earlier.pairId));
+
+        final status = await pair.me.load();
+
+        expect(status.pairId, earlier.pairId);
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      test('the pair of another account signed in on this database is '
+          'another pair', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        await pairedChoosing(gateway, db, ShareAlerts.category);
+        final caras = gateway.seedPair(['uid-c', 'uid-d']);
+
+        final cara = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(
+            user: const AppUser(uid: 'uid-c', displayName: 'Cara'),
+          ),
+          database: db,
+        );
+        final status = await cara.service.load();
+
+        expect(status.pairId, caras.pairId);
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      test('the pair my own invite brings, adopted by its listener with no '
+          'reload, is another pair', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.category);
+        await pair.me.unpair();
+        final code = (await pair.me.generateInvite()).pendingCode!;
+
+        final next = await gateway.createPair(
+          self: PairProfile.fromUser(
+            const AppUser(uid: 'uid-c', displayName: 'Cara'),
+          ),
+          partner: PairProfile(uid: userB.uid),
+          inviteCode: code,
+        );
+        await pumpEventQueue();
+
+        expect(pair.me.status.pairId, next.pairId);
+        expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      test('the last pair this database was in is a pairing row like the '
+          'others (N7c): under their prefix, which is what a restore and a '
+          'handed-out copy strip by', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.own);
+
+        expect(
+          SettingsKeys.pairingLastPair,
+          startsWith(SettingsKeys.pairingPrefix),
+        );
+        expect(
+          await db.userSettingsDao.getValue(SettingsKeys.pairingLastPair),
+          pair.pairId,
+        );
       });
     });
 

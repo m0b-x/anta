@@ -122,6 +122,28 @@ part 'database.g.dart';
 class AppDatabase extends _$AppDatabase {
   static String? _currentDatabaseName;
 
+  /// Whether this isolate opens only a database that is already there, at
+  /// this build's schema — and throws [DatabaseOpenRefused] rather than
+  /// make or migrate one. Off for the app. The check that runs with the app
+  /// closed turns it on for its own isolate before it opens anything
+  /// (`docs/cloud-shared-freshness.md` §6): it measures the file first, but
+  /// a delete-all, a restore or an update's first launch can come between
+  /// that look and the open, and a background run that then created an
+  /// empty database, or ran the migrations beside the launch that owns
+  /// them, would do what only the app may.
+  ///
+  /// Held at the two places the app's code stands between a caller and
+  /// SQLite: the file is looked for in the turn before the connection is
+  /// made, and the migration strategy refuses both of its callbacks —
+  /// which drift calls before it writes anything, the stored version
+  /// included. SQLite itself is opened by drift with no mode to choose, so
+  /// a file removed in between is created empty and left so.
+  static bool opensExistingOnly = false;
+
+  /// What this database's migration strategy refused under
+  /// [opensExistingOnly], kept for the open that then fails.
+  DatabaseOpenRefused? _refused;
+
   final String _deviceId;
   late final HybridLogicalClock hlc;
 
@@ -224,6 +246,9 @@ class AppDatabase extends _$AppDatabase {
       await db.seedClockFromStore();
     } catch (_) {
       await db.close();
+      // As itself: what a migration callback throws comes back from the
+      // connection's isolate wrapped, and the caller tells this one apart.
+      if (db._refused case final refused?) throw refused;
       rethrow;
     }
     // The handle goes with the notice: a handler that asked for the database
@@ -288,6 +313,11 @@ class AppDatabase extends _$AppDatabase {
     if (await deviceFile.exists()) {
       return await deviceFile.readAsString();
     }
+    // An install with no device id has no database of its own yet: the
+    // isolate that opens only what is there writes none — its first write
+    // would otherwise be this file, made before the database was looked
+    // for.
+    if (opensExistingOnly) throw const DatabaseOpenRefused.missing();
 
     final deviceId = const Uuid().v4();
     await deviceFile.parent.create(recursive: true);
@@ -334,10 +364,16 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration {
     return MigrationStrategy(
       onCreate: (Migrator m) async {
+        if (opensExistingOnly) {
+          throw _refused = const DatabaseOpenRefused.missing();
+        }
         await m.createAll();
         await DatabaseIndexes(this).createAllIndexes();
       },
       onUpgrade: (Migrator m, int from, int to) async {
+        if (opensExistingOnly) {
+          throw _refused = DatabaseOpenRefused.schema(from, to);
+        }
         if (from < to) onUpgradeStarting?.call();
         // Before any step, so the stamps a step backfills sort above every
         // stamp the previous run wrote, as a local write's would. Only the
@@ -521,6 +557,11 @@ void configureSqliteConnection(CommonDatabase database) {
   database.execute(
     'PRAGMA journal_size_limit = ${AppConstants.sqliteJournalSizeLimitBytes}',
   );
+  // A second connection's write waits for this one's instead of failing at
+  // once; see the constant for when two can coexist.
+  database.execute(
+    'PRAGMA busy_timeout = ${AppConstants.sqliteBusyTimeout.inMilliseconds}',
+  );
 }
 
 /// Whether [_useAppCacheForSqliteTemp] has run in this process.
@@ -544,10 +585,34 @@ LazyDatabase _openConnection(String databaseName) {
     final dbManager = await DatabaseManager.getInstance();
     final dbPath = await dbManager.getDatabasePath(databaseName);
     final file = File(dbPath);
-    await file.parent.create(recursive: true);
+    if (AppDatabase.opensExistingOnly) {
+      if (!file.existsSync()) throw const DatabaseOpenRefused.missing();
+    } else {
+      await file.parent.create(recursive: true);
+    }
     return NativeDatabase.createInBackground(
       file,
       setup: configureSqliteConnection,
     ).interceptWith(LoadingQueryInterceptor());
   });
+}
+
+/// An isolate that opens only an existing database at this build's schema
+/// ([AppDatabase.opensExistingOnly]) found none, or one at another schema.
+/// Nothing was created and nothing migrated.
+class DatabaseOpenRefused implements Exception {
+  /// Whether there was no database to open; false for one at another
+  /// schema, [from] stored and [to] this build's.
+  final bool missing;
+  final int? from;
+  final int? to;
+
+  const DatabaseOpenRefused.missing() : missing = true, from = null, to = null;
+  const DatabaseOpenRefused.schema(int this.from, int this.to)
+    : missing = false;
+
+  @override
+  String toString() => missing
+      ? 'DatabaseOpenRefused: no database to open'
+      : 'DatabaseOpenRefused: schema $from, this build $to';
 }

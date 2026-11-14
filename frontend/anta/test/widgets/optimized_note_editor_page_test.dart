@@ -20,6 +20,7 @@ import 'package:anta/bloc/optimized_note/optimized_note_state.dart';
 import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/controllers/note_editor_stats_tracker.dart';
+import 'package:anta/controllers/partner_look_reader.dart';
 import 'package:anta/widgets/overlay_snackbar.dart';
 import 'package:anta/constants/font_constants.dart';
 import 'package:anta/constants/markdown_constants.dart';
@@ -35,6 +36,7 @@ import 'package:anta/models/item_label.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/pages/optimized_note_editor_page.dart';
+import '../database/support/db_test_support.dart' show openCountedTwin;
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/app_navigator.dart';
@@ -42,6 +44,10 @@ import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/auto_save_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/folder_search_service.dart';
+import 'package:anta/bloc/optimized_folder/optimized_folder_bloc.dart';
+import 'package:anta/pages/optimized_folder_content_page.dart';
+import 'package:anta/services/move_history_service.dart';
+import 'package:anta/services/move_history_store.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
@@ -51,6 +57,7 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/app_sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/utils/markdown_editor_paint_spans.dart';
+import 'package:anta/utils/share_leave_voice.dart';
 import 'package:anta/widgets/label_swatch_strip.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/markdown_bar.dart';
@@ -2372,6 +2379,79 @@ void main() {
       navigator.pop();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
+      await teardownPage(tester);
+    });
+
+    testWidgets('a return from a page above runs no statement of the notes '
+        'or folders, and asks nothing of sharing — only the settings '
+        're-read', (tester) async {
+      // Sharing's statements all go through the service the page opens:
+      // the return must not open it.
+      var shareAsks = 0;
+      OptimizedNoteEditorPage.shareService = () async {
+        shareAsks++;
+        return FakeShareService();
+      };
+      addTearDown(
+        () => OptimizedNoteEditorPage.shareService = ShareService.getInstance,
+      );
+      await pumpPageFor(tester, host);
+      noteBloc.emitContentLoaded(host, 'X');
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+
+      // The page reads its notes and folders through GetIt at the moment
+      // of the read, so for the return those two sit on a counted twin of
+      // the database, warmed as the page's own were.
+      final twin = (await tester.runAsync(() async {
+        final (twinDb, counter) = await openCountedTwin();
+        final notes = NoteStorageService(
+          repository: NoteRepository(database: twinDb),
+        );
+        await notes.initialize();
+        final folders = FolderStorageService(
+          repository: FolderRepository(database: twinDb),
+        );
+        await folders.initialize();
+        await notes.loadNoteWithContent(host.id);
+        counter.reset();
+        return (twinDb, counter, notes, folders);
+      }))!;
+      final (twinDb, counter, twinNotes, twinFolders) = twin;
+      GetIt.I
+        ..unregister<NoteStorageService>()
+        ..registerSingleton<NoteStorageService>(twinNotes)
+        ..unregister<FolderStorageService>()
+        ..registerSingleton<FolderStorageService>(twinFolders);
+      addTearDown(() async {
+        GetIt.I
+          ..unregister<NoteStorageService>()
+          ..registerSingleton<NoteStorageService>(storageService)
+          ..unregister<FolderStorageService>()
+          ..registerSingleton<FolderStorageService>(folderService);
+        await twinDb.close();
+      });
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('above')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester);
+      counter.reset();
+      shareAsks = 0;
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await settle(tester, rounds: 24);
+
+      expect(counter.statements, isEmpty);
+      expect(shareAsks, 0, reason: 'the share service opened on the return');
       await teardownPage(tester);
     });
 
@@ -5483,10 +5563,21 @@ void main() {
         shareAsks++;
         return share;
       };
+      // Any folder page a case mounts names her through the same fake, so
+      // no case reads "Your partner" by accident; one that wants the
+      // unnamed partner hands in a fake without a name.
+      PartnerLookReader.openService = () async => share;
+      // The fake clock runs ahead of a probe's real database read: a leave's
+      // bound measured on it would count every page in front as staying.
+      ShareLeaveVoice.probeLimit = const Duration(hours: 1);
+      addTearDown(
+        () => ShareLeaveVoice.probeLimit = AppConstants.shareLeaveProbeLimit,
+      );
     });
 
     tearDown(() async {
       OptimizedNoteEditorPage.shareService = ShareService.getInstance;
+      PartnerLookReader.openService = ShareService.getInstance;
       noteBloc.answerLoads = false;
       // Disarms the fences before the rows go.
       await db.syncDao.deleteValue(SyncDao.keySharedOwner);
@@ -5838,6 +5929,557 @@ void main() {
       await teardownPage(tester);
     });
 
+    // Fix pass item 5 at page level (ShareLeaveVoice): her note open above
+    // her folder's page, the share ends — one voice, the page in front's.
+    group('her note above her folder\'s page, the share ends', () {
+      late FolderRepository folderRepository;
+      late FolderStorageService pageFolders;
+      late OptimizedFolderBloc folderBloc;
+
+      setUp(() async {
+        folderRepository = FolderRepository(database: db);
+        pageFolders = FolderStorageService(repository: folderRepository);
+        await pageFolders.initialize();
+        folderBloc = OptimizedFolderBloc(storageService: pageFolders);
+        GetIt.I
+          ..unregister<FolderStorageService>()
+          ..registerSingleton<FolderStorageService>(pageFolders)
+          ..registerSingleton<FolderSearchService>(searchService)
+          ..registerSingleton<MoveHistoryService>(
+            MoveHistoryService(store: InMemoryMoveHistoryStore()),
+          );
+      });
+
+      tearDown(() async {
+        await folderBloc.close();
+        GetIt.I
+          ..unregister<MoveHistoryService>()
+          ..unregister<FolderSearchService>()
+          ..unregister<FolderStorageService>()
+          ..registerSingleton<FolderStorageService>(folderService);
+      });
+
+      // Leg 6's computation left unpinned: her note's folder is not on the
+      // stack, so Open folder replaces the page, and says the folder is
+      // hers — the page must not wait for caches a write may have let go.
+      testWidgets('Open folder from her note, her folder not below: the page '
+          'it opens is told the folder is hers', (tester) async {
+        await handToPartner(tester);
+        pageFolders.invalidateCache();
+        await tester.pumpWidget(
+          MultiBlocProvider(
+            providers: [
+              BlocProvider<OptimizedFolderBloc>.value(value: folderBloc),
+              BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+              BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+              BlocProvider<CounterBloc>.value(value: counterBloc),
+              BlocProvider<ImportExportBloc>.value(value: exportBloc),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              navigatorObservers: [AppNavigator.routeObserver],
+              home: const Scaffold(body: Text('beneath')),
+            ),
+          ),
+        );
+        tester
+            .state<NavigatorState>(find.byType(Navigator))
+            .push(
+              MaterialPageRoute<void>(
+                builder: (_) => OptimizedNoteEditorPage(
+                  folderId: theirs.folderId,
+                  noteId: theirs.id,
+                  metadata: theirs,
+                ),
+              ),
+            );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        noteBloc.emitContentLoaded(theirs, theirBody);
+        await tester.pump();
+        await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+        await settle(tester);
+        await openMenu(tester);
+        expect(find.text(theirFolder.name), findsOneWidget, reason: 'named');
+
+        await tester.tap(find.text(l10n.openFolder));
+        await tester.pump();
+        await settleUntil(
+          tester,
+          () => find
+              .byType(OptimizedFolderContentPage, skipOffstage: false)
+              .evaluate()
+              .isNotEmpty,
+        );
+
+        final page = tester.widget<OptimizedFolderContentPage>(
+          find.byType(OptimizedFolderContentPage, skipOffstage: false),
+        );
+        expect(page.folderId, theirFolder.id);
+        expect(page.fromPartner, isTrue);
+        await settle(tester);
+        await teardownPage(tester);
+      });
+
+      /// Her folder's page, then her note's editor pushed over it. [restored]
+      /// pushes both as a launch restore does: in one go, the folder's page
+      /// with no word from its opener over cold caches, so it learns it is
+      /// hers only after the editor above it opened. [between] opens what
+      /// stands between the two.
+      Future<void> openAboveHerFolder(
+        WidgetTester tester, {
+        bool restored = false,
+        bool coldEditor = false,
+        Future<void> Function()? between,
+      }) async {
+        await handToPartner(tester);
+        pageFolders.invalidateCache();
+        await tester.pumpWidget(
+          MultiBlocProvider(
+            providers: [
+              BlocProvider<OptimizedFolderBloc>.value(value: folderBloc),
+              BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+              BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+              BlocProvider<CounterBloc>.value(value: counterBloc),
+              BlocProvider<ImportExportBloc>.value(value: exportBloc),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              navigatorObservers: [AppNavigator.routeObserver],
+              home: const Scaffold(body: Text('beneath')),
+            ),
+          ),
+        );
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => OptimizedFolderContentPage(
+              folderId: theirFolder.id,
+              title: theirFolder.name,
+              fromPartner: restored ? null : true,
+            ),
+          ),
+        );
+        if (!restored) {
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+          await settle(tester);
+        }
+        if (between != null) await between();
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => OptimizedNoteEditorPage(
+              folderId: theirs.folderId,
+              noteId: theirs.id,
+              metadata: coldEditor ? stored : theirs,
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        if (coldEditor) {
+          // Its load never answers: it has not learned the note is hers.
+          await settle(tester);
+          return;
+        }
+        noteBloc.emitContentLoaded(theirs, theirBody);
+        await tester.pump();
+        await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+        await settle(tester);
+      }
+
+      /// What the shared reader does before it announces anything: every
+      /// removal of the run is in the database first — her note, then her
+      /// folder unless [folder] is false — through its door past the fences.
+      Future<void> removeRows(WidgetTester tester, {bool folder = true}) =>
+          tester.runAsync(
+            () => db.sharedRowDao.writing(() async {
+              await db.noteDao.hardDeleteNote(stored.id);
+              if (folder) await db.folderDao.hardDeleteFolder(theirFolder.id);
+            }),
+          );
+
+      const folderLine = 'Maria no longer shares this folder.';
+      const noteLine = 'Maria no longer shares this note';
+      const deletedLine = 'Deleted on another device';
+      const notFoundLine = 'Note not found';
+      // Said by a page that never read her name.
+      const unnamedNoteLine = 'Your partner no longer shares this note';
+
+      /// Every line seen on screen, frame by frame, for [frames] frames.
+      Future<Set<String>> watchLines(
+        WidgetTester tester, {
+        Set<String>? into,
+        int frames = 40,
+      }) async {
+        final seen = into ?? <String>{};
+        for (var i = 0; i < frames; i++) {
+          for (final line in [
+            folderLine,
+            noteLine,
+            deletedLine,
+            notFoundLine,
+            unnamedNoteLine,
+          ]) {
+            if (find.text(line).evaluate().isNotEmpty) seen.add(line);
+          }
+          // Real time too: a leave asks the pages in front through reads.
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 2)),
+          );
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        return seen;
+      }
+
+      testWidgets('in one frame: only the page in front speaks', (
+        tester,
+      ) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+
+        await tester.runAsync(() async {
+          folderRepository.announceRemoved({theirFolder.id: null});
+          noteRepository.announceRemoved({stored.id: theirFolder.id});
+        });
+        final seen = await watchLines(tester);
+
+        expect(seen, {noteLine});
+        expect(find.text('beneath'), findsOneWidget);
+        expect(find.byType(OptimizedFolderContentPage), findsNothing);
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('restored with cold caches, her folder learning it is hers '
+          'after her note above it opened: one bar, the note\'s', (
+        tester,
+      ) async {
+        await openAboveHerFolder(tester, restored: true);
+        await removeRows(tester);
+        expect(find.byType(OptimizedFolderContentPage), findsNothing);
+        expect(
+          find.byType(OptimizedFolderContentPage, skipOffstage: false),
+          findsOneWidget,
+        );
+
+        await tester.runAsync(() async {
+          folderRepository.announceRemoved({theirFolder.id: null});
+          noteRepository.announceRemoved({stored.id: theirFolder.id});
+        });
+        final seen = await watchLines(tester);
+
+        expect(seen, {noteLine});
+        expect(find.text('beneath'), findsOneWidget);
+
+        await teardownPage(tester);
+      });
+
+      /// A folder page of mine — the root — pushed over the top page.
+      Future<void> openMine(WidgetTester tester) async {
+        tester
+            .state<NavigatorState>(find.byType(Navigator))
+            .push(
+              MaterialPageRoute<void>(
+                builder: (_) => const OptimizedFolderContentPage(
+                  folderId: null,
+                  title: 'ANTA',
+                ),
+              ),
+            );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await settle(tester);
+      }
+
+      testWidgets('a folder page of mine between her folder and her note '
+          'changes nothing: the note speaks', (tester) async {
+        await openAboveHerFolder(tester, between: () => openMine(tester));
+        await removeRows(tester);
+
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final before = await watchLines(tester, frames: 6);
+        expect(before, isEmpty, reason: 'her note is in front');
+        await tester.runAsync(
+          () async =>
+              noteRepository.announceRemoved({stored.id: theirFolder.id}),
+        );
+        final seen = await watchLines(tester);
+
+        expect(seen, {noteLine});
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('a folder page of mine above her folder changes nothing: '
+          'the folder speaks', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+        tester.state<NavigatorState>(find.byType(Navigator)).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await openMine(tester);
+
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final seen = await watchLines(tester, frames: 10);
+
+        expect(seen, {folderLine});
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('in one frame, the note\'s removal announced first: still '
+          'only the page in front speaks', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+
+        await tester.runAsync(() async {
+          noteRepository.announceRemoved({stored.id: theirFolder.id});
+          folderRepository.announceRemoved({theirFolder.id: null});
+        });
+        final seen = await watchLines(tester);
+
+        expect(seen, {noteLine});
+        expect(find.text('beneath'), findsOneWidget);
+        expect(find.byType(OptimizedFolderContentPage), findsNothing);
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('the folder\'s leave lands while the note is still closing: '
+          'one bar, the note\'s', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+
+        await tester.runAsync(
+          () async =>
+              noteRepository.announceRemoved({stored.id: theirFolder.id}),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(
+          find.byType(OptimizedNoteEditorPage),
+          findsOneWidget,
+          reason: 'its route is still going away',
+        );
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final seen = await watchLines(tester);
+
+        expect(seen, {noteLine});
+        expect(find.text('beneath'), findsOneWidget);
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('in two frames, the folder first: one bar, the note\'s, '
+          'said when its own leave lands — nothing before it', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final before = await watchLines(tester, frames: 6);
+        expect(before, isEmpty, reason: 'the note is in front');
+        await tester.runAsync(
+          () async =>
+              noteRepository.announceRemoved({stored.id: theirFolder.id}),
+        );
+        final seen = await watchLines(tester);
+
+        expect(seen, {noteLine});
+        expect(find.text('beneath'), findsOneWidget);
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('in two frames, the note first: the note\'s bar, then the '
+          'folder\'s once it is in front — two closings, two bars', (
+        tester,
+      ) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+
+        await tester.runAsync(
+          () async =>
+              noteRepository.announceRemoved({stored.id: theirFolder.id}),
+        );
+        final first = await watchLines(tester, frames: 10);
+        expect(first, {noteLine});
+        // The folder page is in front once the note's route is gone.
+        await settleUntil(
+          tester,
+          () => find
+              .byType(OptimizedNoteEditorPage, skipOffstage: false)
+              .evaluate()
+              .isEmpty,
+        );
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final second = await watchLines(tester);
+
+        expect(second, contains(folderLine));
+        expect(find.text(folderLine), findsOneWidget);
+        expect(find.text('beneath'), findsOneWidget);
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('her note closed by the person before the leave counts for '
+          'nothing: the folder speaks', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+        tester.state<NavigatorState>(find.byType(Navigator)).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final seen = await watchLines(tester, frames: 10);
+
+        expect(seen, {folderLine});
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('her note closing by the person\'s back as the leave lands '
+          'counts for nothing: the folder speaks', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+        tester.state<NavigatorState>(find.byType(Navigator)).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(find.byType(OptimizedNoteEditorPage), findsOneWidget);
+
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final seen = await watchLines(tester, frames: 10);
+
+        expect(seen, {folderLine});
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('a page above her folder that is no part of the leave: the '
+          'folder\'s line is said on it', (tester) async {
+        await openAboveHerFolder(tester);
+        await removeRows(tester);
+        // Her note's editor closed; a page of mine (Settings, say) on top.
+        tester.state<NavigatorState>(find.byType(Navigator)).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        tester
+            .state<NavigatorState>(find.byType(Navigator))
+            .push(
+              MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('Settings')),
+              ),
+            );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        await tester.runAsync(
+          () async => folderRepository.announceRemoved({theirFolder.id: null}),
+        );
+        final seen = await watchLines(tester, frames: 10);
+
+        expect(seen, {folderLine});
+        expect(find.text('Settings'), findsOneWidget);
+
+        await teardownPage(tester);
+      });
+
+      // Leg 6, B9: decided by who leaves, not by who is hers.
+      testWidgets('her folder, a page of mine, her other folder that stays: '
+          'the folder\'s bar, at once, over them', (tester) async {
+        final other = (await tester.runAsync(() async {
+          final folder = await db.folderDao.createFolder(name: 'Recipes');
+          await db.customStatement(
+            "UPDATE folders SET owner_id = 'maria-uid' WHERE id = ?",
+            [folder.id],
+          );
+          return folder;
+        }))!;
+        await openAboveHerFolder(
+          tester,
+          between: () async {
+            await openMine(tester);
+            tester
+                .state<NavigatorState>(find.byType(Navigator))
+                .push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => OptimizedFolderContentPage(
+                      folderId: other.id,
+                      title: other.name,
+                      fromPartner: true,
+                    ),
+                  ),
+                );
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 500));
+            await settle(tester);
+          },
+        );
+        // Her note's editor closed by the person: her other folder on top.
+        tester.state<NavigatorState>(find.byType(Navigator)).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await settle(tester);
+        await removeRows(tester);
+
+        await tester.runAsync(() async {
+          noteRepository.announceRemoved({stored.id: theirFolder.id});
+          folderRepository.announceRemoved({theirFolder.id: null});
+        });
+        final seen = await watchLines(tester);
+
+        expect(seen, {folderLine});
+        expect(find.text('Recipes'), findsWidgets, reason: 'it stays');
+
+        await teardownPage(tester);
+        await tester.runAsync(() => db.folderDao.hardDeleteFolder(other.id));
+      });
+
+      for (final noteFirst in [true, false]) {
+        testWidgets('an editor over cold caches that has not learned the note '
+            'is hers, above her folder, both leave '
+            '(${noteFirst ? 'the note' : 'the folder'} heard first): one bar, '
+            'in the share\'s words — her name unread, so the stand-in\'s', (
+          tester,
+        ) async {
+          await openAboveHerFolder(tester, coldEditor: true);
+          await removeRows(tester);
+
+          await tester.runAsync(() async {
+            if (noteFirst) {
+              noteRepository.announceRemoved({stored.id: theirFolder.id});
+            }
+            folderRepository.announceRemoved({theirFolder.id: null});
+            if (!noteFirst) {
+              noteRepository.announceRemoved({stored.id: theirFolder.id});
+            }
+          });
+          final seen = await watchLines(tester);
+
+          expect(seen, {unnamedNoteLine});
+          expect(find.text('beneath'), findsOneWidget);
+
+          await teardownPage(tester);
+        });
+      }
+    });
+
     testWidgets('a leave under a dialog waits, and never closes the dialog', (
       tester,
     ) async {
@@ -5904,6 +6546,53 @@ void main() {
       final title = tester.getTopRight(find.text('Weekend'));
       final sign = tester.getTopLeft(find.byIcon(Icons.group_rounded));
       expect(sign.dx - title.dx, RowMetrics.shareMarkGap);
+
+      await teardownPage(tester);
+    });
+
+    // Review 2, finding 9: the bar said "Shared with your partner", then
+    // "Shared with Maria" once a read answered.
+    testWidgets('F6a: the partner already known, the first frame\'s bar names '
+        'her', (tester) async {
+      OptimizedNoteEditorPage.knownShare = () => share.availability;
+      addTearDown(
+        () =>
+            OptimizedNoteEditorPage.knownShare = () =>
+                ShareService.knownAvailability,
+      );
+      final semantics = tester.ensureSemantics();
+      final inShared = stored.copyWith(sharedThroughFolderId: theirFolder.id);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: OptimizedNoteEditorPage(
+              folderId: inShared.folderId,
+              noteId: inShared.id,
+              metadata: inShared,
+            ),
+          ),
+        ),
+      );
+      // The very first frame, before any read has answered.
+      expect(appBar(tester).sharedLabel, 'Shared with Maria');
+      expect(
+        find.bySemanticsLabel(RegExp('Shared with Maria')),
+        findsOneWidget,
+      );
+
+      noteBloc.emitContentLoaded(inShared, theirBody);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      expect(appBar(tester).sharedLabel, 'Shared with Maria');
+      semantics.dispose();
 
       await teardownPage(tester);
     });

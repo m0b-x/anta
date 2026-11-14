@@ -1,0 +1,158 @@
+# Notes follow the folder they lie in, with no act of sharing of their
+# own, one sync each side per change: January moved from Money into the
+# shared Training reaches the partner; the owner's edit to it is the text
+# the partner reads; moved back out, it leaves the partner; Session 2,
+# deleted, leaves too. The partner's search then finds nothing of the
+# words of the two that left (their own copy of Session 1 shares none).
+key back
+wait id:create-folder
+tap "Money"
+expect "January" --timeout 10
+longpress "January" --settle 1000
+wait id:row-action-select
+# A search result of the folder picker moves the note at once. The field
+# gets a stem of the name: the whole name would match the field's own
+# text exactly, which outranks the row.
+tap id:row-action-move --settle 1000
+wait id:folder-picker-search
+tap id:folder-picker-search
+type "Train"
+expect --absent "SUBFOLDERS OF" --timeout 10
+tap "Training"
+wait id:create-note
+expect "now shared with" --absent "January" --timeout 10
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect "January" --timeout 30
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+# The owner edits it where it now lies.
+key back
+wait id:create-folder
+tap "Training"
+expect "January" --timeout 10
+tap "January"
+wait id:editor-toolbar --timeout 15
+tap id:editor-body
+type "Paid in full"
+expect "Paid in full"
+key back
+wait id:create-note
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect "January" --timeout 30
+-d emulator-5558 tap "January"
+-d emulator-5558 wait id:shared-note-line --timeout 15
+-d emulator-5558 expect "Paid in full" --timeout 30
+-d emulator-5558 shot partner-reads-edit
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-partner-line
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+# The owner moves January back to Money and deletes Session 2 (which
+# sorts first in Week 1: Session 1's preview names it).
+key back
+wait id:create-folder
+tap "Training"
+expect "January" --timeout 10
+longpress "January" --settle 1000
+wait id:row-action-select
+tap id:row-action-move --settle 1000
+wait id:folder-picker-search
+tap id:folder-picker-search
+type "Mon"
+expect --absent "SUBFOLDERS OF" --timeout 10
+tap "Money"
+wait id:create-note
+expect "Week 1" --absent "January" --timeout 10
+tap "Week 1"
+expect "Session 2" --timeout 10
+longpress "Session 2" --nth 0 --settle 1000
+wait id:row-action-select
+tap id:row-action-delete
+wait id:sheet-confirm
+expect 'delete "Session 2"'
+tap id:sheet-confirm
+wait id:sheet-confirm --gone
+expect "Session 1" --absent "Deadlift" --timeout 10
+key back
+wait id:create-note
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:browser-partner-line --timeout 15
+-d emulator-5558 expect "Week 1" --absent "January" --timeout 30
+-d emulator-5558 tap "Week 1"
+-d emulator-5558 expect "Session 1" --absent "Deadlift" --timeout 30
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-partner-line
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap id:search-open
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+# Each empty answer follows one that finds Session 1, so a list left
+# over from the query before cannot pass for it.
+-d emulator-5558 type "Mobility"
+-d emulator-5558 expect "Session 1" --absent "No results found" --timeout 10
+-d emulator-5558 type "coffee" --replace
+-d emulator-5558 expect "No results found" --absent "Session 1" --timeout 10
+-d emulator-5558 type "Mobility" --replace
+-d emulator-5558 expect "Session 1" --absent "No results found" --timeout 10
+-d emulator-5558 type "Deadlift" --replace
+-d emulator-5558 expect "No results found" --absent "Session 1" --timeout 10
+-d emulator-5558 type "Mobility" --replace
+-d emulator-5558 expect "Session 1" --absent "No results found" --timeout 10
+-d emulator-5558 type "Paid in full" --replace
+-d emulator-5558 expect "No results found" --absent "Session 1" --timeout 10
+-d emulator-5558 shot search-empty
+-d emulator-5558 key back
+-d emulator-5558 wait id:browser-section-partner
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

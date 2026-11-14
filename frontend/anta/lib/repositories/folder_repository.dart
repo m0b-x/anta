@@ -54,10 +54,27 @@ class FolderRepository {
   /// The share facts the services flag folders and notes against.
   ShareCensus get shareCensus => ShareCensus.of(_db);
 
+  /// Every [ShareCensus.forget] of the database read now, and every
+  /// [rebindDatabase] ([ShareCensus.forgottenAcross]): a share act reaches
+  /// the folders only through [invalidateAll], which announces no
+  /// [FolderChange], so a holder of folders flagged against the census —
+  /// the picker's name index — listens here, and a switch empties it.
+  Stream<void> get shareFactsChanged => ShareCensus.forgottenAcross(
+    database: () => _db,
+    rebinds: _rebinds.stream,
+  );
+
   /// The database this repository reads now, for a setting kept per
   /// database beside its folders (`SettingsService.partnerFolderSortsOf`),
   /// which follows a [rebindDatabase] with it.
   AppDatabase get database => _db;
+
+  /// How many times [rebindDatabase] has run: taken before a read that
+  /// awaits and compared after it, it tells whether what was read is still
+  /// this repository's database. The database generation cannot: it moves
+  /// when a switch begins, before this repository is rebound.
+  int get bindings => _bindings;
+  int _bindings = 0;
 
   /// [owner]'s live top-level folders by name (`FolderDao.topFoldersOf`).
   Future<List<Folder>> topFoldersOf(String owner) =>
@@ -77,6 +94,7 @@ class FolderRepository {
   /// database rather than stream from the closed one (A6 review R114).
   void rebindDatabase(AppDatabase database) {
     _db = database;
+    _bindings++;
     invalidateAll();
     _rebinds.add(null);
   }
@@ -282,6 +300,11 @@ class FolderRepository {
 
     return folder;
   }
+
+  /// Whether the folder [id] cannot be moved under [target]
+  /// ([FolderDao.refusesParent]): one read, never cached.
+  Future<bool> refusesParent(String id, String? target) =>
+      _folderDao.refusesParent(id, target);
 
   Future<Folder?> updateFolder({
     required String id,

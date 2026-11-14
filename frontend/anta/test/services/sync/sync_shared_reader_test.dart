@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:drift/drift.dart' show Value, Variable;
 import 'package:flutter_test/flutter_test.dart';
@@ -6,11 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/crdt/crdt_write.dart' show OutboxOp;
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/app_user.dart';
+import 'package:anta/services/body_search_indexer.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
@@ -30,6 +34,7 @@ import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 import 'package:anta/services/sync/tables/notes_binding.dart';
 
 import '../../database/support/db_test_support.dart';
+import '../support/body_index_support.dart';
 import 'support/sync_pair.dart';
 
 /// The reader's side of sharing (`docs/cloud-sharing-foundations.md` §5,
@@ -90,6 +95,34 @@ void main() {
   };
 
   Future<int> queuedOn(SyncDevice device) => device.db.syncOutboxDao.count();
+
+  /// Catches [device]'s body index up, as a launch or a search would.
+  Future<void> indexOn(SyncDevice device) => BodySearchIndexer(
+    database: device.db,
+    scheduler: inlineBodyIndexScheduler,
+  ).drain();
+
+  /// The ledger rows [device] keeps for the notes under [ids].
+  Future<int> searchRowsOn(SyncDevice device, List<String> ids) async =>
+      (await device.db
+              .customSelect(
+                'SELECT COUNT(*) AS n FROM note_search_ledger WHERE note_id IN '
+                '(${List.filled(ids.length, '?').join(', ')})',
+                variables: [for (final id in ids) Variable<String>(id)],
+              )
+              .getSingle())
+          .read<int>('n');
+
+  /// The projections in [device]'s body index that hold [word].
+  Future<int> hitsOn(SyncDevice device, String word) async =>
+      (await device.db
+              .customSelect(
+                'SELECT COUNT(*) AS n FROM note_body_fts '
+                'WHERE note_body_fts MATCH ?',
+                variables: [Variable<String>('"$word"')],
+              )
+              .getSingle())
+          .read<int>('n');
 
   /// The calls the shared read made, of everything the gateway logged.
   List<String> sharedCalls() => [
@@ -415,6 +448,72 @@ void main() {
       final shared = (await eventOn(partner(), 'e1'))!;
       expect(shared.isDeleted, isTrue);
       expect(shared.ownerId, ownerUid);
+    });
+
+    test(
+      'deleted by its owner, stays here as a tombstone that says nothing: '
+      'no title, no description, and its day text none either (P8)',
+      () async {
+        await owner().db.calendarEventDao.upsert(
+          const CalendarEventsCompanion(
+            id: Value('e1'),
+            description: Value('Room 4, second floor'),
+          ),
+        );
+        await pair.syncBoth();
+        expect(
+          (await eventOn(partner(), 'e1'))!.description,
+          'Room 4, second floor',
+        );
+
+        await owner().db.calendarEventDao.tombstoneEventCascade('e1');
+        await pair.syncBoth();
+
+        final shared = (await eventOn(partner(), 'e1'))!;
+        expect(
+          shared.isDeleted,
+          isTrue,
+          reason: 'the row stays, for the count',
+        );
+        expect(shared.title, isEmpty);
+        expect(shared.description, isNull);
+        expect(shared.category, 'general', reason: 'an id, kept');
+        expect(
+          shared.startDate.isAtSameMomentAs(day),
+          isTrue,
+          reason: 'a date, kept',
+        );
+        final text = await partner().db.eventOccurrenceDao
+            .getByDayKeysIncludingDeleted([(eventId: 'e1', day: day)]);
+        expect(text.single.isDeleted, isTrue);
+        expect(text.single.description, isEmpty);
+      },
+    );
+
+    test('deleted by its owner and brought back by a newer version, has its '
+        'words back here (B8)', () async {
+      await pair.syncBoth();
+      await owner().db.calendarEventDao.tombstoneEventCascade('e1');
+      await pair.syncBoth();
+      expect((await eventOn(partner(), 'e1'))!.title, isEmpty);
+
+      await owner().db.customStatement(
+        "UPDATE calendar_events SET is_deleted = 0, deleted_at = NULL "
+        "WHERE id = 'e1'",
+      );
+      await owner().db.calendarEventDao.upsert(
+        const CalendarEventsCompanion(
+          id: Value('e1'),
+          title: Value('Back again'),
+          description: Value('Room 5'),
+        ),
+      );
+      await pair.syncBoth();
+
+      final back = (await eventOn(partner(), 'e1'))!;
+      expect(back.isDeleted, isFalse);
+      expect(back.title, 'Back again');
+      expect(back.description, 'Room 5');
     });
 
     test('does not take the place of an event of the partner\'s own under '
@@ -782,6 +881,103 @@ void main() {
       expect(await queuedOn(partner()), 0);
     });
 
+    test('no longer shared, its notes leave the search index with them, in '
+        'the same removal (P1)', () async {
+      await pair.syncBoth();
+      await indexOn(partner());
+      expect(await searchRowsOn(partner(), [top.id, low.id]), 2);
+      expect(await hitsOn(partner(), 'shelf'), 1);
+
+      await owner().db.folderDao.setSharedPair(shelf.id, null);
+      await pair.syncBoth();
+
+      expect(await ownedBy(partner(), 'notes', ownerUid), isEmpty);
+      expect(await searchRowsOn(partner(), [top.id, low.id]), 0);
+      expect(await hitsOn(partner(), 'shelf'), 0);
+    });
+
+    test('a note the owner deletes stays here as a tombstone that says '
+        'nothing: no title, no preview, no text, no search row (P4)', () async {
+      await pair.syncBoth();
+      await indexOn(partner());
+      expect(await hitsOn(partner(), 'shelf'), 1);
+
+      await owner().db.noteDao.softDeleteNoteWithChunks(top.id);
+      await pair.syncBoth();
+
+      final held = (await noteOn(partner(), top.id))!;
+      expect(held.isDeleted, isTrue, reason: 'the row stays, for the count');
+      expect(held.ownerId, ownerUid);
+      expect(held.title, isEmpty);
+      expect(held.preview, isEmpty);
+      expect(await textOn(partner(), top.id), isEmpty);
+      expect(await searchRowsOn(partner(), [top.id]), 0);
+      expect(await hitsOn(partner(), 'shelf'), 0);
+      expect(await hitsOn(partner(), 'box'), 1, reason: 'a live note stays');
+    });
+
+    test('a folder deleted on the owner\'s other device and brought back '
+        'live from a third: what lies under it leaves the partner, then '
+        'comes back to it (P2, A2)', () async {
+      await pair.syncBoth();
+      final box0 = pair.gateway.rowsOf(pair.ownerSpace, 'folders')[box.id]!;
+      SyncEnvelope boxAt(String hlc, {required bool live}) => SyncEnvelope(
+        table: box0.table,
+        rowKey: box0.rowKey,
+        hlc: hlc,
+        deviceId: 'C',
+        version: box0.version + 1,
+        op: live ? OutboxOp.upsert : OutboxOp.tombstone,
+        ownerId: box0.ownerId,
+        data: live ? box0.data : null,
+      );
+
+      pair.gateway.plant(
+        pair.ownerSpace,
+        boxAt('ffffffffff01:0000:C', live: false),
+        pushedBy: 'C',
+      );
+      await owner().sync();
+      await partner().sync();
+      expect(
+        pair.gateway.rowsOf(pair.ownerSpace, 'notes')[low.id]!.sharedPair,
+        isNull,
+        reason: 'buried: pushed private',
+      );
+      expect(await noteOn(partner(), low.id), isNull);
+
+      pair.gateway.plant(
+        pair.ownerSpace,
+        boxAt('ffffffffff02:0000:C', live: true),
+        pushedBy: 'C',
+      );
+      await owner().sync();
+      await partner().sync();
+
+      expect(
+        pair.gateway.rowsOf(pair.ownerSpace, 'notes')[low.id]!.sharedPair,
+        sharePairId,
+        reason: 'live again: pushed shared',
+      );
+      expect(await textOn(partner(), low.id), 'Text in the box');
+    });
+
+    test('a folder the owner deletes stays here as a tombstone without its '
+        'name, and the notes in it say nothing either (P4)', () async {
+      await pair.syncBoth();
+
+      await owner().db.folderDao.softDeleteFolderWithDescendants(box.id);
+      await pair.syncBoth();
+
+      final folder = (await folderOn(partner(), box.id))!;
+      expect(folder.isDeleted, isTrue, reason: 'the row stays, for the count');
+      expect(folder.name, box.id, reason: 'what a data-less tombstone holds');
+      final note = (await noteOn(partner(), low.id))!;
+      expect(note.isDeleted, isTrue);
+      expect(note.title, isEmpty);
+      expect(note.preview, isEmpty);
+    });
+
     /// A device of the owner that had not heard of the share pushed last:
     /// the space stops naming the pair, and its notes' text is refused.
     Future<void> spaceForgetsThePair() => pair.gateway.writeSpaceShare(
@@ -797,6 +993,212 @@ void main() {
       pushedBy: 'A',
       schema: syncSchema,
     );
+
+    // The server's count is compared with everything this phone accounts
+    // for (share surfaces P3): a document it met and does not hold counts,
+    // or the leave of another row hides behind it until the daily read.
+
+    /// The owner's document of the note [id], planted again as [change]
+    /// leaves it.
+    void replant(
+      String id,
+      SyncEnvelope Function(SyncEnvelope document) change,
+    ) => pair.gateway.plant(
+      pair.ownerSpace,
+      change(pair.gateway.rowsOf(pair.ownerSpace, 'notes')[id]!),
+      pushedBy: 'A',
+    );
+
+    SyncEnvelope rewritten(
+      SyncEnvelope document, {
+      int? wire,
+      Map<String, Object?>? data,
+    }) => SyncEnvelope(
+      table: document.table,
+      rowKey: document.rowKey,
+      hlc: document.hlc,
+      deviceId: document.deviceId,
+      version: document.version,
+      op: document.op,
+      ownerId: document.ownerId,
+      data: data ?? document.data,
+      sharedPair: sharePairId,
+      wire: wire ?? document.wire,
+    );
+
+    /// The owner moves [top] out of the share, and the partner reads once.
+    Future<void> topMovesOut() async {
+      await owner().db.noteDao.moveNote(id: top.id, targetFolderId: cabinet.id);
+      await owner().sync();
+    }
+
+    test('a note a newer build wrote, passed over here, does not hide the '
+        'leave of another: the next read drops it (P3)', () async {
+      await pair.syncBoth();
+      final fresh = await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Fresh',
+        body: 'Written by a newer build',
+      );
+      await owner().sync();
+      replant(fresh.id, (doc) => rewritten(doc, wire: syncSchema + 1));
+      await partner().sync();
+      expect(await noteOn(partner(), fresh.id), isNull);
+
+      await topMovesOut();
+      await partner().sync();
+
+      expect(await noteOn(partner(), top.id), isNull);
+      // The read from the start left what it accounts for equal to the
+      // server's count: the read after it is quiet (B8).
+      pair.gateway.calls.clear();
+      await partner().sync();
+      expect(
+        [
+          for (final call in sharedCalls())
+            if (call.endsWith(':notes')) call,
+        ],
+        ['shared:notes', 'count:notes'],
+      );
+    });
+
+    test('a note deleted by its owner and brought back by a newer version '
+        'has its words back here (B8)', () async {
+      await pair.syncBoth();
+      await owner().db.noteDao.softDeleteNoteWithChunks(top.id);
+      await pair.syncBoth();
+      expect((await noteOn(partner(), top.id))!.title, isEmpty);
+
+      final buried = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      final live = (await owner().db.noteDao.getByIdsIncludingDeleted([
+        top.id,
+      ])).single;
+      await owner().db.customStatement(
+        'UPDATE notes SET is_deleted = 0, deleted_at = NULL WHERE id = ?',
+        [top.id],
+      );
+      await editNote(owner(), top.id, 'Text on the shelf, back');
+      await owner().sync();
+      await partner().sync();
+
+      expect(buried.op, OutboxOp.tombstone);
+      final back = (await noteOn(partner(), top.id))!;
+      expect(back.isDeleted, isFalse);
+      expect(back.title, live.title);
+      expect(await textOn(partner(), top.id), 'Text on the shelf, back');
+    });
+
+    test('a note waiting for its text does not hide the leave of another: '
+        'the next read drops it (P3)', () async {
+      await pair.syncBoth();
+      final fresh = await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Fresh',
+        body: 'Text not readable yet',
+      );
+      await owner().sync();
+      await spaceForgetsThePair();
+      await partner().sync();
+      expect((await waitingOn(partner())).keys, contains(fresh.id));
+
+      await topMovesOut();
+      await spaceForgetsThePair();
+      await partner().sync();
+
+      expect(await noteOn(partner(), top.id), isNull);
+      expect(
+        (await waitingOn(partner())).keys,
+        contains(fresh.id),
+        reason: 'still waiting, met again by the read from the start',
+      );
+    });
+
+    test('a note whose document cannot be read does not hide the leave of '
+        'another: the next read drops it (P3)', () async {
+      await pair.syncBoth();
+      final fresh = await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Fresh',
+        body: 'Malformed',
+      );
+      await owner().sync();
+      replant(
+        fresh.id,
+        (doc) => rewritten(doc, data: {...doc.data!, 'title': 42}),
+      );
+      await partner().sync();
+      expect(await noteOn(partner(), fresh.id), isNull);
+
+      await topMovesOut();
+      await partner().sync();
+
+      expect(await noteOn(partner(), top.id), isNull);
+    });
+
+    test('a note whose document this build cannot turn into an envelope — '
+        'passed over by the page — does not hide the leave of another '
+        '(P3)', () async {
+      await pair.syncBoth();
+      final fresh = await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Fresh',
+        body: 'Unreadable',
+      );
+      await owner().sync();
+      pair.gateway.unreadable.add(('notes', fresh.id));
+      await partner().sync();
+      expect(await noteOn(partner(), fresh.id), isNull);
+
+      await topMovesOut();
+      await partner().sync();
+
+      expect(await noteOn(partner(), top.id), isNull);
+    });
+
+    test(
+      'a read that finds nothing new costs what it did before (P3)',
+      () async {
+        await pair.syncBoth();
+        await partner().sync();
+        partner().statements.reset();
+
+        await partner().sync();
+
+        // 283 before the count accounted for what is not held: the held rows
+        // and the records, read in two statements per table, are one now.
+        expect(partner().statements.count, 277);
+      },
+    );
+
+    test('a tombstone an earlier build stored with its words is emptied at '
+        'the next read, once; the reads after it are as quiet as ever '
+        '(A6)', () async {
+      await pair.syncBoth();
+      final db = partner().db;
+      // As an earlier build merged the owner's delete: the deletion and the
+      // stamps, the title and preview kept — and no record of a sweep.
+      await db.sharedRowDao.writing(
+        () => db.customStatement(
+          'UPDATE notes SET is_deleted = 1 WHERE id = ?',
+          [top.id],
+        ),
+      );
+      await db.syncDao.deleteValue(SyncDao.keySharedTombstonesEmptied);
+      expect((await noteOn(partner(), top.id))!.title, 'Top');
+
+      await partner().sync();
+
+      final held = (await noteOn(partner(), top.id))!;
+      expect(held.isDeleted, isTrue);
+      expect((held.title, held.preview), ('', ''));
+      partner().statements.reset();
+      await partner().sync();
+      expect(partner().statements.count, 277);
+    });
 
     test('a note whose text cannot be read yet — the owner\'s space does '
         'not name the pair — waits, and the next read asks for that note '
@@ -1043,6 +1445,123 @@ void main() {
       await owner().db.eventSkipDao.markSkipped('e1', day);
       await owner().db.calendarCategoryDao.setSharedPair('climb', sharePairId);
     });
+
+    // A document is accounted for once, whatever records name it: a shared
+    // built-in's own record and a record of it as not held never both
+    // stand (share surfaces P3, review A1).
+    group('a shared built-in met as not held', () {
+      Future<int> accounted() =>
+          partner().db.sharedRowDao.countOf('calendar_categories', ownerUid);
+
+      Future<int> server() => pair.gateway.sharedCount(
+        'calendar_categories',
+        pair: sharePairId,
+        owner: ownerUid,
+      );
+
+      List<String> categoryCalls() => [
+        for (final call in sharedCalls())
+          if (call.endsWith(':calendar_categories')) call,
+      ];
+
+      test(
+        'not held, then refused as a built-in, is counted once (A1)',
+        () async {
+          await pair.syncBoth();
+          final dao = partner().db.sharedRowDao;
+          final before = await accounted();
+
+          await dao.noteUnheld('calendar_categories', ['work']);
+          await dao.noteRefused(
+            'calendar_categories',
+            'work',
+            live: true,
+            builtIn: true,
+          );
+
+          expect(await accounted(), before + 1);
+        },
+      );
+
+      test(
+        'refused as a built-in, then not held, is counted once (A1)',
+        () async {
+          await pair.syncBoth();
+          final dao = partner().db.sharedRowDao;
+          final before = await accounted();
+
+          await dao.noteRefused(
+            'calendar_categories',
+            'work',
+            live: true,
+            builtIn: true,
+          );
+          await dao.noteUnheld('calendar_categories', ['work']);
+
+          expect(await accounted(), before + 1);
+        },
+      );
+
+      test('written by a newer build, then readable again, leaves every next '
+          'read quiet (A1)', () async {
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        await partner().sync();
+        final doc = pair.gateway.rowsOf(
+          pair.ownerSpace,
+          'calendar_categories',
+        )['gym']!;
+        SyncEnvelope at(int wire) => SyncEnvelope(
+          table: doc.table,
+          rowKey: doc.rowKey,
+          hlc: doc.hlc,
+          deviceId: doc.deviceId,
+          version: doc.version,
+          op: doc.op,
+          ownerId: doc.ownerId,
+          data: doc.data,
+          sharedPair: sharePairId,
+          wire: wire,
+        );
+
+        Future<void> quietly() async {
+          expect(await accounted(), await server());
+          pair.gateway.calls.clear();
+          await partner().sync();
+          expect(categoryCalls(), [
+            'shared:calendar_categories',
+            'count:calendar_categories',
+          ], reason: 'no read from the start');
+        }
+
+        pair.gateway.plant(pair.ownerSpace, at(syncSchema + 1), pushedBy: 'A');
+        await partner().sync();
+        await quietly();
+
+        pair.gateway.plant(pair.ownerSpace, at(syncSchema), pushedBy: 'A');
+        await partner().sync();
+        await quietly();
+      });
+    });
+
+    test(
+      'deleted by its owner, a category held here keeps no name (P8)',
+      () async {
+        await pair.syncBoth();
+        expect((await categoryOn(partner(), 'climb'))!.name, 'Climb');
+
+        await owner().db.calendarCategoryDao.tombstoneCascade(
+          'climb',
+          reassignTo: 'general',
+        );
+        await pair.syncBoth();
+
+        final held = (await categoryOn(partner(), 'climb'))!;
+        expect(held.isDeleted, isTrue, reason: 'the row stays, for the count');
+        expect(held.name, isEmpty);
+      },
+    );
 
     test('arrives under the owner\'s account in the same read as its events, '
         'first — the mark not stored, the owner\'s order and archive flag '
@@ -2188,6 +2707,48 @@ void main() {
       );
     });
 
+    test('a shared note given way to for one of the person\'s own does not '
+        'hide the leave of another: the next read drops it (P3)', () async {
+      final other = await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Other',
+        body: 'Another shared note',
+      );
+      await pair.syncBoth();
+      // The shared note's document lies before the overlap a read from the
+      // cursor re-reads: nothing meets it again short of a read from the
+      // start.
+      pair.gateway.resumeOverlap = Duration.zero;
+      final mine = await partner().db.folderDao.createFolder(name: 'Mine');
+      final note = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      plantOwn(asOwn(note, over: {'folderId': mine.id}));
+      plantOwnChunks();
+      await partner().sync();
+      expect((await noteOn(partner(), top.id))!.ownerId, partnerUid);
+      expect(
+        await partner().db.syncDao.getValue(
+          SyncDao.keySharedRefused('notes', top.id),
+        ),
+        'u',
+        reason:
+            'recorded as known and not held: not met again yet, so not '
+            'refused',
+      );
+
+      final away = await owner().db.folderDao.createFolder(name: 'Away');
+      await owner().db.noteDao.moveNote(id: other.id, targetFolderId: away.id);
+      await owner().sync();
+      await partner().sync();
+
+      expect(await noteOn(partner(), other.id), isNull);
+      expect(
+        (await noteOn(partner(), top.id))!.ownerId,
+        partnerUid,
+        reason: 'the person\'s own note stays',
+      );
+    });
+
     test('a note over a shared note\'s id that cannot land yet — its text '
         'is not in the person\'s own space — does not leave a hole: the '
         'screens are told the shared note went, and the same run reads it '
@@ -3095,6 +3656,39 @@ void main() {
       expect(pair.partners.asked, [partnerUid]);
     });
 
+    test('a read the server answered "no pair any more" says so, for the '
+        'run that holds the install\'s push address (push review F6) — '
+        'not while the pair stands, not when the server could not be '
+        'asked, and not on a database that never paired', () async {
+      await ownerShares();
+      await partner().engine.onAppBackgrounded();
+
+      await partner().engine.readSharedWhileAway();
+      expect(partner().engine.sharedReadFoundNoPartner, isFalse);
+
+      pair.partners.pairs.clear();
+      await partner().engine.readSharedWhileAway();
+      expect(partner().engine.sharedReadFoundNoPartner, isTrue);
+
+      // The answer of one read, not a memory: the next one could not ask.
+      pair.partners.failure = const SyncGatewayException(
+        SyncGatewayFailure.offline,
+        'offline',
+      );
+      await partner().engine.readSharedWhileAway();
+      expect(partner().engine.sharedReadFoundNoPartner, isFalse);
+
+      pair.partners.failure = null;
+      await partner().engine.readSharedWhileAway();
+      expect(partner().engine.sharedReadFoundNoPartner, isTrue);
+
+      pair.partners.local.clear();
+      final asked = pair.partners.asked.length;
+      await partner().engine.readSharedWhileAway();
+      expect(pair.partners.asked, hasLength(asked));
+      expect(partner().engine.sharedReadFoundNoPartner, isFalse);
+    });
+
     test('an engine that was never started, away from its first moment: '
         'one shared read, what it changed handed to the hooks, nothing '
         'pulled, sent, followed or left pending', () async {
@@ -3152,6 +3746,41 @@ void main() {
       expect(pair.gateway.readSpaceCalls, 0);
     });
 
+    test('an engine that was never started honours the quota pause the '
+        'app\'s own engine stored: while it holds no call is made and the '
+        'read is answered paused; past its hour the read is made; the mark '
+        'is the account\'s own and stays (review item 8)', () async {
+      await ownerShares();
+      await partner().engine.onAppBackgrounded();
+      final at = DateTime(2026, 11, 13, 12);
+      partner().now = () => at;
+      Future<void> pausedAgo(Duration ago) => partner().db.syncDao.setValue(
+        SyncDao.keyQuotaPausedAt,
+        '${at.subtract(ago).millisecondsSinceEpoch}',
+      );
+
+      // Seconds, so the pause holds wherever the quota's reset falls on
+      // this machine's clock.
+      await pausedAgo(const Duration(seconds: 30));
+      final held = await partner().engine.readSharedWhileAway();
+
+      expect(held.skipped, SyncRunSkip.paused);
+      expect(pair.partners.asked, isEmpty);
+      expect(pair.gateway.calls, isEmpty);
+      expect(partner().engine.isStarted, isFalse);
+
+      await pausedAgo(const Duration(hours: 2));
+      final retried = await partner().engine.readSharedWhileAway();
+
+      expect(retried.skipped, isNull);
+      expect(pair.partners.asked, [partnerUid]);
+      expect((await eventOn(partner(), 'e1'))!.ownerId, ownerUid);
+      expect(
+        await partner().db.syncDao.getValue(SyncDao.keyQuotaPausedAt),
+        isNotNull,
+      );
+    });
+
     test('nobody signed in, or another account than the bound one, reads '
         'nothing', () async {
       await ownerShares();
@@ -3186,6 +3815,165 @@ void main() {
       },
     );
 
+    test('whether the read is still owed is the reader\'s to say: made, it '
+        'is not; failed offline, it is — though the run reports nothing '
+        'wrong; refused, it is not, since a retry would be refused again '
+        '(review item 7)', () async {
+      await ownerShares();
+      await partner().engine.onAppBackgrounded();
+
+      await partner().engine.readSharedWhileAway();
+      expect(partner().engine.awayReadOwed, isFalse);
+
+      pair.partners.failure = const SyncGatewayException(
+        SyncGatewayFailure.offline,
+        'no route',
+      );
+      final offline = await partner().engine.readSharedWhileAway();
+      expect(offline.failure, isNull);
+      expect(offline.skipped, isNull);
+      expect(partner().engine.awayReadOwed, isTrue);
+
+      pair.partners.failure = const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'refused',
+      );
+      await partner().engine.readSharedWhileAway();
+      expect(partner().engine.awayReadOwed, isFalse);
+    });
+
+    test('merged into a queued pull that the leave cuts, the read is never '
+        'made and the run reports nothing wrong: it is still owed, and the '
+        'next asking makes it (review item 7)', () async {
+      await ownerShares();
+      Future<SyncRunReport>? away;
+      partner().hooks.onBeforePage = (table) async {
+        if (away != null) return;
+        // Behind the run in flight: a pull is queued, the app leaves, and
+        // the check's read is merged into that pull.
+        unawaited(partner().engine.syncNow());
+        unawaited(partner().engine.onAppBackgrounded());
+        away = partner().engine.readSharedWhileAway();
+      };
+      await partner().engine.syncNow();
+      partner().hooks.onBeforePage = null;
+      expect(away, isNotNull);
+      pair.partners.asked.clear();
+
+      final report = await away!;
+      await partner().engine.whenIdle;
+
+      expect(report.failure, isNull);
+      expect(report.skipped, isNull);
+      expect(pair.partners.asked, isEmpty, reason: 'no shared read was made');
+      expect(partner().engine.awayReadOwed, isTrue);
+
+      await partner().engine.readSharedWhileAway();
+      await partner().engine.whenIdle;
+
+      expect(pair.partners.asked, [partnerUid]);
+      expect(partner().engine.awayReadOwed, isFalse);
+    });
+
+    test('only the run that carries an away read answers for it: a run '
+        'already in flight when the read is asked for ends its own shared '
+        'read, made to its end — and the check\'s read is still owed, for '
+        'the run that carries it is then cut', () async {
+      await ownerShares();
+      Future<SyncRunReport>? away;
+      partner().hooks.onBeforePage = (table) async {
+        if (away != null || table != 'calendar_events') return;
+        // Mid shared read of the run in flight, the app still in front: a
+        // pull is queued and the check's read merged into it.
+        unawaited(partner().engine.syncNow());
+        away = partner().engine.readSharedWhileAway();
+      };
+      bool? owedAsTheFirstRunEnded;
+      partner().hooks.onAfterRun = () async {
+        if (away == null || owedAsTheFirstRunEnded != null) return;
+        // The run in flight has read the share to its end. The app leaves
+        // before the queued run pulls.
+        owedAsTheFirstRunEnded = partner().engine.awayReadOwed;
+        unawaited(partner().engine.onAppBackgrounded());
+      };
+
+      await partner().engine.syncNow();
+      partner().hooks
+        ..onBeforePage = null
+        ..onAfterRun = null;
+      expect((await eventOn(partner(), 'e1'))!.ownerId, ownerUid);
+      pair.partners.asked.clear();
+      final report = await away!;
+      await partner().engine.whenIdle;
+
+      expect(owedAsTheFirstRunEnded, isTrue);
+      expect(report.failure, isNull);
+      expect(report.skipped, isNull);
+      expect(pair.partners.asked, isEmpty, reason: 'the queued run read none');
+      expect(partner().engine.awayReadOwed, isTrue);
+    });
+
+    test('a read made to its end says so, whoever asked for it (closing '
+        'review, K1): what plans the check counts from it — and a read the '
+        'leave cut, or one that failed, says nothing', () async {
+      await ownerShares();
+      var made = 0;
+      SyncEngine.onSharedReadCompleted = () => made++;
+      addTearDown(() => SyncEngine.onSharedReadCompleted = null);
+
+      await partner().engine.readSharedWhileAway();
+      expect(made, 1, reason: 'the check\'s own read');
+      await partner().engine.syncNow();
+      expect(made, 2, reason: 'the app\'s read in front');
+
+      // Cut by a stop before its first page.
+      partner().hooks.onBeforePage = (table) async {
+        partner().hooks.onBeforePage = null;
+        unawaited(partner().engine.stop());
+      };
+      await partner().engine.readSharedWhileAway();
+      await partner().engine.whenIdle;
+      expect(made, 2);
+    });
+
+    test('each ask answers for its own read (review R4): an away read in '
+        'flight lowers only what it carried — a second ask, merged into '
+        'the pull queued behind it and cut by the leave, is still owed and '
+        'is told so, where one flag for both answered it "made"', () async {
+      await ownerShares();
+      Future<SyncRunReport>? second;
+      partner().hooks.onBeforePage = (table) async {
+        if (second != null || table != 'calendar_events') return;
+        // Mid the first ask's own read: a pull is queued behind it and the
+        // second ask merged into that pull.
+        unawaited(partner().engine.syncNow());
+        second = partner().engine.readSharedWhileAway();
+      };
+      var left = false;
+      partner().hooks.onAfterRun = () async {
+        if (second == null || left) return;
+        // The first read is made, its ask answered. The app leaves before
+        // the queued run pulls.
+        left = true;
+        unawaited(partner().engine.onAppBackgrounded());
+      };
+
+      final first = await partner().engine.readSharedWhileAway();
+      partner().hooks
+        ..onBeforePage = null
+        ..onAfterRun = null;
+      expect(second, isNotNull);
+      pair.partners.asked.clear();
+      final report = await second!;
+      await partner().engine.whenIdle;
+
+      expect(first.awayReadOwed, isFalse, reason: 'the first was made');
+      expect(report.failure, isNull);
+      expect(report.skipped, isNull);
+      expect(pair.partners.asked, isEmpty, reason: 'the queued run read none');
+      expect(report.awayReadOwed, isTrue);
+    });
+
     test('a leave in the middle does not cut it', () async {
       await ownerShares();
       partner().hooks.onBeforePage = (table) async {
@@ -3203,5 +3991,124 @@ void main() {
         isNotNull,
       );
     });
+  });
+
+  // A copy that leaves the phone drops my rows that hang on the partner's
+  // (review A5); restored on a new phone that keeps the binding, it reads
+  // them again from my space (review C1).
+  test('a copy restored on a new phone reads back from my space what of mine '
+      'the copy dropped: my alert and presence mark on the partner\'s '
+      'event, my count on their note (C1)', () async {
+    await event(owner(), 'e1');
+    await owner().db.calendarEventDao.setSharedPair('e1', sharePairId);
+    final shelf = await owner().db.folderDao.createFolder(name: 'Shelf');
+    final theirs = await writeNote(
+      owner(),
+      folderId: shelf.id,
+      title: 'Theirs',
+      body: 'Counted here',
+    );
+    await owner().db.folderDao.setSharedPair(shelf.id, sharePairId);
+    await pair.syncBoth();
+    final db = partner().db;
+    await db.eventAbsenceDao.setStatus('e1', day, PresenceStatus.present);
+    await db.eventAlertDao.replaceForEvent('e1', [
+      EventAlertsCompanion.insert(
+        id: 'my-alert',
+        eventId: 'e1',
+        hlcTimestamp: '0',
+        deviceId: partner().id,
+        createdAt: day,
+        updatedAt: day,
+      ),
+    ]);
+    await db.counterDao.insertCounter(
+      CountersCompanion.insert(
+        id: 'laps',
+        name: 'Laps',
+        createdAt: day,
+        scope: const Value('perNote'),
+      ),
+    );
+    await db.counterDao.upsertValue('laps', theirs.id, 3);
+    // Pushed, then read back by the next pull: the cursor is past them.
+    await partner().sync();
+    await partner().sync();
+    // Made after the last push: the copy drops it with its row, and its
+    // queued entry must push no delete of it.
+    await db.eventAlertDao.replaceForEvent('e1', [
+      EventAlertsCompanion.insert(
+        id: 'my-alert',
+        eventId: 'e1',
+        hlcTimestamp: '0',
+        deviceId: partner().id,
+        createdAt: day,
+        updatedAt: day,
+      ),
+      EventAlertsCompanion.insert(
+        id: 'unsent-alert',
+        eventId: 'e1',
+        hlcTimestamp: '0',
+        deviceId: partner().id,
+        createdAt: day,
+        updatedAt: day,
+      ),
+    ]);
+
+    final folder = await Directory.systemTemp.createTemp('anta_restore_');
+    addTearDown(() async {
+      try {
+        await folder.delete(recursive: true);
+      } catch (_) {}
+    });
+    final copy = '${folder.path}/copy.db';
+    await db.customStatement('VACUUM INTO ?', [copy]);
+    DatabaseManager.debugStripCopy(copy);
+    final restored = await pair.restorePartner(copy);
+    Future<int> rows(String sql) async =>
+        (await restored.db.customSelect(sql).getSingle()).read<int>('n');
+    expect(
+      await rows(
+        "SELECT count(*) AS n FROM calendar_event_alerts WHERE event_id = 'e1'",
+      ),
+      0,
+      reason: 'the copy dropped them',
+    );
+
+    await restored.sync();
+
+    expect(
+      await rows(
+        "SELECT count(*) AS n FROM calendar_event_alerts WHERE id = 'my-alert'",
+      ),
+      1,
+    );
+    expect(
+      await rows(
+        "SELECT count(*) AS n FROM calendar_event_absences "
+        "WHERE event_id = 'e1'",
+      ),
+      1,
+    );
+    expect(
+      await rows(
+        'SELECT count(*) AS n FROM counter_values '
+        "WHERE note_id = '${theirs.id}' AND is_deleted = 0",
+      ),
+      1,
+    );
+    expect(
+      pair.gateway.rowsOf(pair.partnerSpace, 'calendar_event_alerts').keys,
+      isNot(contains('unsent-alert')),
+      reason: 'an entry whose row the copy dropped pushes nothing',
+    );
+    expect(
+      pair.gateway
+          .rowsOf(pair.partnerSpace, 'calendar_event_alerts')['my-alert']!
+          .op,
+      OutboxOp.upsert,
+      reason: 'and no delete of the one my space holds',
+    );
+    expect(await restored.db.syncOutboxDao.count(), 0);
   });
 }

@@ -86,6 +86,17 @@ final class PairingEnded extends PairingState {
 
   const PairingEnded({this.partnerName});
 
+  /// The state for the name the pairing kept, where a blank name is no
+  /// name: the partner's profile may carry an empty one — the listener
+  /// stores whatever it last named — and a notice built on it began
+  /// " ended sharing." (device pass, 2026-11-14). Decided here, once, so
+  /// every reader of the state is handed null and says "your partner".
+  factory PairingEnded.from(String? partnerName) => PairingEnded(
+    partnerName: partnerName == null || partnerName.trim().isEmpty
+        ? null
+        : partnerName,
+  );
+
   @override
   List<Object?> get props => [partnerName];
 }

@@ -20,6 +20,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/services/note_money_ledger_service.dart';
 import 'package:anta/utils/calendar_report_builder.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/event_agenda.dart';
 
 /// The service is the boundary between the live facades and the pure fold,
@@ -1833,6 +1834,39 @@ void main() {
       expect(tile(view, ReportTile.events).value, 2);
       expect(tile(view, ReportTile.hours).value, 0);
       expect(view.tiles.every((t) => t.previous == null), isTrue);
+    });
+
+    /// A saved view can name the partner's part — the overview lists their
+    /// categories — and a report never counts it (D15): the view is read as
+    /// the report itself would open it.
+    test('a view that names the partner\'s group compares over my own part, '
+        'as the report opens it', () {
+      final events = [
+        ev('lunch', 'friends', day(2026, 10, 3)),
+        ev('dinner', 'friends', day(2026, 10, 9)),
+      ];
+      int counted(Set<String> ids) => tile(
+        CalendarReportService()
+            .report(
+              request(
+                span: october,
+                previousSpan: september,
+                events: events,
+                today: today,
+                compare: ReportCompare.view,
+                compareView: viewOf(ids),
+              ),
+            )
+            .compared!,
+        ReportTile.events,
+      ).value;
+      expect(
+        counted({CategoryAllowlist.partnerEntry}),
+        2,
+        reason: 'their group alone holds no part of mine: every category',
+      );
+      expect(counted({CategoryAllowlist.partnerEntry, 'friends'}), 2);
+      expect(counted({CategoryAllowlist.mineEntry}), 2);
     });
 
     test('the two-fold memo: the same request folds nothing more, a step '

@@ -14,6 +14,7 @@ import io.flutter.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.MethodChannel
 
 class AlarmPlugin : FlutterPlugin, ActivityAware {
     private var activity: Activity? = null
@@ -27,8 +28,29 @@ class AlarmPlugin : FlutterPlugin, ActivityAware {
      */
     private var hadActivity = false
 
+    /**
+     * Whether alarms may be presented to this engine (ANTA fork, Patch 10).
+     *
+     * True until the engine's own Dart says otherwise over
+     * [PRESENTER_CHANNEL]: an engine started for background work — no
+     * activity, a life of seconds — sets and stops alarms through the same
+     * API as any other, and must never be where a ring is reported. With no
+     * app in the process it was the only engine attached, so [presenterOf]
+     * chose it: the ring's page and its silence timer went to an isolate
+     * that ended a moment later.
+     */
+    @Volatile
+    private var presents = true
+
+    /** The fork's own channel beside the generated bindings: one word, [RESIGN]. */
+    private var presenterChannel: MethodChannel? = null
+
     companion object {
         private const val TAG = "AlarmPlugin"
+
+        /** The channel an engine resigns on, and the one method it carries. */
+        internal const val PRESENTER_CHANNEL = "com.gdelataillade.alarm/presenter"
+        internal const val RESIGN = "resign"
 
         /** Every engine this plugin is attached to, in attach order. */
         private val attached = mutableListOf<AlarmPlugin>()
@@ -48,13 +70,43 @@ class AlarmPlugin : FlutterPlugin, ActivityAware {
          *
          * Resolved per call instead, by [presenterOf]. A lone headless engine
          * is still answered — the reply is an error nobody is waiting on, as
-         * before.
+         * before — unless it has resigned ([presenters], Patch 10): then
+         * there is nobody to tell, exactly as in a process with no engine.
          */
         @JvmStatic
         val alarmTriggerApi: AlarmTriggerApi?
             get() = synchronized(attached) {
-                presenterOf(attached, { it.activity != null }, { it.hadActivity })?.triggerApi
+                presenterAmong(
+                    attached,
+                    { it.presents },
+                    { it.activity != null },
+                    { it.hadActivity },
+                )?.triggerApi
             }
+
+        /**
+         * [alarmTriggerApi]'s whole choice in one pure function, so the unit
+         * test asks what the getter asks: the engines that resigned are set
+         * aside ([presenters]), and [presenterOf] picks among the rest. A
+         * test that composed the two itself went on passing with the filter
+         * gone from the getter.
+         */
+        internal fun <T> presenterAmong(
+            attached: List<T>,
+            presents: (T) -> Boolean,
+            hasActivity: (T) -> Boolean,
+            hadActivity: (T) -> Boolean,
+        ): T? = presenterOf(presenters(attached, presents), hasActivity, hadActivity)
+
+        /**
+         * The engines a ring may be reported to: every attached one that has
+         * not resigned (ANTA fork, Patch 10), in attach order. Pure, like
+         * [presenterOf], and pinned the same way.
+         */
+        internal fun <T> presenters(
+            attached: List<T>,
+            presents: (T) -> Boolean,
+        ): List<T> = attached.filter(presents)
 
         /**
          * Which of the [attached] engines presents alarms: the one bound to an
@@ -74,11 +126,23 @@ class AlarmPlugin : FlutterPlugin, ActivityAware {
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         AlarmApi.setUp(binding.binaryMessenger, AlarmApiImpl(binding.applicationContext))
         triggerApi = AlarmTriggerApi(binding.binaryMessenger)
+        val channel = MethodChannel(binding.binaryMessenger, PRESENTER_CHANNEL)
+        channel.setMethodCallHandler { call, result ->
+            if (call.method == RESIGN) {
+                presents = false
+                result.success(null)
+            } else {
+                result.notImplemented()
+            }
+        }
+        presenterChannel = channel
         synchronized(attached) { attached.add(this) }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         AlarmApi.setUp(binding.binaryMessenger, null)
+        presenterChannel?.setMethodCallHandler(null)
+        presenterChannel = null
         synchronized(attached) { attached.remove(this) }
         triggerApi = null
     }

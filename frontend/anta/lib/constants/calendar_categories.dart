@@ -188,6 +188,10 @@ abstract final class CalendarCategories {
   /// person's own row ([visible]).
   static List<CalendarCategory> get partnerShown => _partnerShown;
 
+  /// The ids of the partner's categories hidden on this phone, as last
+  /// published ([updatePartnerHidden]) — a shared built-in's included.
+  static Set<String> get partnerHidden => _partnerHidden;
+
   /// [visible] plus any of [keep] that is hidden, in display order. A
   /// partner's category is never added back: it is no selection of this
   /// person's to undo.

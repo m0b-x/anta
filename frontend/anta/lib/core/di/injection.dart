@@ -27,6 +27,7 @@ import '../../services/move_history_store.dart';
 import '../../services/recent_destinations_service.dart';
 import '../../services/folder_name_index.dart';
 import '../../services/alert_gateway.dart';
+import '../../services/alert_scheduler.dart';
 import '../../services/android_alert_gateway.dart';
 import '../../services/android_permission_gateway.dart';
 import '../../services/auth_service.dart';
@@ -45,6 +46,8 @@ import '../../services/push/push_relay.dart';
 import '../../services/settings_service.dart';
 import '../../services/share_service.dart';
 import '../../services/shared_refresh/shared_refresh.dart';
+import '../../services/shared_refresh/shared_refresh_app.dart';
+import '../../services/shared_refresh/shared_refresh_memory.dart';
 import '../../services/shared_refresh/shared_refresh_scheduler.dart';
 import '../../services/shared_refresh/workmanager_shared_refresh_scheduler.dart';
 import '../../services/sync_availability.dart';
@@ -217,9 +220,10 @@ Future<void> _registerServices() async {
   if (_syncEngineEnabled) unawaited(startSyncEngine());
   followAccountsForDeletions();
   _configureSharing(folderStorageService);
+  forgetShareCensusOnPairingWrites();
 
   _registerSharedRefresh(canSync: canSync);
-  _registerAlertGateway();
+  _registerAlertGateway(presentsAlarms: true);
 
   final PermissionGateway permissionGateway = !kIsWeb && Platform.isAndroid
       ? AndroidPermissionGateway(
@@ -312,8 +316,9 @@ Future<bool> _registerCloudIdentity({bool push = true}) async {
 /// and only where sync runs; everywhere else the no-op, so the desktop
 /// builds and a local-only QA build never reach the plugin.
 void _registerSharedRefresh({required bool canSync}) {
+  final schedules = canSync && SharedRefreshAvailability.isSupported;
   getIt.registerSingleton<SharedRefreshScheduler>(
-    canSync && SharedRefreshAvailability.isSupported
+    schedules
         ? WorkmanagerSharedRefreshScheduler()
         : const NoOpSharedRefreshScheduler(),
   );
@@ -324,8 +329,17 @@ void _registerSharedRefresh({required bool canSync}) {
         uid: getIt<AuthService>().currentUser?.uid,
         settings: await SettingsService.getInstance(),
       ),
+      // Where a check can stand, what stands is remembered past this
+      // isolate: the next launch, and a run, plan against it.
+      memory: schedules ? const PreferencesSharedRefreshMemory() : null,
+      // Only a check that really reaches the platform is one a trigger can
+      // come from.
+      onScheduled: schedules ? SharedRefreshApp.checkPlanned : null,
     ),
   );
+  // Every shared read made to its end — in front, forwarded, a run's own —
+  // lets the pass after it plan the check from now.
+  SyncEngine.onSharedReadCompleted = getIt<SharedRefresh>().readMade;
 }
 
 /// Stateless and global for the same reason the gateways above are: it
@@ -343,9 +357,14 @@ void _registerSharedRefresh({required bool canSync}) {
 /// plugin's own setup talk to the platform, and nothing between here and the
 /// first frame may wait on that; the gateway brings itself up on the first
 /// call that needs it, and the launch reconcile is already post-frame.
-void _registerAlertGateway() {
+///
+/// [presentsAlarms] is whether a ring may be shown from this engine: the
+/// app's, and never the one a check runs in with the app closed
+/// ([AndroidAlertGateway.presentsAlarms]). Named at both call sites, so
+/// neither can take the other's by default.
+void _registerAlertGateway({required bool presentsAlarms}) {
   if (AlertAvailability.isSupported && Platform.isAndroid) {
-    final gateway = AndroidAlertGateway();
+    final gateway = AndroidAlertGateway(presentsAlarms: presentsAlarms);
     getIt.registerSingleton<AlertGateway>(
       gateway,
       dispose: (binding) => binding.dispose(),
@@ -381,8 +400,22 @@ Future<void> configureSharedRefreshRunDependencies() async {
   await noteStorage.initialize();
   getIt.registerSingleton<NoteStorageService>(noteStorage);
   final canSync = await _registerCloudIdentity(push: false);
+  if (canSync) await _registerRunAddressSource();
   _registerSharedRefresh(canSync: canSync);
-  _registerAlertGateway();
+  _registerAlertGateway(presentsAlarms: false);
+}
+
+/// The one thing of push a run holds: the install's address, where the app
+/// holds a real one — Android outside QA — in place of the no-op bound just
+/// before. A run whose read finds the pair ended gives the address up at
+/// the platform (`AppSharedRefreshRunSteps.read`; the push review's F6),
+/// and never asks for one. Still no registry, no relay, no gateway that
+/// writes an address, and none of the hooks the app hangs on the source.
+Future<void> _registerRunAddressSource() async {
+  final android = debugCloudForTesting || (!kIsWeb && Platform.isAndroid);
+  if (!android || QaMode.enabled) return;
+  await getIt.unregister<PushAddressSource>();
+  getIt.registerSingleton<PushAddressSource>(FirebasePushAddressSource());
 }
 
 void _registerBlocs() {
@@ -520,6 +553,29 @@ void _configureSharing(FolderStorageService folders) {
       },
     ),
   );
+  // A pair adopted that is not the one a mark was set under clears it in
+  // the pairing's own write; the caches that hold share flags are the
+  // share service's to tell.
+  PairingService.onMarksOfOtherPairsCleared =
+      ShareService.afterMarksClearedElsewhere;
+}
+
+StreamSubscription<PairingStatus>? _pairingWrites;
+
+/// The share census answers whether a pair is stored, so every write that
+/// changes the stored pair — made, ended, forgotten, another account's —
+/// forgets it, and a browser page reads its folders' share entry again (never
+/// `forgetIfShared`: a census that holds nothing shared may still say
+/// "paired"). Nothing to redo on a database switch: `PairingService.writes`
+/// relays each database's service, and the repository outlives the switch,
+/// rebound to the open database. Public so a test wires this seam alone.
+@visibleForTesting
+void forgetShareCensusOnPairingWrites() {
+  unawaited(_pairingWrites?.cancel());
+  final folders = getIt<FolderRepository>();
+  _pairingWrites = PairingService.writes.listen(
+    (_) => folders.shareCensus.forget(),
+  );
 }
 
 /// `canSync` as the bound identity reports it — the no-op binding is
@@ -550,13 +606,20 @@ Future<void> startSyncEngine() async {
 ///
 /// A QA build gets the no-op address source: FCM and Installations have no
 /// emulator, and a QA run never reaches the live project.
-PairingGateway _registerPush(PairingGateway pairing) {
+PairingGateway _registerPush(
+  PairingGateway pairing, {
+  bool qa = QaMode.enabled,
+}) {
   final android = debugCloudForTesting || (!kIsWeb && Platform.isAndroid);
   if (!android) return _registerNoPush(pairing);
-  final PushAddressSource addresses = QaMode.enabled
+  final PushAddressSource addresses = qa
       ? const NoOpPushAddressSource()
       : FirebasePushAddressSource();
   getIt.registerSingleton<PushAddressSource>(addresses);
+  // From the moment an address is held a message can start a run with no
+  // app: what such a run arms under is stored then, not at the next pass.
+  FirebasePushAddressSource.onAddressFirstHeld =
+      AlertScheduler.keepArmFactsQuietly;
   // An address a leave could not finish ending is ended now, whether or not
   // this install pairs again; one preference read when none is owed.
   unawaited(addresses.payOwed());
@@ -564,6 +627,7 @@ PairingGateway _registerPush(PairingGateway pairing) {
     prefs: SharedPreferences.getInstance(),
     readConfig: pairing.readPushRelay,
     idToken: FirebaseAuthService.idToken,
+    signedIn: () => getIt<AuthService>().currentUser?.uid,
   );
   // A poke waiting for its minute goes as the app leaves the screen: the
   // process may not live to see the timer.
@@ -579,9 +643,7 @@ PairingGateway _registerPush(PairingGateway pairing) {
   // with it closed is the check's work. Listened to only once this install
   // holds an address.
   final receiver = PushReceiver(
-    messaging: QaMode.enabled
-        ? const NoOpPushMessaging()
-        : const FirebasePushMessaging(),
+    messaging: qa ? const NoOpPushMessaging() : const FirebasePushMessaging(),
     addresses: addresses,
     openPair: () async =>
         (await (await SettingsService.getInstance()).getPairingSettings())
@@ -624,9 +686,18 @@ PairingGateway _registerPush(PairingGateway pairing) {
     dispose: (registry) => registry.dispose(),
   );
   FirebaseAuthService.beforeSignOut = registry.leave;
+  PairedAccountCloser.beforeAccountGone = registry.leave;
   SyncBindingService.onUnbound = (uid) => unawaited(registry.leave(uid));
   return PushPairingGateway(pairing, registry: () => registry);
 }
+
+/// [_registerPush] for a suite on the host, [qa] standing in for the QA
+/// build a suite cannot be; [debugCloudForTesting] stands in for Android.
+@visibleForTesting
+PairingGateway registerPushForTesting(
+  PairingGateway pairing, {
+  bool qa = false,
+}) => _registerPush(pairing, qa: qa);
 
 /// The no-op push bindings, and [pairing] as it is.
 PairingGateway _registerNoPush([
@@ -641,10 +712,16 @@ Future<void> resetDependencies() async {
   // Before the registrations go: the engine resolves the gateway and the
   // identity through them.
   SyncEngine.autoStart = false;
+  SyncEngine.onSharedReadCompleted = null;
+  FirebasePushAddressSource.onAddressFirstHeld = null;
   SyncBindingService.onSharedRowsRemoved = null;
   SyncBindingService.onUnbound = null;
   FirebaseAuthService.beforeSignOut = null;
+  PairedAccountCloser.beforeAccountGone = null;
+  PairingService.onMarksOfOtherPairsCleared = null;
   ShareService.configure(null);
+  unawaited(_pairingWrites?.cancel());
+  _pairingWrites = null;
   SyncEngine.reset();
   await getIt.reset();
 }

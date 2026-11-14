@@ -31,8 +31,10 @@ abstract interface class PushRelay {
   void poke(String pairId, {required bool urgent});
 
   /// Sends what waits for the minute's end now — the app is leaving the
-  /// screen, and its process may not live to see the timer.
-  void flush();
+  /// screen, and its process may not live to see the timer, or the account
+  /// is about to go and its token with it. Done when those sends are, each
+  /// bounded by its deadline.
+  Future<void> flush();
 }
 
 /// Bound wherever push cannot work: no relay, and a poke goes nowhere.
@@ -49,13 +51,17 @@ class NoOpPushRelay implements PushRelay {
   void poke(String pairId, {required bool urgent}) {}
 
   @override
-  void flush() {}
+  Future<void> flush() async {}
 }
 
-/// One POST to the relay: its status code, or a throw when no answer came
-/// within [deadline].
+/// What the relay answered a poke: its status code and its `Retry-After`
+/// header as sent, if any.
+typedef PushAnswer = ({int status, String? retryAfter});
+
+/// One POST to the relay: its answer, or a throw when none came within
+/// [deadline].
 typedef PushPost =
-    Future<int> Function(
+    Future<PushAnswer> Function(
       Uri url, {
       required String bearer,
       required String body,
@@ -68,6 +74,7 @@ typedef PushPost =
 class HttpPushRelay implements PushRelay {
   final Future<String?> Function() _readConfig;
   final Future<String?> Function() _idToken;
+  final String? Function() _signedIn;
   final PushPost _post;
   final DateTime Function() _clock;
   final Timer Function(Duration, void Function()) _timer;
@@ -83,23 +90,46 @@ class HttpPushRelay implements PushRelay {
   /// When the last poke went out.
   DateTime? _sentAt;
 
-  /// The pokes held for the end of the minute, by pair — urgent when any
-  /// merged into one was — and the timer that sends them.
-  final Map<String, bool> _held = {};
+  /// The pokes held for the end of the minute, by pair and the account
+  /// signed in when each was asked — urgent when any merged into one was —
+  /// and the timer that sends them.
+  final Map<({String pair, String? uid}), bool> _held = {};
   Timer? _holding;
 
+  /// The pairs the relay refused (403) as the account asked under — not a
+  /// member, or the pair is gone — and until when each is not poked again
+  /// ([kPushRefusalHolds]). Not for the life of the process: the relay's
+  /// own refusal is stable, but an edge in front of it can answer one too.
+  final Map<({String pair, String? uid}), DateTime> _refusedUntil = {};
+
+  /// Until when the relay asked each account to wait (429, 503): it counts
+  /// by caller, so one account's pause is not another's.
+  final Map<String, DateTime> _pausedUntil = {};
+
+  /// Whether [until] still lies ahead of now by no more than [bound]. One
+  /// further off than it could have been set was set by a clock that has
+  /// gone back since, and is over.
+  bool _stillHolds(DateTime? until, Duration bound) {
+    if (until == null) return false;
+    final left = until.difference(_clock());
+    return left > Duration.zero && left <= bound;
+  }
+
   /// [readConfig] reads `config/push`'s relay; [idToken] a fresh Firebase
-  /// ID token for the signed-in account. [prefs] is resolved once, in the
-  /// background — the install's preferences are loaded long before any run.
+  /// ID token for the signed-in account, and [signedIn] that account's uid.
+  /// [prefs] is resolved once, in the background — the install's
+  /// preferences are loaded long before any run.
   HttpPushRelay({
     required Future<SharedPreferences> prefs,
     required Future<String?> Function() readConfig,
     required Future<String?> Function() idToken,
+    required String? Function() signedIn,
     PushPost post = postJson,
     DateTime Function() clock = DateTime.now,
     Timer Function(Duration, void Function()) timer = Timer.new,
   }) : _readConfig = readConfig,
        _idToken = idToken,
+       _signedIn = signedIn,
        _post = post,
        _clock = clock,
        _timer = timer {
@@ -141,9 +171,7 @@ class HttpPushRelay implements PushRelay {
     final now = _clock();
     final readAt = prefs.getInt(SettingsKeys.pushRelayReadAt);
     if (readAt != null) {
-      final since = now.difference(
-        DateTime.fromMillisecondsSinceEpoch(readAt),
-      );
+      final since = now.difference(DateTime.fromMillisecondsSinceEpoch(readAt));
       if (!since.isNegative && since < kPushRelayReadInterval) return address;
     }
     final failedAt = _failedAt;
@@ -168,7 +196,10 @@ class HttpPushRelay implements PushRelay {
     } else {
       await prefs.setString(SettingsKeys.pushRelayUrl, '$relay');
     }
-    await prefs.setInt(SettingsKeys.pushRelayReadAt, now.millisecondsSinceEpoch);
+    await prefs.setInt(
+      SettingsKeys.pushRelayReadAt,
+      now.millisecondsSinceEpoch,
+    );
     _failedAt = null;
     return relay;
   }
@@ -176,8 +207,9 @@ class HttpPushRelay implements PushRelay {
   @override
   void poke(String pairId, {required bool urgent}) {
     if (address == null) return;
+    final key = (pair: pairId, uid: _signedIn());
     if (_holding != null) {
-      _held[pairId] = urgent || (_held[pairId] ?? false);
+      _held[key] = urgent || (_held[key] ?? false);
       return;
     }
     final now = _clock();
@@ -185,24 +217,25 @@ class HttpPushRelay implements PushRelay {
     final since = sentAt == null ? null : now.difference(sentAt);
     if (since == null || since.isNegative || since >= kPushPokeSpacing) {
       _sentAt = now;
-      unawaited(_send(pairId, urgent: urgent));
+      unawaited(_send(key.pair, urgent: urgent, askedAs: key.uid));
       return;
     }
-    _held[pairId] = urgent;
+    _held[key] = urgent;
     _holding = _timer(kPushPokeSpacing - since, flush);
   }
 
   @override
-  void flush() {
+  Future<void> flush() async {
     _holding?.cancel();
     _holding = null;
     if (_held.isEmpty) return;
     final held = {..._held};
     _held.clear();
     _sentAt = _clock();
-    for (final MapEntry(key: pair, value: urgent) in held.entries) {
-      unawaited(_send(pair, urgent: urgent));
-    }
+    await Future.wait([
+      for (final MapEntry(key: (:pair, :uid), value: urgent) in held.entries)
+        _send(pair, urgent: urgent, askedAs: uid),
+    ]);
   }
 
   /// Drops what waits for the minute's end, unsent.
@@ -212,13 +245,40 @@ class HttpPushRelay implements PushRelay {
     _held.clear();
   }
 
-  Future<void> _send(String pairId, {required bool urgent}) async {
+  /// Sends as [askedAs] or not at all: a pair asked for under one account
+  /// never goes out under another's token, and the line says why it did
+  /// not.
+  Future<void> _send(
+    String pairId, {
+    required bool urgent,
+    required String? askedAs,
+  }) async {
     final relay = address;
     if (relay == null) return;
+    final signedIn = _signedIn();
+    if (signedIn == null) {
+      debugPrint('[PushRelay] poke dropped: nobody signed in');
+      return;
+    }
+    if (signedIn != askedAs) {
+      debugPrint('[PushRelay] poke dropped: asked under another account');
+      return;
+    }
+    final key = (pair: pairId, uid: askedAs);
+    if (_stillHolds(_refusedUntil[key], kPushRefusalHolds)) return;
+    _refusedUntil.remove(key);
+    if (_stillHolds(_pausedUntil[signedIn], kPushRetryAfterCeiling)) {
+      debugPrint('[PushRelay] poke dropped: the relay asked to wait');
+      return;
+    }
+    _pausedUntil.remove(signedIn);
     try {
-      final status = await () async {
+      final answer = await () async {
         final token = await _idToken();
-        if (token == null) return null;
+        if (token == null) {
+          debugPrint('[PushRelay] poke dropped: no ID token');
+          return null;
+        }
         return _post(
           relay.replace(path: '${relay.path}/poke'),
           bearer: token,
@@ -226,17 +286,55 @@ class HttpPushRelay implements PushRelay {
           deadline: kPushPokeDeadline,
         );
       }().timeout(kPushPokeDeadline);
-      if (status != null && status != HttpStatus.noContent) {
-        debugPrint('[PushRelay] poke answered $status');
-      }
+      if (answer != null) _answered(key, answer);
     } catch (e) {
       debugPrint('[PushRelay] poke failed: ${e.runtimeType}');
     }
   }
 
+  /// What an answer changes for the pokes after it; nothing is sent again.
+  void _answered(({String pair, String? uid}) key, PushAnswer answer) {
+    switch (answer.status) {
+      case HttpStatus.noContent:
+        return;
+      case HttpStatus.forbidden:
+        _refusedUntil[key] = _clock().add(kPushRefusalHolds);
+        debugPrint(
+          '[PushRelay] poke refused: that pair is not poked again for '
+          '${kPushRefusalHolds.inMinutes} min',
+        );
+      case HttpStatus.tooManyRequests || HttpStatus.serviceUnavailable:
+        final uid = key.uid;
+        if (_retryAfter(answer.retryAfter) case final wait? when uid != null) {
+          _pausedUntil[uid] = _clock().add(wait);
+        }
+        debugPrint('[PushRelay] poke answered ${answer.status}');
+      default:
+        debugPrint('[PushRelay] poke answered ${answer.status}');
+    }
+  }
+
+  /// A `Retry-After` in seconds or as an HTTP date, at most
+  /// [kPushRetryAfterCeiling]; null when absent, past or unreadable.
+  Duration? _retryAfter(String? raw) {
+    if (raw == null) return null;
+    final Duration wait;
+    if (int.tryParse(raw.trim()) case final seconds?) {
+      wait = Duration(seconds: seconds);
+    } else {
+      try {
+        wait = HttpDate.parse(raw).difference(_clock());
+      } on HttpException {
+        return null;
+      }
+    }
+    if (wait.isNegative) return null;
+    return wait > kPushRetryAfterCeiling ? kPushRetryAfterCeiling : wait;
+  }
+
   /// [PushPost] over a fresh [HttpClient]: no redirect followed, the client
   /// closed whatever the outcome.
-  static Future<int> postJson(
+  static Future<PushAnswer> postJson(
     Uri url, {
     required String bearer,
     required String body,
@@ -253,7 +351,10 @@ class HttpPushRelay implements PushRelay {
         request.write(body);
         final response = await request.close();
         await response.drain<void>();
-        return response.statusCode;
+        return (
+          status: response.statusCode,
+          retryAfter: response.headers.value(HttpHeaders.retryAfterHeader),
+        );
       }().timeout(deadline);
     } finally {
       client.close(force: true);

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/pair_record.dart';
 import 'package:anta/services/pairing_gateway.dart';
@@ -12,6 +13,28 @@ import 'package:anta/utils/pairing_error.dart';
 
 import '../../support/fake_push.dart';
 import '../pairing_support.dart';
+
+/// An install whose process dies right after it gave its address up.
+class _DiesAfterGivingUp extends FakePushAddressSource {
+  @override
+  Future<void> giveUp() async {
+    await super.giveUp();
+    throw StateError('the process died here');
+  }
+}
+
+/// An address source that says so the moment it is asked to give up.
+class _ToldWhenGivingUp extends FakePushAddressSource {
+  _ToldWhenGivingUp(this._told);
+
+  final void Function() _told;
+
+  @override
+  Future<void> giveUp() {
+    _told();
+    return super.giveUp();
+  }
+}
 
 /// This device's entry in the pair's document
 /// (`docs/cloud-shared-freshness.md` §7): written only while the open
@@ -84,6 +107,11 @@ void main() {
 
   PairPushDevice? entryOf(String pairId, [String id = device]) =>
       pairs.pairs[pairId]!.devicesOf(uid)[id];
+
+  /// The stored write (`pair|address|ms`), the install's memory of where
+  /// its entry stands.
+  Future<String?> written() async => (await SharedPreferences.getInstance())
+      .getString(SettingsKeys.pushWritten);
 
   PairPushDevice fid(String id, DateTime at) =>
       PairPushDevice(id: id, kind: PairPushDevice.kindFid, at: at);
@@ -234,6 +262,19 @@ void main() {
     expect(entryOf(next.pairId)?.id, 'fid-2');
   });
 
+  test('an end before anything was heard in this process: the address an '
+      'earlier process wrote goes with the pair', () async {
+    final p = pair();
+    pairs.seedPush(p.pairId, uid, {device: fid('fid-1', server)});
+    addresses.held = true;
+    relay.address = Uri.parse('https://relay.test');
+    await registry.endedByMe(p.pairId, uid);
+
+    expect(relay.pokes, [(pair: p.pairId, urgent: true)]);
+    expect(entryOf(p.pairId), isNull);
+    expect(addresses.giveUps, 1);
+  });
+
   test('a race\'s losing pair: its entry leaves, the address stays for the '
       'pair kept', () async {
     final kept = pair();
@@ -268,6 +309,180 @@ void main() {
     expect(addresses.giveUps, 2);
   });
 
+  test('a new process whose first answer names a later pair: the entry in '
+      'the earlier one goes, the address is given up, and the later pair '
+      'gets a new one (decision n)', () async {
+    final earlier = pair();
+    await hear();
+    expect(entryOf(earlier.pairId)?.id, 'fid-1');
+    await registry.dispose();
+
+    await pairs.endPair(pairId: earlier.pairId, endedBy: partner);
+    final later = pairs.seedPair([uid, 'uid-c']);
+    // The same installation, in a process that remembers nothing of it.
+    addresses = FakePushAddressSource()..held = true;
+    registry = build();
+    await hear();
+
+    expect(entryOf(earlier.pairId), isNull);
+    expect(addresses.giveUps, 1);
+    expect(entryOf(later.pairId)?.id, 'fid-2');
+    expect(pairs.pushWrites.last, 'write ${later.pairId} $uid $device fid-2');
+  });
+
+  test('a removal the earlier pair refuses still gives the address up, '
+      'once: the later pair never carries the earlier address', () async {
+    final earlier = pair();
+    await hear();
+    await registry.dispose();
+    await pairs.endPair(pairId: earlier.pairId, endedBy: partner);
+    final later = pairs.seedPair([uid, 'uid-c']);
+    addresses = FakePushAddressSource()..held = true;
+    registry = build();
+    final answer = await pairs.findActivePairs(uid);
+    pairs.failNext = PairingError.offline;
+    await registry.heardPairs(uid, answer);
+    await hear();
+
+    expect(addresses.giveUps, 1);
+    expect(entryOf(later.pairId)?.id, 'fid-2');
+  });
+
+  test('a removal the earlier pair refuses keeps the memory of where the '
+      'entry was written (PA2\'s default): the next answer asks the removal '
+      'again, and the write into the later pair then names that one', () async {
+    final earlier = pair();
+    await hear();
+    await registry.dispose();
+    await pairs.endPair(pairId: earlier.pairId, endedBy: partner);
+    final later = pairs.seedPair([uid, 'uid-c']);
+    addresses = FakePushAddressSource()..held = true;
+    registry = build();
+    final answer = await pairs.findActivePairs(uid);
+    syncing = false;
+    pairs.failNext = PairingError.offline;
+    await registry.heardPairs(uid, answer);
+
+    expect(entryOf(earlier.pairId)?.id, 'fid-1', reason: 'refused');
+    expect(
+      PushRegistry.writtenPairOf(await written()),
+      earlier.pairId,
+      reason: 'kept: only this says where the entry still stands',
+    );
+
+    syncing = true;
+    await hear();
+
+    expect(entryOf(earlier.pairId), isNull);
+    expect(PushRegistry.writtenPairOf(await written()), later.pairId);
+    expect(addresses.giveUps, 1);
+  });
+
+  test('the earlier address\'s end is made owed before its entry is '
+      'removed: a process that dies between the two still knows the pair it '
+      'wrote into, and the next one finishes (second look, D3)', () async {
+    final earlier = pair();
+    await hear();
+    await registry.dispose();
+    await pairs.endPair(pairId: earlier.pairId, endedBy: partner);
+    final later = pairs.seedPair([uid, 'uid-c']);
+    final dying = _DiesAfterGivingUp()..held = true;
+    addresses = dying;
+    registry = build();
+    await hear();
+
+    expect(dying.giveUps, 1);
+    expect(entryOf(earlier.pairId)?.id, 'fid-1', reason: 'not reached');
+    expect(PushRegistry.writtenPairOf(await written()), earlier.pairId);
+    await registry.dispose();
+
+    // The next process: nothing held any more, the stored write its memory.
+    addresses = FakePushAddressSource()..next = 'fid-2';
+    registry = build();
+    await hear();
+
+    expect(entryOf(earlier.pairId), isNull);
+    expect(entryOf(later.pairId)?.id, 'fid-2');
+    expect(PushRegistry.writtenPairOf(await written()), later.pairId);
+  });
+
+  group('after a run with the app closed gave the address up (second look, '
+      'N3, D4)', () {
+    late PairRecord ended;
+
+    /// The app wrote its entry, the partner ended the pair, and a run gave
+    /// the address up: nothing is held, and the stored write still names
+    /// the pair.
+    setUp(() async {
+      ended = pair();
+      await hear();
+      await registry.dispose();
+      await pairs.endPair(pairId: ended.pairId, endedBy: partner);
+      addresses = FakePushAddressSource()..held = false;
+      registry = build();
+      pairs.pushWrites.clear();
+    });
+
+    test('the next open finishes the end: the entry leaves the pair\'s '
+        'document and the stored write is cleared, though nothing is '
+        'held', () async {
+      await hear();
+
+      expect(entryOf(ended.pairId), isNull);
+      expect(await written(), isNull);
+      expect(addresses.registrations, 0);
+
+      // And from then on an answer with no pair asks nothing of anything.
+      pairs.pushWrites.clear();
+      await hear();
+      expect(pairs.pushWrites, isEmpty);
+    });
+
+    test('a removal that could not be asked is asked again at the next '
+        'answer', () async {
+      final answer = await pairs.findActivePairs(uid);
+      pairs.failNext = PairingError.offline;
+      await registry.heardPairs(uid, answer);
+      expect(PushRegistry.writtenPairOf(await written()), ended.pairId);
+
+      await hear();
+      expect(entryOf(ended.pairId), isNull);
+      expect(await written(), isNull);
+    });
+
+    test('one the pair refuses for good is not asked at every answer: the '
+        'address it names is dead, and the stored write goes', () async {
+      final answer = await pairs.findActivePairs(uid);
+      pairs.failNext = PairingError.permissionDenied;
+      await registry.heardPairs(uid, answer);
+
+      expect(await written(), isNull);
+      pairs.pushWrites.clear();
+      await hear();
+      expect(pairs.pushWrites, isEmpty);
+    });
+  });
+
+  test('with no live pair too, the address\'s end comes before its entry '
+      'is removed: at the give-up the pair\'s document is still untouched '
+      '(default (cw))', () async {
+    final p = pair();
+    pairs.seedPush(p.pairId, uid, {device: fid('fid-1', server)});
+    await pairs.endPair(pairId: p.pairId, endedBy: partner);
+    storedPair = p.pairId;
+    List<String>? writesAtTheGiveUp;
+    addresses = _ToldWhenGivingUp(
+      () => writesAtTheGiveUp = [...pairs.pushWrites],
+    )..held = true;
+    registry = build();
+    pairs.pushWrites.clear();
+
+    await hear();
+
+    expect(writesAtTheGiveUp, isEmpty);
+    expect(pairs.pushWrites, ['remove ${p.pairId} $uid $device']);
+  });
+
   test('the partner ends it: the next answer names no pair, and the entry '
       'and the address go — from the stored pair when this process heard '
       'nothing before', () async {
@@ -283,16 +498,36 @@ void main() {
     expect(relay.pokes, isEmpty, reason: 'the partner pokes for their own end');
   });
 
-  test('sign-out leaves from the stored pair when nothing was heard yet', () async {
+  test('a leave sends what waits for its minute while the account still '
+      'can, the urgent poke of an end queued before it included', () async {
     final p = pair();
     await hear();
-    final fresh = build();
-    storedPair = p.pairId;
-    await fresh.leave(uid);
-    expect(entryOf(p.pairId), isNull);
-    expect(addresses.giveUps, 1);
-    await fresh.dispose();
+    unawaited(registry.endedByMe(p.pairId, uid));
+    await registry.leave(uid);
+
+    expect(relay.flushedAt, isNotEmpty);
+    expect(relay.flushedAt.last, 1, reason: 'after the end poked');
   });
+
+  test('an install that holds no address still sends what waits at a '
+      'leave', () async {
+    await registry.leave(uid);
+    expect(relay.flushedAt, isNotEmpty);
+  });
+
+  test(
+    'sign-out leaves from the stored pair when nothing was heard yet',
+    () async {
+      final p = pair();
+      await hear();
+      final fresh = build();
+      storedPair = p.pairId;
+      await fresh.leave(uid);
+      expect(entryOf(p.pairId), isNull);
+      expect(addresses.giveUps, 1);
+      await fresh.dispose();
+    },
+  );
 
   test('a leave is bounded, the wait for a registration in flight '
       'included', () async {
@@ -349,16 +584,19 @@ void main() {
     expect(told, 2, reason: 'no pair: nothing to hear for');
   });
 
-  test('a database switch forgets the pair the last database stood in', () async {
-    final p = pair();
-    await hear();
-    DatabaseLifecycle.notifyDatabaseSwitching();
+  test(
+    'a database switch forgets the pair the last database stood in',
+    () async {
+      final p = pair();
+      await hear();
+      DatabaseLifecycle.notifyDatabaseSwitching();
 
-    await registry.leave(uid);
+      await registry.leave(uid);
 
-    expect(entryOf(p.pairId)?.id, 'fid-1');
-    expect(addresses.giveUps, 1);
-  });
+      expect(entryOf(p.pairId)?.id, 'fid-1');
+      expect(addresses.giveUps, 1);
+    },
+  );
 
   test('a write that fails is logged, never thrown, and the next answer '
       'writes', () async {

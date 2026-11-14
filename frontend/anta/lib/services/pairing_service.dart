@@ -4,10 +4,13 @@ import 'dart:math';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants/settings_keys.dart';
 import '../database/database_lifecycle.dart';
 import '../models/app_user.dart';
 import '../models/pair_record.dart';
+import '../models/share_settings.dart';
 import '../utils/pairing_error.dart';
+import 'alert_scheduler.dart';
 import 'auth_service.dart';
 import 'pairing_gateway.dart';
 import 'settings_service.dart';
@@ -89,6 +92,20 @@ class PairingService {
   late final PairingGateway _gateway;
   late final SettingsService _settings;
 
+  /// The alert pass a change of what may ring on the partner's events is
+  /// followed by — the one the Sharing page's own change runs
+  /// (`ShareService.setAlerts`).
+  late final Future<void> Function() _reconcileAlerts;
+
+  static Future<void> _alertPass() =>
+      AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged);
+
+  /// Told once an adoption has cleared the marks other pairs left
+  /// ([_adopt]): every cache that holds a share flag reads again. Set by DI
+  /// to the share service's own "after marks" — this service is what that
+  /// one is built over, so it cannot ask for it itself.
+  static Future<void> Function()? onMarksOfOtherPairsCleared;
+
   final Random _random = Random.secure();
   final StreamController<PairingStatus> _statusController =
       StreamController<PairingStatus>.broadcast();
@@ -134,20 +151,23 @@ class PairingService {
     required AuthService auth,
     required PairingGateway gateway,
     required SettingsService settings,
+    Future<void> Function()? reconcileAlerts,
   }) async {
     if (_instance != null) return _instance!;
-    return _create(auth, gateway, settings);
+    return _create(auth, gateway, settings, reconcileAlerts: reconcileAlerts);
   }
 
   static Future<PairingService> _create(
     AuthService auth,
     PairingGateway gateway,
-    SettingsService settings,
-  ) async {
+    SettingsService settings, {
+    Future<void> Function()? reconcileAlerts,
+  }) async {
     final service = PairingService._();
     service._auth = auth;
     service._gateway = gateway;
     service._settings = settings;
+    service._reconcileAlerts = reconcileAlerts ?? _alertPass;
     service._cached = await settings.getPairingSettings();
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
@@ -433,20 +453,55 @@ class PairingService {
   /// The read that forgot [pairId] asks once, and nothing of that pair can
   /// leave again: its record ([PairingSettings.endedPairId]) and the name
   /// kept for it past the ended notice's dismissal go with the answer.
-  Future<PairEnding> endingOf(String? pairId) async {
-    final name = _cached.partnerName;
-    final current = _cached.pairId;
+  Future<PairEnding> endingOf(String? pairId) =>
+      _ending(pairId, _cached, auth: _auth, gateway: _gateway, clear: _write);
+
+  /// [endingOf] with no service built, for the check that runs with the app
+  /// closed (`docs/cloud-shared-freshness.md` §6): one read of the stored
+  /// pairing, at most one of the pair's own document, and the same record
+  /// cleared with the answer.
+  ///
+  /// That isolate lives for seconds beside a database the app may open at
+  /// any moment. A service built there is one call away from following the
+  /// pair ([_attachListeners]) — a listener that outlives nothing, and
+  /// whose every word is a write behind the app. So nothing is built: no
+  /// instance, no stream, nothing for a database switch to reset.
+  static Future<PairEnding> endingRead(
+    String? pairId, {
+    required AuthService auth,
+    required PairingGateway gateway,
+    required SettingsService settings,
+  }) async => _ending(
+    pairId,
+    await settings.getPairingSettings(),
+    auth: auth,
+    gateway: gateway,
+    clear: settings.setPairingSettings,
+  );
+
+  /// The one rule behind [endingOf] and [endingRead], over the pairing as
+  /// its caller [held] it; [clear] writes it back without the ended pair's
+  /// record.
+  static Future<PairEnding> _ending(
+    String? pairId,
+    PairingSettings held, {
+    required AuthService auth,
+    required PairingGateway gateway,
+    required Future<void> Function(PairingSettings next) clear,
+  }) async {
+    final name = held.partnerName;
+    final current = held.pairId;
     if (current == null) {
-      final kept = pairId != null && _cached.endedPairId == pairId;
+      final kept = pairId != null && held.endedPairId == pairId;
       final PairEnding answer = (
-        byPartner: kept || _cached.endedNoticePending,
+        byPartner: kept || held.endedNoticePending,
         name: name,
       );
       // Answered from what is held: a record that could not be cleared costs
       // a name kept a little longer, never the leave's notice.
       if (kept) {
         try {
-          await _write(_withoutEnding(_cached));
+          await clear(_withoutEnding(held));
         } catch (e, st) {
           debugPrint('[PairingService] ended pair not cleared: $e\n$st');
         }
@@ -456,9 +511,9 @@ class PairingService {
     if (pairId == null || current != pairId) {
       return (byPartner: false, name: name);
     }
-    final uid = _auth.currentUser?.uid;
+    final uid = auth.currentUser?.uid;
     try {
-      final ended = await _gateway.readPair(pairId);
+      final ended = await gateway.readPair(pairId);
       final byPartner =
           ended == null ||
           (!ended.isActive && ended.endedBy != null && ended.endedBy != uid);
@@ -594,12 +649,23 @@ class PairingService {
     final partner = pair.partnerProfileOf(user.uid);
     _partner = partner;
 
-    // Read before the write below replaces the cache wholesale — otherwise the
-    // consumed invite is never deleted and cleanup falls entirely to a TTL
-    // policy that has to be configured by hand.
+    // Stored with the pair below, in one write: none of its rows can
+    // arrive under the choice made for another.
+    final startAlertsAt = await _startAlertsChoiceOver(pair.pairId);
+
+    // Read before the write below replaces the cache wholesale — otherwise
+    // the consumed invite is never deleted. Nothing else removes it: no TTL
+    // policy stands on `invites.expiresAt` (a TTL delete needs billing, and
+    // the project stays on the free plan — `cloud-sync-phase-01-pairing.md`).
     final spentCode = _cached.pendingCode;
 
-    await _write(
+    // A mark of another pair is never a share ("we un-pair and pair again —
+    // nothing is carried over"): whenever the pair stored becomes another,
+    // the marks every other pair left go in the write that stores it. Not
+    // at an unpair, and not while the pair is merely lost locally — the
+    // shared reader clears when the server says there is no pair, and this
+    // same pair found again keeps its own: only other pairs' are cleared.
+    final marksCleared = await _write(
       PairingSettings(
         pairId: pair.pairId,
         accountUid: user.uid,
@@ -610,7 +676,29 @@ class PairingService {
             partner?.displayName ??
             (_cached.pairId == pair.pairId ? _cached.partnerName : null),
       ),
+      startAlertsAt: startAlertsAt,
+      clearMarksOfOtherPairs: _cached.pairId != pair.pairId,
     );
+    if (marksCleared > 0) {
+      try {
+        await onMarksOfOtherPairsCleared?.call();
+      } catch (e, st) {
+        // The marks are cleared and queued; a cache that missed it reads
+        // them at its next load.
+        debugPrint('[PairingService] caches not told of the marks: $e\n$st');
+      }
+    }
+    // The pass a change of this choice by hand is followed by: what
+    // "Category alerts too" armed on rows still stored — another account's
+    // sign-in and a swapped pair remove none here — goes now, not at the
+    // next pass something else asks for.
+    if (startAlertsAt != null) {
+      try {
+        await _reconcileAlerts();
+      } catch (e, st) {
+        debugPrint('[PairingService] no alert pass after the reset: $e\n$st');
+      }
+    }
 
     // The redeemer could only fill in its own profile, so publishing ours is
     // what lets the other side show a name instead of a uid.
@@ -630,11 +718,44 @@ class PairingService {
       try {
         await _gateway.deleteInvite(spentCode);
       } on PairingException {
-        // The TTL policy reaps it either way.
+        // It stays, as a document nobody can redeem: the rules refuse a
+        // claimed or a run-out code.
       }
     }
 
     _attachListeners();
+  }
+
+  /// What may ring on the partner's events is chosen for a pair (D38 of
+  /// `docs/cloud-share-surfaces-roadmap.md`): "Category alerts too", chosen
+  /// for one person, must not arm my category alerts on what the next one
+  /// shares — nothing arms that the person did not ask for. So another pair
+  /// starts from the shipped choice, "Only alerts I add", whatever stood:
+  /// "Category alerts too" and "Off" alike. Each chooses again, and under
+  /// that choice nothing rings that the person did not add themselves.
+  ///
+  /// Not taken: keeping "Off" across pairs. It is the quieter choice only
+  /// until the person adds an alert on the new partner's event — which
+  /// would then stay silent by a choice made for someone else.
+  ///
+  /// Answers the choice to start over at, stored with the pair by the one
+  /// write that stores both ([SettingsService.setPairingSettings]); null
+  /// when nothing is to change:
+  ///
+  /// - the same pair adopted again — a reconcile at launch — and the same
+  ///   pair found again after it was lost locally, the server unreachable
+  ///   for a moment, by the id this database last held
+  ///   ([SettingsService.getLastPairId]): it keeps what was chosen for it;
+  /// - the choice already standing at the shipped one: no write.
+  ///
+  /// Another id is another pair, a new pairing with the same person
+  /// included; so is any pair for a database whose pairing rows were
+  /// stripped in between — a restore, a handed-out copy.
+  Future<ShareAlerts?> _startAlertsChoiceOver(String pairId) async {
+    if (_cached.pairId == pairId) return null;
+    if (await _settings.getLastPairId() == pairId) return null;
+    final shipped = ShareAlerts.fromName(SettingsKeys.defaultShareAlerts);
+    return await _settings.getShareAlerts() == shipped ? null : shipped;
   }
 
   Future<void> _endQuietly(String pairId, String uid) async {
@@ -773,12 +894,37 @@ class PairingService {
     _statusController.add(status);
   }
 
+  static final StreamController<PairingStatus> _writes =
+      StreamController<PairingStatus>.broadcast();
+
+  /// The writes of every service, this database's and each one opened
+  /// after a switch, that change the stored pair: for what outlives the
+  /// per-database instance and never builds one — the share census, whose
+  /// `paired` reads the stored pair id alone. A partner-name refresh or a
+  /// notice dismissed is not told, or each would reload every open page's
+  /// shares.
+  static Stream<PairingStatus> get writes => _writes.stream;
+
   /// Persists first, then swaps the cache — a failed write must not leave
   /// memory claiming a pairing that disk does not have.
-  Future<void> _write(PairingSettings next) async {
-    await _settings.setPairingSettings(next);
+  ///
+  /// Answers how many marks of other pairs the write cleared
+  /// ([SettingsService.setPairingSettings]).
+  Future<int> _write(
+    PairingSettings next, {
+    ShareAlerts? startAlertsAt,
+    bool clearMarksOfOtherPairs = false,
+  }) async {
+    final cleared = await _settings.setPairingSettings(
+      next,
+      startAlertsAt: startAlertsAt,
+      clearMarksOfOtherPairs: clearMarksOfOtherPairs,
+    );
+    final pairChanged = next.pairId != _cached.pairId;
     _cached = next;
     if (!_writtenController.isClosed) _writtenController.add(status);
+    if (pairChanged) _writes.add(status);
+    return cleared;
   }
 
   PairingStatus _statusFrom(PairingSettings settings) => PairingStatus(

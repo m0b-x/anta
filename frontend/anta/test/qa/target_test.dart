@@ -50,6 +50,17 @@ void main() {
       expect(full.node?.index, short.node?.index);
     });
 
+    test('id: with a trailing * matches by prefix', () {
+      final exact = resolver.resolve('id:content');
+      final prefixed = resolver.resolve('id:cont*');
+      expect(prefixed.node?.index, exact.node?.index);
+      expect(resolver.matchingNodes('id:cont*').map((n) => n.index), [
+        exact.node?.index,
+      ]);
+      expect(() => resolver.resolve('id:*'), throwsA(isA<TargetFailure>()));
+      expect(() => resolver.resolve('id:conx*'), throwsA(isA<TargetFailure>()));
+    });
+
     test('id: with no match is a target failure', () {
       expect(() => resolver.resolve('id:nope'), throwsA(isA<TargetFailure>()));
     });

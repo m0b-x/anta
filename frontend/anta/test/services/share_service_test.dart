@@ -20,6 +20,7 @@ import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
 import 'package:anta/services/sync/sync_status.dart';
+import 'package:anta/widgets/share_notice_listener.dart';
 
 import '../database/support/db_test_support.dart';
 import '../support/fake_share_service.dart';
@@ -98,6 +99,10 @@ void main() {
   /// When set, the shared read the service asks for lasts until it
   /// completes.
   Completer<void>? sharedReadGate;
+
+  /// Run inside the alert pass the service asks for; cleared by the test
+  /// that sets it.
+  Future<void> Function()? duringReconcile;
   final day = DateTime.utc(2026, 6, 1);
 
   Future<void> pairWith({String? name = 'Maria', String pairId = 'pair-1'}) =>
@@ -156,7 +161,10 @@ void main() {
         sharedReads++;
         await sharedReadGate?.future;
       },
-      reconcileAlerts: () async => reconciles++,
+      reconcileAlerts: () async {
+        reconciles++;
+        await duringReconcile?.call();
+      },
     );
   }
 
@@ -1491,30 +1499,33 @@ void main() {
       expect(await share.hiddenCategories(), isEmpty);
     });
 
-    test('the published look is only ever one that was read: a write over '
-        'nothing publishes nothing, a write after a read lands on it', () async {
-      final share = await open();
-      ShareService.publishLookForTesting(null);
+    test(
+      'the published look is only ever one that was read: a write over '
+      'nothing publishes nothing, a write after a read lands on it',
+      () async {
+        final share = await open();
+        ShareService.publishLookForTesting(null);
 
-      await share.setEventLook(ShareEventLook.avatar);
-      await share.setNoteLook(ShareNoteLook.plain);
-      await share.setMarkMine(false);
-      expect(await share.noteLook(), ShareNoteLook.plain);
-      expect(ShareService.publishedLook, isNull);
+        await share.setEventLook(ShareEventLook.avatar);
+        await share.setNoteLook(ShareNoteLook.plain);
+        await share.setMarkMine(false);
+        expect(await share.noteLook(), ShareNoteLook.plain);
+        expect(ShareService.publishedLook, isNull);
 
-      expect(await share.markMine(), isFalse);
-      expect(
-        ShareService.publishedLook,
-        const ShareLook(
-          eventLook: ShareEventLook.avatar,
-          noteLook: ShareNoteLook.plain,
-          markMine: false,
-        ),
-      );
-      await share.setMarkMine(true);
-      expect(ShareService.publishedLook!.markMine, isTrue);
-      expect(ShareService.publishedLook!.noteLook, ShareNoteLook.plain);
-    });
+        expect(await share.markMine(), isFalse);
+        expect(
+          ShareService.publishedLook,
+          const ShareLook(
+            eventLook: ShareEventLook.avatar,
+            noteLook: ShareNoteLook.plain,
+            markMine: false,
+          ),
+        );
+        await share.setMarkMine(true);
+        expect(ShareService.publishedLook!.markMine, isTrue);
+        expect(ShareService.publishedLook!.noteLook, ShareNoteLook.plain);
+      },
+    );
 
     test('a read that ends after the database switched publishes nothing '
         'into the new one', () async {
@@ -1703,6 +1714,24 @@ void main() {
     PartnerSharedCategory partnerRow(ShareOverview overview, String id) =>
         overview.partnerCategories.firstWhere((row) => row.category.id == id);
 
+    test('what a share notice asks the calendar leaves a hidden category\'s '
+        'events out (the notices review, N9): an arrival in a category '
+        'hidden on this phone counts as not here, so it is dropped unsaid — '
+        'a person is not told of an event they chose not to see', () async {
+      final share = await seedPartner();
+      const asked = {'t1', 't2', 't3', 'm2'};
+      expect(
+        await ShareNoticeListener.heldPartnerEvents(asked),
+        {'t1', 't2', 't3'},
+        reason: 'theirs, never mine',
+      );
+
+      await share.setCategoryShown('p1', false);
+
+      expect(await stored('t1'), isTrue, reason: 'still on the phone');
+      expect(await ShareNoticeListener.heldPartnerEvents(asked), {'t2', 't3'});
+    });
+
     test('hiding one of theirs takes its events out of what every surface '
         'reads, at once; the rows stay stored, nothing leaves the phone, and '
         'the alert pass runs', () async {
@@ -1739,6 +1768,25 @@ void main() {
       expect(overview.partnerEvents.map((e) => e.id), ['t3']);
     });
 
+    /// What an arrival's bar asks as it is said (D23: arrival is news once):
+    /// a category un-shared again while the bar waited is no news, and its
+    /// id would be read back as Other.
+    test('which categories they share right now: their own by the '
+        'catalogue, a built-in of mine by one read, an id nobody knows by '
+        'neither', () async {
+      final share = await seedPartner();
+      counter.reset();
+
+      expect(await share.partnerSharesCategories({'p1'}), {'p1'});
+      expect(counter.count, 0, reason: 'the catalogue answers for their own');
+
+      expect(
+        await share.partnerSharesCategories({'p1', 'cardio', 'work', 'gone'}),
+        {'p1', 'cardio'},
+      );
+      expect(counter.count, 1, reason: 'one read of the built-ins they share');
+    });
+
     /// A registration armed for [eventId], as the alert pass records one —
     /// an hour ahead unless [fireAt] says when.
     Future<void> armOn(
@@ -1747,19 +1795,19 @@ void main() {
       String state = 'pending',
       DateTime? fireAt,
     }) => db.alertRegistrationDao.put(
-          AlertRegistrationsCompanion.insert(
-            osId: Value(osId),
-            alertId: 'a$osId',
-            eventId: eventId,
-            day: 0,
-            fireAt: (fireAt ?? DateTime.now().add(const Duration(hours: 1)))
-                .millisecondsSinceEpoch,
-            state: Value(state),
-            backend: 'fake',
-            createdAt: day,
-            updatedAt: day,
-          ),
-        );
+      AlertRegistrationsCompanion.insert(
+        osId: Value(osId),
+        alertId: 'a$osId',
+        eventId: eventId,
+        day: 0,
+        fireAt: (fireAt ?? DateTime.now().add(const Duration(hours: 1)))
+            .millisecondsSinceEpoch,
+        state: Value(state),
+        backend: 'fake',
+        createdAt: day,
+        updatedAt: day,
+      ),
+    );
 
     group('what is armed on theirs (D30)', () {
       test('counts their events holding an armed alert of mine, never mine, '
@@ -1794,8 +1842,36 @@ void main() {
           await pumpEventQueue();
 
           expect(notices, [
-            const ShareHiddenWithAlerts(categoryId: 'p1', name: 'Their trips'),
+            ShareHiddenWithAlerts(
+              categoryId: 'p1',
+              name: 'Their trips',
+              generation: ShareService.databaseGeneration,
+            ),
           ]);
+        });
+
+        test('it carries the opening of the database the hide was made in '
+            '(N5): a switch during the alert pass that precedes it does '
+            'not hand the notice to the next database', () async {
+          final share = await seedPartner();
+          await armOn('t1', 1);
+          final made = ShareService.databaseGeneration;
+          duringReconcile = () async =>
+              DatabaseLifecycle.notifyDatabaseSwitching();
+          addTearDown(() => duringReconcile = null);
+
+          await share.setCategoryShown('p1', false);
+          await pumpEventQueue();
+
+          expect(ShareService.databaseGeneration, isNot(made));
+          expect(
+            notices.single,
+            isA<ShareHiddenWithAlerts>().having(
+              (notice) => notice.generation,
+              'generation',
+              made,
+            ),
+          );
         });
 
         test('nothing when nothing was armed, and nothing on showing it '
@@ -2187,5 +2263,157 @@ void main() {
     expect(await fake.changes.first, const ShareReady(audience));
     fake.emit(const ShareNotPaired());
     expect(await fake.changes.first, const ShareNotPaired());
+  });
+
+  group('a mark of another pair is never a share (S7: "we un-pair and pair '
+      'again — nothing is carried over"; device leg 2, R4)', () {
+    late FakePairingGateway gateway;
+    late ShareService share;
+    late String folder;
+    late String category;
+
+    /// The server names a pair of mine with [partner], and the service
+    /// adopts it by its own path — a reconcile, as at launch and after a
+    /// code is redeemed.
+    Future<String> adopt([String partner = 'maria-uid']) async {
+      final pair = gateway.seedPair(['me', partner]);
+      await pairing.load();
+      expect(pairing.status.pairId, pair.pairId);
+      return pair.pairId;
+    }
+
+    /// A folder, an event and a category marked under [pairId], and the
+    /// services holding them told — what a share act leaves.
+    Future<void> shareAll(String pairId) async {
+      await db.folderDao.setSharedPair(folder, pairId);
+      await db.calendarEventDao.setSharedPair('e1', pairId);
+      await db.calendarCategoryDao.setSharedPair(category, pairId);
+      await CategoryService.refreshShareMarks();
+      await CalendarEventService.refreshShareMarks();
+      // Sent, as on a phone that synced since: what stands queued below is
+      // the adoption's own.
+      await db.delete(db.syncOutbox).go();
+    }
+
+    bool sharedByMe() => CalendarCategories.all
+        .firstWhere((candidate) => candidate.id == category)
+        .sharedByMe;
+
+    setUp(() async {
+      gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      PairingService.onMarksOfOtherPairsCleared =
+          ShareService.afterMarksClearedElsewhere;
+      addTearDown(() => PairingService.onMarksOfOtherPairsCleared = null);
+      share = await open(gateway: gateway);
+      folder = (await db.folderDao.createFolder(name: 'Training')).id;
+      category = await custom('Trips');
+      await event('e1');
+    });
+
+    test('another pair adopted, with no sync run: every mark of the ended '
+        'pair is gone and its rows are queued to be sent private; the '
+        'census, the event, the category and the Sharing page\'s lists say '
+        'nothing is shared — at once, and offline', () async {
+      final first = await adopt();
+      await shareAll(first);
+      expect(cached('e1').markedShared, isTrue);
+      expect(sharedByMe(), isTrue);
+      expect((await db.folderDao.shareCensus()).outermost, isNotEmpty);
+      expect((await share.overview(withCounts: true)).folders, hasLength(1));
+
+      await pairing.unpair();
+      foldersChanged = 0;
+      final second = await adopt();
+      expect(second, isNot(first));
+
+      expect(await marks(), isEmpty);
+      expect(await queued(), {
+        'folders/$folder',
+        'calendar_events/e1',
+        'calendar_categories/$category',
+      });
+      expect((await db.folderDao.shareCensus()).outermost, isEmpty);
+      expect(cached('e1').markedShared, isFalse);
+      expect(sharedByMe(), isFalse);
+      final overview = await share.overview(withCounts: true);
+      expect(overview.folders, isEmpty);
+      expect(overview.folderCount, 0);
+      expect(overview.events, isEmpty);
+      expect(overview.categories, isEmpty);
+      expect(foldersChanged, greaterThan(0), reason: 'the folder cache told');
+    });
+
+    test('with no share surface opened in the session the calendar\'s own '
+        'caches are told all the same: they hold their flags without this '
+        'service', () async {
+      final first = await adopt();
+      await shareAll(first);
+      await pairing.unpair();
+      // The share service is per database and opens on a share surface's
+      // first ask: here none has asked.
+      ShareService.reset();
+
+      await adopt();
+
+      expect(await marks(), isEmpty);
+      expect(cached('e1').markedShared, isFalse);
+      expect(sharedByMe(), isFalse);
+    });
+
+    test('the same pair adopted again keeps its marks: a reconcile at '
+        'launch, and the pair lost locally for a moment and found under '
+        'the same id', () async {
+      final pair = await adopt();
+      await shareAll(pair);
+      final marked = await marks();
+      expect(marked, hasLength(3));
+
+      await pairing.load();
+      expect(await marks(), marked);
+
+      // The server could not be reached and answered "no pair" once.
+      final kept = Map.of(gateway.pairs);
+      gateway.pairs.clear();
+      await pairing.load();
+      expect(pairing.status.pairId, isNull);
+      gateway.pairs.addAll(kept);
+      await pairing.load();
+
+      expect(pairing.status.pairId, pair);
+      expect(await marks(), marked);
+      expect(await queued(), isEmpty);
+    });
+
+    test(
+      'an unpair alone clears nothing by this rule: the marks are the '
+      'shared reader\'s to clear when the server says there is no pair',
+      () async {
+        final pair = await adopt();
+        await shareAll(pair);
+
+        await pairing.unpair();
+
+        expect(await marks(), hasLength(3));
+        expect(await queued(), isEmpty);
+      },
+    );
+
+    test('what an adoption pays: with no mark anywhere one statement asks '
+        'so and nothing is written of it; the same pair again asks '
+        'nothing', () async {
+      Iterable<String> ofMarks() => counter.statements.where(
+        (statement) => statement.contains('shared_pair'),
+      );
+
+      counter.reset();
+      await adopt();
+      expect(ofMarks(), hasLength(1));
+      expect(ofMarks().single.trimLeft().toUpperCase(), startsWith('SELECT'));
+
+      counter.reset();
+      await pairing.load();
+      expect(ofMarks(), isEmpty);
+    });
   });
 }

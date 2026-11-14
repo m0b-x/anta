@@ -376,6 +376,11 @@ class FakePartners implements SharePartnerSource {
   /// The accounts whose own database says they are paired.
   final Set<String> local = {};
 
+  /// The pair id an account's own database stores, where a test sets one
+  /// apart from the server's — a pairing this phone made that no shared
+  /// read has met yet. Else the server's pair of an account in [local].
+  final Map<String, String> localPairIds = {};
+
   /// When set, the server cannot be asked: every [activePartner] throws it.
   SyncGatewayException? failure;
 
@@ -392,6 +397,10 @@ class FakePartners implements SharePartnerSource {
     if (failed != null) throw failed;
     return local.contains(uid);
   }
+
+  @override
+  Future<String?> localPairId(String uid) async =>
+      localPairIds[uid] ?? (local.contains(uid) ? pairs[uid]?.pairId : null);
 
   @override
   Future<SharePartner?> activePartner(String uid) async {
@@ -413,6 +422,10 @@ class SharePair {
   final SyncDevice partner;
   final SyncSpaceRef ownerSpace;
   final SyncSpaceRef partnerSpace;
+  final _SharedClock _clock;
+
+  /// The devices [restorePartner] opened, closed with the pair.
+  final List<SyncDevice> _restored = [];
 
   SharePair._(
     this.gateway,
@@ -421,7 +434,36 @@ class SharePair {
     this.partner,
     this.ownerSpace,
     this.partnerSpace,
+    this._clock,
   );
+
+  /// The database file at [path] — a copy of the partner's — opened as the
+  /// partner's phone, as a restore onto a new phone opens it: the same
+  /// account, under the binding the copy carries.
+  Future<SyncDevice> restorePartner(String path) async {
+    final statements = StatementCounter();
+    final db = AppDatabase.forTesting(
+      NativeDatabase(File(path)).interceptWith(statements),
+      deviceId: partner.id,
+      wallClock: _clock.call,
+    );
+    await db.customSelect('SELECT 1').get();
+    SettingsService.reset();
+    final device = SyncDevice._(
+      partner.id,
+      db,
+      statements,
+      SettingsService.forTesting(db),
+      gateway,
+      const SyncEngineTiming(),
+      null,
+      syncSchema,
+      uid: partnerUid,
+      partners: partners,
+    );
+    _restored.add(device);
+    return device;
+  }
 
   static Future<SharePair> open() async {
     final gateway = FakeSyncGateway();
@@ -471,6 +513,7 @@ class SharePair {
       partner,
       await spaceOf(owner, ownerUid),
       await spaceOf(partner, partnerUid),
+      clock,
     );
     pair.join();
     return pair;
@@ -508,6 +551,9 @@ class SharePair {
   Future<void> close() async {
     await owner._close();
     await partner._close();
+    for (final device in _restored) {
+      await device._close();
+    }
     SettingsService.reset();
   }
 }

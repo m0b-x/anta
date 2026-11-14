@@ -4253,6 +4253,7 @@
   "shareFolderNotes": "{count, plural, one{1 Notiz} other{{count} Notizen}}",
   "shareNowThrough": "{inner} ist jetzt über {outer} geteilt",
   "shareFolderAlready": "{folder} ist schon geteilt",
+  "pickShareAlready": "Schon geteilt: {folder}",
   "shareStoppedWithInner": "{count, plural, one{Nicht mehr geteilt: {folder} und 1 Ordner darin} other{Nicht mehr geteilt: {folder} und {count} Ordner darin}}",
   "shareSummaryFolders": "{count, plural, one{1 Ordner} other{{count} Ordner}}",
   "shareNoteLook": "Mit dir geteilte Notizen",

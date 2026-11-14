@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/services/folder_name_index.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/recent_destinations_service.dart';
 import 'package:anta/widgets/folder_picker_dialog.dart';
+import 'package:anta/widgets/form_rows.dart' show FormCaptionSlot;
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
@@ -274,7 +279,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 5));
       }
       expect(confirm(tester).onPressed, isNull);
-      expect(find.text(l10n.shareFolderAlready('Trips')), findsOneWidget);
+      expect(find.text(l10n.pickShareAlready('Trips')), findsOneWidget);
 
       await tester.tap(find.text(l10n.rootFolder).first);
       for (var i = 0; i < 10; i++) {
@@ -291,6 +296,106 @@ void main() {
         await tester.pump(const Duration(milliseconds: 5));
       }
       expect(confirm(tester).onPressed, isNotNull);
+    });
+
+    // Review 6 (B4): the search reads an index built once. A share act
+    // writes the mark and drops the folder cache (`foldersChanged`, the
+    // service's hook in `injection.dart`), which emits no folder change —
+    // the search must still learn of it, both ways.
+    testWidgets('share: a folder shared, then stopped, after the search index '
+        'was built — the search refuses it, then offers it again', (
+      tester,
+    ) async {
+      Future<void> search(String query) async {
+        await tester.enterText(find.byType(TextField), '');
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.enterText(find.byType(TextField), query);
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+      }
+
+      Future<void> share(bool on) => tester.runAsync(() async {
+        await db.folderDao.setSharedPair(liveId, on ? 'pair-1' : null);
+        GetIt.I<FolderStorageService>().invalidateCache();
+      });
+
+      ListTile row() =>
+          tester.widget<ListTile>(find.widgetWithText(ListTile, liveName));
+
+      await openPicker(
+        tester,
+        '',
+        purpose: FolderPickPurpose.share,
+        partnerName: 'Maria',
+      );
+      await search('Train');
+      expect(row().enabled, isTrue, reason: 'the index is built, unshared');
+
+      await share(true);
+      await search('Train');
+      expect(row().enabled, isFalse);
+      expect(find.text(l10n.shareFolderAlready(liveName)), findsOneWidget);
+
+      await share(false);
+      await search('Train');
+      expect(row().enabled, isTrue);
+      expect(find.text(l10n.shareFolderAlready(liveName)), findsNothing);
+    });
+
+    // Leg 10: the ids the device flows tap the picker by — no node added:
+    // the search id lands on the text field's own node.
+    testWidgets('its controls and rows carry their ids, once each', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await openPicker(tester, '', partnerName: 'Maria');
+
+      Finder id(String identifier) => find.bySemanticsIdentifier(identifier);
+      for (final identifier in [
+        SemanticsIds.folderPickerSearch,
+        SemanticsIds.folderPickerConfirm,
+        SemanticsIds.folderPickerCancel,
+        SemanticsIds.folderPickerUp,
+        SemanticsIds.folderPickerRow(tripsId),
+        SemanticsIds.folderPickerRow(liveId),
+      ]) {
+        expect(id(identifier), findsOneWidget, reason: identifier);
+      }
+      bool isField() => tester
+          .getSemantics(id(SemanticsIds.folderPickerSearch))
+          .flagsCollection
+          .isTextField;
+      expect(
+        isField(),
+        isTrue,
+        reason: 'the field\'s own node, not a node of its own',
+      );
+      // The row's one node: its label and its tap, with the id.
+      final row = tester
+          .getSemantics(id(SemanticsIds.folderPickerRow(liveId)))
+          .getSemanticsData();
+      expect(row.label, liveName);
+      expect(row.hasAction(SemanticsAction.tap), isTrue);
+      // A shared row's sign label stays on that same node.
+      final shared = tester
+          .getSemantics(id(SemanticsIds.folderPickerRow(tripsId)))
+          .getSemanticsData();
+      expect(shared.label, allOf(contains('Maria'), contains('Trips')));
+
+      await tester.enterText(find.byType(TextField), 'Tri');
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+      expect(id(SemanticsIds.folderPickerRow(tripsId)), findsOneWidget);
+      expect(isField(), isTrue, reason: 'with the clear button beside it');
+      semantics.dispose();
     });
 
     testWidgets('copy: "Copy to my notes" as title and button', (tester) async {
@@ -398,7 +503,7 @@ void main() {
         await tester.tap(find.byTooltip('Suche löschen'));
         await tester.pump(const Duration(milliseconds: 200));
         // The reason's slot: where the browse area ends.
-        Finder slot() => find.byType(Visibility).last;
+        Finder slot() => find.byType(FormCaptionSlot);
         final before = tester.getRect(slot()).top;
         await tester.tap(find.text('Trips'));
         for (var i = 0; i < 10; i++) {
@@ -407,13 +512,201 @@ void main() {
           );
           await tester.pump(const Duration(milliseconds: 5));
         }
-        final reason = find.text('Trips ist schon geteilt');
+        final reason = find.text('Schon geteilt: Trips');
         expect(reason, findsOneWidget);
-        expect(tester.widget<Text>(reason).maxLines, isNull);
+        expect(
+          tester.renderObject<RenderParagraph>(reason).didExceedMaxLines,
+          isFalse,
+          reason: 'a short name: said whole within the slot\'s lines',
+        );
         expect(
           tester.getRect(slot()).top,
           moreOrLessEquals(before, epsilon: 0.5),
         );
+      });
+    }
+
+    // Review 7 (B5): the share pick's reason changes the text, never the
+    // geometry — one height for the slot whatever the folder's name wraps
+    // to, at the root, and while a search is typed.
+    testWidgets('share at German 2.0: the reason\'s slot is one height — a '
+        'short name, a long one, the root, a search; the why leads, and a '
+        'search empties the slot', (tester) async {
+      await tester.runAsync(loadGoldenFonts);
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final de = AppLocalizationsDe();
+      const long = 'Reisen nach Portugal und Spanien im Sommer';
+      final longId = (await tester.runAsync(() async {
+        final created = await db.folderDao.createFolder(name: long);
+        await db.folderDao.setSharedPair(created.id, 'pair-1');
+        // A child in each, so every state draws a list whose end is
+        // where the reason's slot begins.
+        await db.folderDao.createFolder(name: 'Lissabon', parentId: created.id);
+        await db.folderDao.createFolder(name: 'Porto', parentId: tripsId);
+        GetIt.I<FolderStorageService>().invalidateCache();
+        return created.id;
+      }))!;
+      recents.clear();
+
+      double listEnd() => tester.getRect(find.byType(ListView).last).bottom;
+
+      /// The picker opened inside [id] — where a pick from a row of that
+      /// folder starts.
+      Future<double> openedIn(String id, String waitFor) async {
+        await openPicker(
+          tester,
+          id,
+          waitFor: waitFor,
+          purpose: FolderPickPurpose.share,
+          partnerName: 'Maria',
+          locale: const Locale('de'),
+          scale: 2.0,
+        );
+        return listEnd();
+      }
+
+      Future<void> close() async {
+        await tester.tap(find.text(de.cancel));
+        await tester.pumpAndSettle();
+      }
+
+      final atRoot = await openedIn('', long);
+      await close();
+
+      expect(await openedIn(tripsId, 'Porto'), moreOrLessEquals(atRoot));
+      expect(find.text(de.pickShareAlready('Trips')), findsOneWidget);
+      await close();
+
+      expect(await openedIn(longId, 'Lissabon'), moreOrLessEquals(atRoot));
+      // Review 2, finding 3: the slot's two lines cut a long name's end,
+      // so the why leads and the name comes after it.
+      final reason = find.text(de.pickShareAlready(long));
+      expect(reason, findsOneWidget);
+      final why = de.pickShareAlready(long).replaceAll(long, '').trim();
+      final paragraph = tester.renderObject<RenderParagraph>(reason);
+      expect(
+        paragraph.text.toPlainText(),
+        startsWith(why),
+        reason: 'the why is the part the cut keeps',
+      );
+      final slotHeight = tester.getSize(find.byType(FormCaptionSlot)).height;
+
+      await tester.enterText(find.byType(TextField), 'Lis');
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+      expect(find.text('Lissabon'), findsOneWidget, reason: 'searching');
+      expect(listEnd(), moreOrLessEquals(atRoot, epsilon: 0.5));
+      // Finding 8: the crumbs the reason speaks of are hidden while
+      // searching, and each result says its own — the slot keeps its
+      // height and says nothing.
+      expect(
+        tester.getSize(find.byType(FormCaptionSlot)).height,
+        moreOrLessEquals(slotHeight),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(FormCaptionSlot),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is Text && (widget.data ?? '').trim().isNotEmpty,
+          ),
+        ),
+        findsNothing,
+      );
+      expect(reason, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Review 2, finding 4: at German 2.0 the title took three headline lines
+    // and left the share pick's list 107 dp — a row and a half. Its scale
+    // stops where every kit dialog's title stops, so the list keeps rows.
+    for (final purpose in FolderPickPurpose.values) {
+      testWidgets('${purpose.name} at German 2.0: the title leaves the list '
+          'three whole rows', (tester) async {
+        await tester.runAsync(loadGoldenFonts);
+        tester.view.physicalSize = const Size(360, 780);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.runAsync(() async {
+          for (final name in ['Porto', 'Madrid', 'Sevilla']) {
+            await db.folderDao.createFolder(name: name);
+          }
+        });
+        GetIt.I<FolderStorageService>().invalidateCache();
+        recents.clear();
+
+        await openPicker(
+          tester,
+          '',
+          waitFor: 'Sevilla',
+          purpose: purpose,
+          partnerName: 'Maria',
+          locale: const Locale('de'),
+          scale: 2.0,
+        );
+
+        expect(tester.takeException(), isNull);
+        final list = tester.getRect(find.byType(ListView).last);
+        final whole = [
+          for (final tile in find.byType(ListTile).evaluate())
+            tester.getRect(find.byWidget(tile.widget)),
+        ].where((row) => row.top >= list.top && row.bottom <= list.bottom);
+        expect(
+          whole.length,
+          greaterThanOrEqualTo(3),
+          reason: 'the list is ${list.height} dp',
+        );
+      });
+    }
+
+    // Leg 2's F: the address bar four levels deep, every name long, at the
+    // same German 2.0 on the same phone — the crumbs must not push the
+    // button or the bar out of their room.
+    for (final purpose in FolderPickPurpose.values) {
+      testWidgets('${purpose.name} at German 2.0, four long crumbs deep: no '
+          'overflow, the button within two lines', (tester) async {
+        await tester.runAsync(loadGoldenFonts);
+        tester.view.physicalSize = const Size(360, 780);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        const names = [
+          'Krafttraining und Ausdauerprogramme',
+          'Wochenpläne für die Wintervorbereitung',
+          'Oberkörperübungen mit Langhantel',
+          'Aufzeichnungen der Trainingseinheiten',
+        ];
+        String? parentId;
+        for (final name in names) {
+          final created = await tester.runAsync(
+            () => db.folderDao.createFolder(name: name, parentId: parentId),
+          );
+          parentId = created!.id;
+        }
+        GetIt.I<FolderStorageService>().invalidateCache();
+        recents.clear();
+
+        await openPicker(
+          tester,
+          parentId!,
+          waitFor: names.last,
+          purpose: purpose,
+          partnerName: 'maximilian.mustermann@example.com',
+          locale: const Locale('de'),
+          scale: 2.0,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text(names.last), findsWidgets);
+        final button = tester.getSize(
+          find.byWidgetPredicate((w) => w is FilledButton),
+        );
+        // Two lines of the button's 14 sp label at 2.0, with its padding.
+        expect(button.height, lessThanOrEqualTo(2 * 14 * 2.0 * 1.43 + 24));
       });
     }
   });

@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
@@ -13,6 +14,8 @@ import '../services/folder_storage_service.dart';
 import '../services/recent_destinations_service.dart';
 import '../services/share_service.dart' show ShareAudience, ShareService;
 import '../utils/share_copy.dart';
+import 'automation_id.dart';
+import 'form_rows.dart' show FormCaptionSlot, FormMetrics;
 
 /// What a pick is for: its title, its button's glyph and words, and — to
 /// share — which folders it can confirm.
@@ -341,6 +344,9 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
     final destinationName = _breadcrumbs.isEmpty
         ? l10n.rootFolder
         : _breadcrumbs.last.name;
+    final reasonStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant);
 
     // The share and copy buttons are short words of their own: the title
     // says what the pick is for, and a name or a phrase on the button left
@@ -368,7 +374,13 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
     };
 
     return AlertDialog(
-      title: Text(title),
+      // Clamped as every kit dialog's title is: at German 2.0 the share
+      // pick's title took three headline lines and left its list a row and
+      // a half.
+      title: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: FormMetrics.dialogTitleMaxTextScale,
+        child: Text(title),
+      ),
       contentPadding: const EdgeInsets.only(top: 12, bottom: 0),
       content: SizedBox(
         width: double.maxFinite,
@@ -383,42 +395,54 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
                   ? _buildSearchResults(l10n, colorScheme)
                   : _buildBrowseView(l10n, colorScheme),
             ),
-            // Why the button is off, in full. In the share pick its slot is
-            // there from the start: entering and leaving a shared folder
-            // changes the text, never where the list ends.
-            if (widget.purpose == FolderPickPurpose.share &&
-                _searchQuery.isEmpty)
+            // Why the button is off. In the share pick its slot is there
+            // from the start, as tall as its lines and never as the name:
+            // entering and leaving a shared folder changes the text, never
+            // where the list ends. While a search is shown the slot stays
+            // and says nothing — the crumbs it speaks of are hidden, and
+            // each result says its own reason.
+            if (widget.purpose == FolderPickPurpose.share)
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                child: Visibility(
-                  visible: _sharedAlready,
-                  maintainSize: true,
-                  maintainAnimation: true,
-                  maintainState: true,
-                  child: Text(
-                    l10n.shareFolderAlready(destinationName),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                padding: FormMetrics.pickerReasonPadding,
+                child: FormCaptionSlot(
+                  candidates: [
+                    Text(
+                      '\n' * (FormMetrics.pickerReasonLines - 1),
+                      style: reasonStyle,
                     ),
-                  ),
+                  ],
+                  child: _sharedAlready && _searchQuery.isEmpty
+                      ? Text(
+                          l10n.pickShareAlready(destinationName),
+                          maxLines: FormMetrics.pickerReasonLines,
+                          overflow: TextOverflow.ellipsis,
+                          style: reasonStyle,
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ),
           ],
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => AppNavigator.pop(context),
-          child: Text(l10n.cancel),
+        AutomationId(
+          identifier: SemanticsIds.folderPickerCancel,
+          child: TextButton(
+            onPressed: () => AppNavigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
         ),
-        FilledButton.icon(
-          icon: Icon(glyph, size: 18),
-          onPressed: _canSelectCurrent
-              ? () => _confirmSelection(_currentParentId)
-              : null,
-          // Two lines at most: a long destination name must not eat the
-          // list at large text.
-          label: Text(confirm, maxLines: 2, overflow: TextOverflow.ellipsis),
+        AutomationId(
+          identifier: SemanticsIds.folderPickerConfirm,
+          child: FilledButton.icon(
+            icon: Icon(glyph, size: FormMetrics.buttonGlyphSize),
+            onPressed: _canSelectCurrent
+                ? () => _confirmSelection(_currentParentId)
+                : null,
+            // Two lines at most: a long destination name must not eat the
+            // list at large text.
+            label: Text(confirm, maxLines: 2, overflow: TextOverflow.ellipsis),
+          ),
         ),
       ],
     );
@@ -427,25 +451,28 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
   Widget _buildSearchField(AppLocalizations l10n, ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: TextField(
-        controller: _searchController,
-        textInputAction: TextInputAction.search,
-        decoration: InputDecoration(
-          isDense: true,
-          hintText: l10n.searchFolders,
-          prefixIcon: const Icon(Icons.search, size: 20),
-          suffixIcon: _searchController.text.isEmpty
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  tooltip: l10n.clearSearch,
-                  onPressed: () {
-                    _searchController.clear();
-                    _onSearchChanged();
-                  },
-                  visualDensity: VisualDensity.compact,
-                ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      child: Semantics(
+        identifier: SemanticsIds.folderPickerSearch,
+        child: TextField(
+          controller: _searchController,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: l10n.searchFolders,
+            prefixIcon: const Icon(Icons.search, size: 20),
+            suffixIcon: _searchController.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: l10n.clearSearch,
+                    onPressed: () {
+                      _searchController.clear();
+                      _onSearchChanged();
+                    },
+                    visualDensity: VisualDensity.compact,
+                  ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
         ),
       ),
     );
@@ -474,28 +501,32 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         // stays, disabled, and says why.
         final refused =
             widget.purpose == FolderPickPurpose.share && folder.share.isShared;
-        return _shareMarked(
-          folder,
-          ListTile(
-            leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
-            // The reason under it names the folder: read once, there.
-            title: refused
-                ? ExcludeSemantics(child: Text(folder.name))
-                : Text(folder.name),
-            subtitle: refused
-                ? Text(
-                    l10n.shareFolderAlready(folder.name),
-                    style: TextStyle(color: colorScheme.onSurfaceVariant),
-                  )
-                : null,
-            trailing: _sign(folder),
-            dense: true,
-            enabled: !refused,
-            // Tapping the source's current parent is allowed; the move
-            // coordinator surfaces an "already in this folder" snackbar
-            // instead of greying the row out (which made the row look
-            // un-navigable even though drill-in still worked).
-            onTap: () => _confirmSelection(folder.id),
+        // The id outside the sign's label, so the row stays one node.
+        return AutomationId(
+          identifier: SemanticsIds.folderPickerRow(folder.id),
+          child: _shareMarked(
+            folder,
+            ListTile(
+              leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
+              // The reason under it names the folder: read once, there.
+              title: refused
+                  ? ExcludeSemantics(child: Text(folder.name))
+                  : Text(folder.name),
+              subtitle: refused
+                  ? Text(
+                      l10n.shareFolderAlready(folder.name),
+                      style: TextStyle(color: colorScheme.onSurfaceVariant),
+                    )
+                  : null,
+              trailing: _sign(folder),
+              dense: true,
+              enabled: !refused,
+              // Tapping the source's current parent is allowed; the move
+              // coordinator surfaces an "already in this folder" snackbar
+              // instead of greying the row out (which made the row look
+              // un-navigable even though drill-in still worked).
+              onTap: () => _confirmSelection(folder.id),
+            ),
           ),
         );
       },
@@ -620,27 +651,31 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         // and the user can still drill INTO the folder from here.
         final chevron = Icon(
           Icons.chevron_right,
-          size: 22,
+          size: FormMetrics.pickerChevronSize,
           color: colorScheme.onSurfaceVariant,
         );
         final sign = _sign(folder);
-        return _shareMarked(
-          folder,
-          ListTile(
-            leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
-            title: Text(folder.name),
-            trailing: sign == null
-                ? chevron
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      sign,
-                      const SizedBox(width: RowMetrics.shareMarkGap),
-                      chevron,
-                    ],
-                  ),
-            dense: true,
-            onTap: () => _navigateInto(folder),
+        // The id outside the sign's label, so the row stays one node.
+        return AutomationId(
+          identifier: SemanticsIds.folderPickerRow(folder.id),
+          child: _shareMarked(
+            folder,
+            ListTile(
+              leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
+              title: Text(folder.name),
+              trailing: sign == null
+                  ? chevron
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        sign,
+                        const SizedBox(width: RowMetrics.shareMarkGap),
+                        chevron,
+                      ],
+                    ),
+              dense: true,
+              onTap: () => _navigateInto(folder),
+            ),
           ),
         );
       },
@@ -764,17 +799,20 @@ class _AddressBarState extends State<_AddressBar> {
             // Path row — back button + scrollable path crumbs.
             Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  iconSize: 18,
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
+                AutomationId(
+                  identifier: SemanticsIds.folderPickerUp,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    iconSize: 18,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    tooltip: widget.backTooltip,
+                    onPressed: widget.onBack,
                   ),
-                  tooltip: widget.backTooltip,
-                  onPressed: widget.onBack,
                 ),
                 const SizedBox(width: 4),
                 Expanded(

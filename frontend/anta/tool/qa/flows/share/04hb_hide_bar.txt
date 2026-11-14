@@ -1,0 +1,120 @@
+# The hide bar (D30). In "Categories from …" the partner hides Recovery
+# while no alert of its own is on it: no bar. It then adds an alert to
+# "Foam rolling" from the read sheet (armed), and hides Recovery again:
+# the bar says "Recovery is hidden. Your alerts on it are off until you
+# show it again." and nothing is armed; shown again, the alert is armed
+# again. The owner makes Recovery private to end: the partner hears that
+# Foam rolling left with its alert, nothing armed, its filter back to
+# "All" — what 04i expects.
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 tap id:sharing-theirs-categories
+-d emulator-5558 wait id:shared-categories-sheet
+-d emulator-5558 expect "Show Recovery on my calendar" "Show Stretching on my calendar"
+# The row's title matches the row (--nth 0) and its show switch (--nth 1).
+-d emulator-5558 tap "Recovery" --nth 1
+-d emulator-5558 expect --absent "is hidden"
+-d emulator-5558 shot hidden-no-alert
+-d emulator-5558 tap "Recovery" --nth 1
+-d emulator-5558 expect --absent "is hidden"
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-categories-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+# Recovery alone on the list, so its card (keyed by a minted category id)
+# is the one the prefix names.
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-categories --settle 1000
+-d emulator-5558 wait id:category-pick-done
+-d emulator-5558 tap id:category-pick-select-none
+-d emulator-5558 tap "Recovery"
+-d emulator-5558 tap id:category-pick-done
+-d emulator-5558 wait id:category-pick-done --gone
+-d emulator-5558 expect id:agenda-filter-categories "Recovery"
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 tap id:agenda-card-days-category-*
+-d emulator-5558 wait id:day-list-close
+-d emulator-5558 tap "Foam rolling" --nth 0
+-d emulator-5558 wait id:day-list-close --gone
+-d emulator-5558 tap id:panel-mode-day
+# The day's grid marker names it first; the day panel's row is the second.
+-d emulator-5558 expect "Foam rolling" --timeout 10
+-d emulator-5558 tap "Foam rolling" --nth 1
+-d emulator-5558 wait id:shared-event-sheet
+-d emulator-5558 tap id:shared-event-add-alert
+-d emulator-5558 wait id:alert-sheet-save
+-d emulator-5558 tap id:alert-sheet-save
+-d emulator-5558 wait id:alert-sheet-save --gone
+-d emulator-5558 wait id:event-alert-remove-0
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-event-sheet --gone
+-d emulator-5558 armed --expect some
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 scroll-to id:sharing-paired --in id:sharing-list
+-d emulator-5558 tap id:sharing-paired
+-d emulator-5558 wait id:sharing-page
+-d emulator-5558 tap id:sharing-theirs-categories
+-d emulator-5558 wait id:shared-categories-sheet
+-d emulator-5558 tap "Recovery" --nth 1
+-d emulator-5558 expect "Recovery is hidden. Your alerts on it are off until you show it again." --timeout 5
+-d emulator-5558 shot hidden-alerts-off
+-d emulator-5558 armed --expect none
+-d emulator-5558 tap "Recovery" --nth 1
+-d emulator-5558 expect "Show Recovery on my calendar"
+-d emulator-5558 armed --expect some
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-categories-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:sharing-page --gone
+-d emulator-5558 wait id:settings-bar-sharing
+share category "Recovery" --off
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect "no longer shares Foam rolling. Your alert is off." --timeout 60
+-d emulator-5558 armed --expect none
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-categories --settle 1000
+-d emulator-5558 wait id:category-pick-done
+-d emulator-5558 tap id:category-pick-select-all
+-d emulator-5558 tap id:category-pick-done
+-d emulator-5558 wait id:category-pick-done --gone
+-d emulator-5558 expect id:agenda-filter-categories "All"
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

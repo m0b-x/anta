@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/core/di/injection.dart';
+import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/sync/app_sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 
@@ -28,4 +31,35 @@ void main() {
     await resetDependencies();
     expect(SyncBindingService.onSharedRowsRemoved, isNull);
   });
+
+  test(
+    'the share service\'s "after marks" is what the pairing tells once '
+    'an adoption cleared the marks other pairs left, set where sharing '
+    'is configured and cleared with the dependencies (device leg 2, R4)',
+    () async {
+      // `_configureSharing` runs inside the whole start-up, which no suite
+      // can run: its one line is held by reading the source, the reset by
+      // running it.
+      final source = File('lib/core/di/injection.dart').readAsStringSync();
+      final configured = source.indexOf(
+        'void _configureSharing(FolderStorageService folders) {',
+      );
+      expect(configured, isNonNegative);
+      final body = source.substring(
+        configured,
+        source.indexOf('\n}', configured),
+      );
+      expect(
+        body.replaceAll(RegExp(r'\s+'), ' '),
+        contains(
+          'PairingService.onMarksOfOtherPairsCleared = '
+          'ShareService.afterMarksClearedElsewhere;',
+        ),
+      );
+
+      PairingService.onMarksOfOtherPairsCleared = () async {};
+      await resetDependencies();
+      expect(PairingService.onMarksOfOtherPairsCleared, isNull);
+    },
+  );
 }

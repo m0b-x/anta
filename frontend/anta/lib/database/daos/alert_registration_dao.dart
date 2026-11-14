@@ -47,6 +47,22 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// Which of [eventIds] an alert is still armed for at [now]: a pending
+  /// registration whose fire time is ahead. A pending row whose time has
+  /// passed has rung or been missed, and stays pending only until the next
+  /// pass sweeps it — it is never what goes off when an event leaves. The
+  /// one rule for "armed" that a confirmation and a leave notice both say
+  /// by (`docs/cloud-share-surfaces-roadmap.md` D30); one read of
+  /// [pending].
+  Future<Set<String>> armedEventIds(Set<String> eventIds, DateTime now) async {
+    if (eventIds.isEmpty) return const {};
+    final at = now.millisecondsSinceEpoch;
+    return {
+      for (final row in await pending())
+        if (row.fireAt > at && eventIds.contains(row.eventId)) row.eventId,
+    };
+  }
+
   /// Whether the platform may still hold an entry of this database: the
   /// registry holds a row, whatever its state, or a hard delete left its
   /// [SyncDao.keyAlertStraysPending] marker and no pass has completed since.
@@ -92,6 +108,17 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
   );
 
   static const _uuid = Uuid();
+
+  /// What the app's last pass armed under, as its binding wrote it
+  /// ([SyncDao.keyAlertArmFacts]); null when no pass of the app has stored
+  /// any.
+  Future<String?> armFacts() =>
+      attachedDatabase.syncDao.getValue(SyncDao.keyAlertArmFacts);
+
+  /// Keeps [facts] for a pass that will run with no app. The scheduler
+  /// calls it only when they differ from what stands.
+  Future<void> putArmFacts(String facts) =>
+      attachedDatabase.syncDao.setValue(SyncDao.keyAlertArmFacts, facts);
 
   /// The os ids of every `fired` registration: rings the binding announced
   /// that nothing has settled since.

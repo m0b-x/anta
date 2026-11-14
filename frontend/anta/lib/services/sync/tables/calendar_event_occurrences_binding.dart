@@ -134,6 +134,7 @@ final class CalendarEventOccurrencesBinding
       return db.eventOccurrenceDao.mergeRemoteOccurrence(
         remote,
         floor: CrdtMerge.everyStamp,
+        shared: true,
       );
     });
   }

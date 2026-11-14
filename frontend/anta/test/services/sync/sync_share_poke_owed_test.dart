@@ -2,7 +2,10 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/push/push_relay.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 
@@ -100,5 +103,246 @@ void main() {
     await pair.owner.sync();
 
     expect(relay.pokes, [(pair: sharePairId, urgent: true)]);
+  });
+
+  test('a poke owed to a pair that is no longer the active one is dropped '
+      'unsent; the active pair\'s is sent (A7)', () async {
+    await sharedAndSettled('e1');
+    // A stale mark of an ended pair made a writer owe it a poke.
+    await db().syncDao.oweSharePoke(pairId: 'pair-old', urgent: false);
+    await rename('e1', 'Night shift');
+
+    await pair.owner.sync();
+
+    expect(relay.pokes, [(pair: sharePairId, urgent: true)]);
+    expect(
+      await db().syncDao.valuesByPrefix(SyncDao.sharePokeOwedPrefix),
+      isEmpty,
+      reason: 'the ended pair\'s entry is gone, not kept for later',
+    );
+  });
+
+  test('the active pair is the one this phone\'s pairing stores now, not the '
+      'one the last shared read named: a new pair is poked at once, the old '
+      'one dropped (C4)', () async {
+    await sharedAndSettled('e1');
+    // This phone paired anew; no shared read has met it, so the reader's
+    // key still names the pair before.
+    pair.partners.localPairIds[ownerUid] = 'pair-new';
+    expect(await db().syncDao.getValue(SyncDao.keySharedPair), sharePairId);
+    await db().syncDao.oweSharePoke(pairId: 'pair-new', urgent: false);
+    await rename('e1', 'Night shift');
+
+    await pair.owner.sync();
+
+    expect(relay.pokes, [(pair: 'pair-new', urgent: false)]);
+    expect(
+      await db().syncDao.valuesByPrefix(SyncDao.sharePokeOwedPrefix),
+      isEmpty,
+    );
+  });
+
+  test('with no pairing stored, what is owed is sent as it was owed: the '
+      'relay refuses a pair this account is not in (C4)', () async {
+    await sharedAndSettled('e1');
+    // This phone's own record names no pair — the server's answer has not
+    // reached it — while a mark of its own still shares the event.
+    pair.partners.local.clear();
+    await rename('e1', 'Night shift');
+
+    await pair.owner.sync();
+
+    expect(relay.pokes, [(pair: sharePairId, urgent: true)]);
+  });
+
+  // A note's move owes its poke in the DAO's own transaction (share
+  // surfaces P5), as every folder writer does: whoever moves it, and
+  // whatever happens after the commit.
+  group('a note moved', () {
+    late Folder shelf;
+    late Folder plain;
+    late Note inside;
+    late Note outside;
+
+    /// The pokes owed, as `pair: urgency`.
+    Future<Map<String, String>> owed() async => {
+      for (final (key, value) in await db().syncDao.valuesByPrefix(
+        SyncDao.sharePokeOwedPrefix,
+      ))
+        key.substring(SyncDao.sharePokeOwedPrefix.length): value,
+    };
+
+    setUp(() async {
+      shelf = await db().folderDao.createFolder(name: 'Shelf');
+      plain = await db().folderDao.createFolder(name: 'Plain');
+      inside = await writeNote(
+        pair.owner,
+        folderId: shelf.id,
+        title: 'Inside',
+        body: 'Shared',
+      );
+      outside = await writeNote(
+        pair.owner,
+        folderId: plain.id,
+        title: 'Outside',
+        body: 'Private',
+      );
+      await db().folderDao.setSharedPair(shelf.id, sharePairId);
+      await pair.owner.sync();
+      await pair.owner.sync();
+      relay.pokes.clear();
+      await db().syncDao.deleteByPrefix(SyncDao.sharePokeOwedPrefix);
+    });
+
+    test('out of a shared folder by the DAO owes the pair a normal poke '
+        'with the move, which the next run sends (P5)', () async {
+      await db().noteDao.moveNote(id: inside.id, targetFolderId: plain.id);
+
+      expect(await owed(), {sharePairId: 'normal'});
+      await pair.owner.sync();
+      expect(relay.pokes, [(pair: sharePairId, urgent: false)]);
+    });
+
+    test('into a shared folder by the DAO owes it too (P5)', () async {
+      await db().noteDao.moveNote(id: outside.id, targetFolderId: shelf.id);
+
+      expect(await owed(), {sharePairId: 'normal'});
+    });
+
+    test('as a selection, out of a shared folder, owes it too (P5)', () async {
+      await db().noteDao.moveNotes([inside.id, outside.id], plain.id);
+
+      expect(await owed(), {sharePairId: 'normal'});
+    });
+
+    test('between two private folders owes nothing (P5)', () async {
+      final other = await db().folderDao.createFolder(name: 'Other');
+
+      await db().noteDao.moveNote(id: outside.id, targetFolderId: other.id);
+      await db().noteDao.moveNotes([outside.id], plain.id);
+
+      expect(await owed(), isEmpty);
+    });
+
+    test('re-filed by the repair from under a deleted folder into a shared '
+        'one owes the pair a normal poke (P5)', () async {
+      final gone = await db().folderDao.createFolder(
+        name: 'Gone',
+        parentId: shelf.id,
+      );
+      final stranded = await writeNote(
+        pair.owner,
+        folderId: gone.id,
+        title: 'Stranded',
+        body: 'Text',
+      );
+      // Deleted on another device below the note's stamp: the note lies live
+      // under a tombstone, private until the repair re-files it.
+      await db().customStatement(
+        'UPDATE folders SET is_deleted = 1, '
+        "hlc_timestamp = '0000000000001:0000:other' WHERE id = ?",
+        [gone.id],
+      );
+      await db().syncDao.deleteByPrefix(SyncDao.sharePokeOwedPrefix);
+
+      final moved = await db().noteDao.refileNotesUnderDeletedFolders();
+
+      expect(moved, [(id: stranded.id, folderId: gone.id)]);
+      expect(await owed(), {sharePairId: 'normal'});
+    });
+
+    // A guard, not P5's: the mark's own writer owed this before.
+    test('an un-share owes the pair a normal poke, as it always did', () async {
+      await db().folderDao.setSharedPair(shelf.id, null);
+
+      expect(await owed(), {sharePairId: 'normal'});
+    });
+
+    test('re-filed by the repair as it merges, from under a deleted folder '
+        'into a shared one, owes the pair a normal poke (B8)', () async {
+      final gone = await db().folderDao.createFolder(
+        name: 'Gone',
+        parentId: shelf.id,
+      );
+      await db().customStatement(
+        'UPDATE folders SET is_deleted = 1, '
+        "hlc_timestamp = '0000000000001:0000:other' WHERE id = ?",
+        [gone.id],
+      );
+      await db().syncDao.deleteByPrefix(SyncDao.sharePokeOwedPrefix);
+
+      await db().noteDao.mergeNoteDocument(
+        outside.copyWith(
+          id: 'arrived',
+          folderId: gone.id,
+          hlcTimestamp: 'ffffffffff01:0000:other',
+          deviceId: 'other',
+        ),
+        'Edited elsewhere',
+      );
+
+      expect(
+        (await db().noteDao.getByIdsIncludingDeleted([
+          'arrived',
+        ])).single.folderId,
+        shelf.id,
+      );
+      expect(await owed(), {sharePairId: 'normal'});
+    });
+
+    test('between two folders marked for different pairs owes both a normal '
+        'poke (B8)', () async {
+      final other = await db().folderDao.createFolder(name: 'Other pair');
+      // A mark of another pair stands only until the next share act clears
+      // it; a merge can leave one meanwhile.
+      await db().customStatement(
+        "UPDATE folders SET shared_pair = 'pair-2' WHERE id = ?",
+        [other.id],
+      );
+
+      await db().noteDao.moveNote(id: inside.id, targetFolderId: other.id);
+
+      expect(await owed(), {sharePairId: 'normal', 'pair-2': 'normal'});
+    });
+
+    test('through the storage service\'s own move owes it once (B8)', () async {
+      final notes = NoteStorageService(
+        repository: NoteRepository(database: db()),
+      );
+
+      await notes.moveNote(noteId: inside.id, targetFolderId: plain.id);
+
+      expect(await owed(), {sharePairId: 'normal'});
+    });
+  });
+
+  test('a database that shares nothing pays no statement for a note\'s '
+      'poke: a move, one or many, costs what it did before (P5)', () async {
+    final a = await db().folderDao.createFolder(name: 'A');
+    final b = await db().folderDao.createFolder(name: 'B');
+    final one = await writeNote(
+      pair.owner,
+      folderId: a.id,
+      title: 'One',
+      body: 'x',
+    );
+    final two = await writeNote(
+      pair.owner,
+      folderId: a.id,
+      title: 'Two',
+      body: 'y',
+    );
+    final statements = pair.owner.statements..reset();
+
+    await db().noteDao.moveNote(id: one.id, targetFolderId: b.id);
+    final single = statements.count;
+    statements.reset();
+    await db().noteDao.moveNotes([one.id, two.id], a.id);
+    final many = statements.count;
+
+    // Measured before the DAO owed the poke: the marks are asked inside the
+    // statement that reads the target's last position.
+    expect((single: single, many: many), (single: 7, many: 7));
+    expect(statements.matching('share_poke_owed'), isEmpty);
   });
 }

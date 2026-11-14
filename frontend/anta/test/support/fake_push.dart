@@ -102,6 +102,9 @@ class FakePushRelay implements PushRelay {
 
   final List<({String pair, bool urgent})> pokes = [];
 
+  /// How many pokes had been asked for at each [flush].
+  final List<int> flushedAt = [];
+
   @override
   Future<Uri?> refresh() async {
     refreshes++;
@@ -116,5 +119,5 @@ class FakePushRelay implements PushRelay {
   }
 
   @override
-  void flush() {}
+  Future<void> flush() async => flushedAt.add(pokes.length);
 }

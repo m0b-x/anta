@@ -44,6 +44,7 @@ import 'public_holiday_service.dart';
 import 'settings_service.dart';
 import 'shared_refresh/shared_refresh.dart';
 import 'shared_refresh/shared_refresh_plan.dart';
+import 'shared_refresh/shared_refresh_scheduler.dart';
 
 /// Why a reconcile is running. The pass is the same whatever provoked it — a
 /// reason that changed the work would be a second definition of "what the OS
@@ -263,6 +264,101 @@ class AlertScheduler {
 
   AlertScheduler._();
 
+  /// Whether this isolate runs with no app behind it — the shared check's
+  /// run (`docs/cloud-shared-freshness.md` §6), which sets it before its
+  /// first pass and ends with its isolate. Such a pass arms exactly what the
+  /// app would for the same data and does nothing that needs the app:
+  ///
+  /// - it arms under the facts the app's last pass stored
+  ///   ([AlertGateway.adoptArmFacts]) and asks the phone for none — and
+  ///   with none stored it is no pass at all ([awayPassRefused]);
+  /// - it settles no fire that is past its grace: whether that one rang is
+  ///   told by evidence only the app's process has, and saying "Missed"
+  ///   from the background over an alarm someone stopped is the false
+  ///   report that evidence exists to remove. The app's next pass settles
+  ///   it.
+  ///
+  /// A static of the isolate, as `SyncSuspension` is: the passes of a run
+  /// are asked for by the reader and the services, which hold no flag to
+  /// hand on.
+  static bool awayFromApp = false;
+
+  /// Whether the last pass was refused because it ran [awayFromApp] with no
+  /// arm facts stored, or none this build's binding can read.
+  bool get awayPassRefused => _awayPassRefused;
+  bool _awayPassRefused = false;
+
+  /// The arm facts as this instance last read or wrote them, so a pass
+  /// whose facts are what stands costs no write — and, after the first, no
+  /// read.
+  String? _storedArmFacts;
+  bool _armFactsRead = false;
+
+  /// Whether a pass with no app can exist on this install
+  /// ([SharedRefreshAvailability.runsCanExist]): a check was ever planned,
+  /// or a push address is held. Only there are the arm facts worked out,
+  /// read and stored — an account that never paired paid a read per launch,
+  /// a write per change and a call to the activity per process for a run
+  /// it can never have (review R6).
+  ///
+  /// The gate opens between two passes — the first check is planned by the
+  /// pass that just ended, a push address arrives — and a run must never
+  /// find the facts missing for that: whoever opens it calls
+  /// [keepArmFactsQuietly] before a trigger can fire.
+  @visibleForTesting
+  static Future<bool> Function() runsCanExist =
+      SharedRefreshAvailability.runsCanExist;
+
+  /// Stores the arm facts now, outside a pass, where a pass with no app
+  /// can exist and this isolate has not stored them yet. Swallows every
+  /// failure, as [reconcileAllQuietly] does.
+  ///
+  /// Never in an isolate that runs [awayFromApp]: a run only adopts. Asked
+  /// there — a run that plans the install's first check is — it would work
+  /// the facts out in an engine with no activity and store that reading
+  /// over the app's: every later run then armed under facts nobody chose,
+  /// and the app's next open armed everything back.
+  static Future<void> keepArmFactsQuietly() async {
+    if (awayFromApp) return;
+    if (_instance == null && !_hasGateway) return;
+    try {
+      final scheduler = await getInstance();
+      if (scheduler._storedArmFacts != null) return;
+      await scheduler._serialize(scheduler._refreshArmContext);
+    } catch (e) {
+      debugPrint('[AlertScheduler] arm facts not kept: $e');
+    }
+  }
+
+  /// The app's pass: what the binding reads now, kept with the database
+  /// when it differs from what stands. A failed write costs the pass
+  /// nothing; the next one compares again.
+  Future<String> _refreshArmContext() async {
+    var keeps = true;
+    try {
+      keeps = await runsCanExist();
+    } catch (e) {
+      debugPrint('[AlertScheduler] runs not known: $e');
+    }
+    _gateway.keepsArmFacts = keeps;
+    final context = await _gateway.refreshArmContext();
+    final facts = keeps ? _gateway.armFacts : null;
+    if (facts == null) return context;
+    try {
+      if (!_armFactsRead) {
+        _storedArmFacts = await _dao.armFacts();
+        _armFactsRead = true;
+      }
+      if (facts != _storedArmFacts) {
+        await _dao.putArmFacts(facts);
+        _storedArmFacts = facts;
+      }
+    } catch (e) {
+      debugPrint('[AlertScheduler] arm facts not stored: $e');
+    }
+    return context;
+  }
+
   /// Whether there is a platform binding to schedule against at all.
   ///
   /// Checked **before** anything opens a database or reads preferences, and
@@ -425,9 +521,27 @@ class AlertScheduler {
         final unprovoked =
             reason == AlertReconcileReason.launch ||
             reason == AlertReconcileReason.resumed;
+        _awayPassRefused = false;
         if (unprovoked && await _nothingCanArm()) {
           final now = _clock();
-          for (final move in await _gateway.takeMoves()) {
+          final List<AlertMove> moves;
+          try {
+            moves = await _gateway.takeMoves();
+          } catch (e) {
+            // The app's own binding fails as it always did. A run's that
+            // did not come up — it could not resign — is no binding to
+            // pass with, here as where something can arm: refused, and
+            // the run ends as one that cannot arm rather than failed, to
+            // be retried with nothing changed.
+            if (!awayFromApp) rethrow;
+            _awayPassRefused = true;
+            debugPrint(
+              '[AlertScheduler] reconcile(${reason.name}) refused: away '
+              'from the app with a binding that did not start: $e',
+            );
+            return;
+          }
+          for (final move in moves) {
             try {
               await _applyMove(move, now);
             } catch (e) {
@@ -1243,6 +1357,23 @@ class AlertScheduler {
   }) async {
     final now = _clock();
 
+    // Before anything is read or written: a pass with no app and nothing to
+    // arm under is no pass.
+    String? adopted;
+    _awayPassRefused = false;
+    if (awayFromApp) {
+      final stored = await _dao.armFacts();
+      adopted = stored == null ? null : await _gateway.adoptArmFacts(stored);
+      if (adopted == null) {
+        _awayPassRefused = true;
+        debugPrint(
+          '[AlertScheduler] reconcile(${reason.name}) refused: away from '
+          'the app with no arm facts ${stored == null ? 'stored' : 'readable'}',
+        );
+        return;
+      }
+    }
+
     // Every facade the plan reads has to be configured before it is read — an
     // unconfigured read is silent, and here "silent" means a cancelled
     // occurrence ringing or a workdays event planning straight through a
@@ -1328,8 +1459,13 @@ class AlertScheduler {
     // Once per pass, before anything is armed: the binding reads the phone's
     // volume here and every `schedule` below arms with exactly what it found,
     // so the token recorded in the registry cannot describe a different ring
-    // from the one the platform is holding.
-    final armContext = await _gateway.refreshArmContext();
+    // from the one the platform is holding. Away from the app it is what
+    // the app's own pass stored, adopted above.
+    final armContext = adopted ?? await _refreshArmContext();
+    // And which alarms sound now, not when the run's binding came up: one
+    // that started since — the partner's event it was for has just moved —
+    // would be armed over under the same id, which stops the ring.
+    if (awayFromApp) await _gateway.noteRinging();
 
     final events = eventService.events;
     final eventsById = {for (final event in events) event.id: event};
@@ -1882,7 +2018,12 @@ class AlertScheduler {
       // of the queue, so it never rang. The `alarm` fork's Patch 9 keeps the
       // plugin's own start from stopping it, for the same reason. A pass with
       // nothing ringing settles every such row as before.
-      if (lateness < kLateFireGrace || _gateway.ringingIds.isNotEmpty) {
+      //
+      // Away from the app every late row is left the same way: the verdict
+      // below is the app's to give ([awayFromApp]).
+      if (lateness < kLateFireGrace ||
+          _gateway.ringingIds.isNotEmpty ||
+          awayFromApp) {
         inFlight.add(row);
         continue;
       }
@@ -2457,10 +2598,16 @@ class AlertScheduler {
       debugPrint('[AlertScheduler] report words failed: $e\n$st');
       content = wordsOf(null);
     }
-    final categoryIds = fire.digest.categoryIds.toList()..sort();
+    // The list the planner scanned by: a report's tap and tint carry its
+    // own part alone, whatever its stored list still names (D15).
+    final counted = CategoryAllowlist.forDigest(
+      fire.digest.cadence,
+      fire.digest.categoryIds,
+    );
+    final categoryIds = counted.toList()..sort();
     // The one listed category it ticks, as its title names it.
     final single = CategoryAllowlist.soleTicked(
-      fire.digest.categoryIds,
+      counted,
       partnerListed: digestListsPartner(fire.digest.cadence, shareAlerts),
     );
     return AlertPayload(
@@ -2515,7 +2662,9 @@ class AlertScheduler {
       return service.report(
         ReportRequest(
           span: (start: fire.spanStart, end: end),
-          categoryIds: fire.digest.categoryIds,
+          // The report's part alone: a list stored on another device, or
+          // before the editor normalised it, may hold the partner's (D15).
+          categoryIds: CategoryAllowlist.forReport(fire.digest.categoryIds),
           events: events,
           today: DateTime.utc(end.year, end.month, end.day + 1),
           weekStart: weekStart,

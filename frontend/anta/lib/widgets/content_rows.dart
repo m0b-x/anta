@@ -353,43 +353,48 @@ Future<void> showRowActionSheet(
               const Divider(),
             ],
             for (final action in actions)
-              Semantics(
-                container: action.identifier != null,
-                identifier: action.identifier,
-                // A tile with no tap drops its button flag: an off action
-                // still says it is a button, and that it is off.
-                button: action.enabled ? null : true,
-                enabled: action.enabled ? null : false,
-                child: ListTile(
-                  enabled: action.enabled,
-                  leading: Icon(
-                    action.icon,
-                    // A disabled destructive row reads as off, not as red.
-                    color: action.isDestructive && action.enabled
-                        ? colorScheme.error
+              _OneNodeWhenOff(
+                off: !action.enabled,
+                child: Semantics(
+                  container: action.identifier != null,
+                  identifier: action.identifier,
+                  // A tile with no tap drops its button flag: an off action
+                  // still says it is a button, and that it is off.
+                  button: action.enabled ? null : true,
+                  enabled: action.enabled ? null : false,
+                  child: ListTile(
+                    enabled: action.enabled,
+                    leading: Icon(
+                      action.icon,
+                      // A disabled destructive row reads as off, not as red.
+                      color: action.isDestructive && action.enabled
+                          ? colorScheme.error
+                          : null,
+                    ),
+                    title: Text(
+                      action.label,
+                      style: action.isDestructive && action.enabled
+                          ? TextStyle(color: colorScheme.error)
+                          : null,
+                    ),
+                    subtitle: action.caption == null
+                        ? null
+                        : Text(
+                            action.caption!,
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                    trailing: action.checked
+                        ? Icon(Icons.check_rounded, color: colorScheme.primary)
+                        : null,
+                    onTap: action.enabled
+                        ? () {
+                            Navigator.of(sheetContext).pop();
+                            action.onSelected();
+                          }
                         : null,
                   ),
-                  title: Text(
-                    action.label,
-                    style: action.isDestructive && action.enabled
-                        ? TextStyle(color: colorScheme.error)
-                        : null,
-                  ),
-                  subtitle: action.caption == null
-                      ? null
-                      : Text(
-                          action.caption!,
-                          style: TextStyle(color: colorScheme.onSurfaceVariant),
-                        ),
-                  trailing: action.checked
-                      ? Icon(Icons.check_rounded, color: colorScheme.primary)
-                      : null,
-                  onTap: action.enabled
-                      ? () {
-                          Navigator.of(sheetContext).pop();
-                          action.onSelected();
-                        }
-                      : null,
                 ),
               ),
             const SizedBox(height: 8),
@@ -398,6 +403,22 @@ Future<void> showRowActionSheet(
       );
     },
   );
+}
+
+/// An off action of [showRowActionSheet] as one node: a tile with no tap
+/// keeps a node of its own for its label, and the button and "off" flags
+/// set around it would stand apart from it — or, with no identifier to make
+/// them a container, merge into the sheet. Merged, it is announced as a
+/// button that is off, by its label.
+class _OneNodeWhenOff extends StatelessWidget {
+  final bool off;
+  final Widget child;
+
+  const _OneNodeWhenOff({required this.off, required this.child});
+
+  @override
+  Widget build(BuildContext context) =>
+      off ? MergeSemantics(child: child) : child;
 }
 
 /// "From {name} · Read only": the one line that says a page or a sheet shows

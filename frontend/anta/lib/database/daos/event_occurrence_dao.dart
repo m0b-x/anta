@@ -353,10 +353,14 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   /// Merges one remote description, keyed [dayRowKey], on the contract of
   /// [CrdtMerge.mergeRemoteRow]. Stored as received even under an event
   /// tombstoned here, the parent's tombstone being its own row. A tombstone
-  /// writes the stamps, the deletion and the owner and keeps the rest.
+  /// writes the stamps, the deletion and the owner and keeps the rest — but
+  /// a [shared] one, a partner's, has its text emptied (share surfaces P8);
+  /// its event and day stay, and so does the row while it is granted, for
+  /// the reader's count.
   Future<MergeOutcome> mergeRemoteOccurrence(
     EventOccurrenceRow remote, {
     String? floor,
+    bool shared = false,
   }) {
     return transaction(() async {
       final local = await _byKey(remote.eventId, remote.day);
@@ -384,6 +388,9 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
                     deletedAt: Value(remote.deletedAt),
                     updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
                     ownerId: Value(remote.ownerId),
+                    description: shared
+                        ? const Value('')
+                        : const Value.absent(),
                   ),
                 );
           } else {

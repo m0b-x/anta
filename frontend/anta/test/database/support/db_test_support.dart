@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/services/database_manager.dart';
 
 /// Opens the real [AppDatabase] — real schema, real migrations, real DAOs —
 /// over an in-memory SQLite database.
@@ -17,6 +20,23 @@ Future<AppDatabase> openTestDatabase({QueryInterceptor? interceptor}) async {
   // this suite is largely about) to run before the test body.
   await db.customSelect('SELECT 1').get();
   return db;
+}
+
+/// A second [AppDatabase] over the file `AppDatabase.getInstance` opened,
+/// every statement it runs counted. The singleton's own connection takes no
+/// interceptor, so a widget suite on the real database counts what one
+/// workflow issues by handing that workflow's services this twin. Call it
+/// in real async (`tester.runAsync`); the count starts empty.
+Future<(AppDatabase, StatementCounter)> openCountedTwin() async {
+  final manager = await DatabaseManager.getInstance();
+  final path = await manager.getDatabasePath(manager.getActiveDatabaseName());
+  final counter = StatementCounter();
+  final db = AppDatabase.forTesting(
+    NativeDatabase(File(path)).interceptWith(counter),
+  );
+  await db.customSelect('SELECT 1').get();
+  counter.reset();
+  return (db, counter);
 }
 
 /// Names of every index SQLite knows about, excluding the implicit

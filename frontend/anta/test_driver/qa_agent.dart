@@ -10,6 +10,9 @@ import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
 import 'package:anta/core/di/injection.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/app_navigator.dart';
+import 'package:alarm/alarm.dart';
+import 'package:anta/services/alert_gateway.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -191,6 +194,11 @@ class QaAgent {
         );
       case AgentOps.reveal:
         return _reveal(_int(request, AgentNodeKeys.semanticsId, -1));
+      case AgentOps.platformAlerts:
+        return _platformAlerts(
+          cancel: request[AgentKeys.clear] == true,
+          native: request[AgentKeys.native] == true,
+        );
     }
     throw QaAgentException('unknown op "$op"', kind: AgentErrorKinds.usage);
   }
@@ -343,6 +351,53 @@ class QaAgent {
       AgentKeys.locale: state?.localeCode ?? 'system',
       AgentKeys.themeMode: state?.themeMode.name,
       AgentKeys.account: QaIdentity.account,
+    };
+  }
+
+  /// What the platform holds for the app, through the alert tier's own
+  /// list ([AlertGateway.pendingEntries]), payload by payload; with
+  /// [cancel], each entry is cancelled after it is read. The agent runs
+  /// only in a QA driver build on a QA guest, so every entry here is a QA
+  /// run's — unlike the reset's quiet, which shares an install with the
+  /// owner's databases and keeps to its own.
+  ///
+  /// With [native], the plugins are emptied at their own level after it:
+  /// the alarm fork's stop-all, whose native side stops everything its
+  /// native store holds, and the notifications plugin's cancel-all — what
+  /// clears an entry a QA reset orphaned (2026-11-14: a reminder and an
+  /// alarm re-armed at every launch on the share pass's partner, which the
+  /// alert tier's own list no longer named).
+  Future<Map<String, Object?>> _platformAlerts({
+    required bool cancel,
+    required bool native,
+  }) async {
+    final gateway = getIt<AlertGateway>();
+    final entries = await gateway.pendingEntries();
+    final listed = [
+      for (final entry in entries)
+        {
+          'osId': entry.osId,
+          'database': entry.payload.database,
+          'eventId': entry.payload.eventId,
+          'alertId': entry.payload.alertId,
+          'title': entry.payload.title,
+          'mode': entry.payload.mode.name,
+          'fireAtMs': entry.payload.fireAtMs,
+        },
+    ];
+    if (cancel) {
+      for (final entry in entries) {
+        await gateway.cancel(entry.osId);
+      }
+    }
+    if (native) {
+      await Alarm.stopAll();
+      await FlutterLocalNotificationsPlugin().cancelAll();
+    }
+    return {
+      'entries': listed,
+      'cancelled': cancel ? entries.length : 0,
+      'native': native,
     };
   }
 

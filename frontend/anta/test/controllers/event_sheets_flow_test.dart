@@ -758,15 +758,17 @@ void main() {
         );
 
         final row = find.bySemanticsIdentifier(SemanticsIds.sharedEventNote);
-        // The row waits for the lookup, which drift answers on its isolate.
-        for (var i = 0; i < 100 && row.evaluate().isEmpty; i++) {
+        // The row stands from the first frame; its title waits for the
+        // lookup, which drift answers on its isolate.
+        expect(row, findsOneWidget);
+        final title = find.text('Handover');
+        for (var i = 0; i < 100 && title.evaluate().isEmpty; i++) {
           await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 20)),
           );
           await tester.pump();
         }
-        expect(row, findsOneWidget);
-        expect(find.text('Handover'), findsOneWidget);
+        expect(title, findsOneWidget);
         await tester.tap(row);
         await settleEditor(tester);
 

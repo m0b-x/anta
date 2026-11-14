@@ -10,6 +10,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/services/database_manager.dart';
+import 'package:anta/services/database_replacing.dart';
 
 import '../widgets/support/settings_platform_fakes.dart';
 
@@ -346,6 +347,32 @@ void main() {
       await expectLater(import, throwsA(isA<DatabaseImportCancelled>()));
       expect(verified, isFalse);
       expect(await databaseDirectory(), isEmpty);
+    });
+
+    test('the marker another isolate reads stands while the file is copied '
+        'and checked, and is gone once the import ends — a cancelled one '
+        'too', () async {
+      final source = await writeSqliteFile(picked('marked.db'), notes: 10);
+      final during = <bool>[];
+      DatabaseManager.debugImportChunkWritten = () async =>
+          during.add(await DatabaseReplacing.standing());
+      manager.verifyImport = (_) async =>
+          during.add(await DatabaseReplacing.standing());
+      expect(await DatabaseReplacing.standing(), isFalse);
+
+      await manager.importDatabase(source.path, 'marked');
+
+      expect(during, hasLength(greaterThanOrEqualTo(2)));
+      expect(during, everyElement(isTrue));
+      expect(await DatabaseReplacing.standing(), isFalse);
+
+      final progress = DatabaseImportProgress();
+      DatabaseManager.debugImportChunkWritten = () async => progress.cancel();
+      await expectLater(
+        manager.importDatabase(source.path, 'again', progress: progress),
+        throwsA(isA<DatabaseImportCancelled>()),
+      );
+      expect(await DatabaseReplacing.standing(), isFalse);
     });
 
     test('a Cancel taken after the last chunk still cancels, before the '

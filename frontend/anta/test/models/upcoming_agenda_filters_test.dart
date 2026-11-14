@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/event_agenda.dart';
@@ -223,6 +225,18 @@ void main() {
     });
 
     test('my entry with no partner\'s category listed restricts nothing', () {
+      CalendarCategories.updateCache(const [
+        CalendarCategory(
+          id: 'gym',
+          name: 'Gym',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 0,
+          isBuiltIn: true,
+        ),
+      ]);
+      addTearDown(() => CalendarCategories.updateCache(const []));
+
       expect(
         const UpcomingAgendaFilters(
           categoryIds: {CategoryAllowlist.mineEntry},
@@ -235,6 +249,19 @@ void main() {
         ).restrictiveFilterCount,
         1,
       );
+    });
+
+    /// Before the first load, or the moment after a database switch, no
+    /// category is known and nothing is claimed about what an entry covers:
+    /// the list counts as in force, as `CategoryAllowlist.admits` reads it.
+    test('with no category known my entry counts as in force', () {
+      expect(
+        const UpcomingAgendaFilters(
+          categoryIds: {CategoryAllowlist.mineEntry},
+        ).restrictiveFilterCount,
+        1,
+      );
+      expect(const UpcomingAgendaFilters().restrictiveFilterCount, 0);
     });
   });
 

@@ -40,13 +40,31 @@ class FakeSharedRefreshScheduler implements SharedRefreshScheduler {
     cancels++;
   }
 
-  /// Recorded as `message:<pair>`, with `:expedited` after it when it was.
+  /// What the platform says of a slot's work when asked; null — cannot
+  /// tell — unless a test scripts it. Each question is recorded in [asked],
+  /// apart from [calls]: asking changes nothing.
+  bool? Function(SharedRefreshSlot slot)? standing;
+  final List<SharedRefreshSlot> asked = [];
+
+  @override
+  Future<bool?> stands(SharedRefreshSlot slot) async {
+    asked.add(slot);
+    return standing?.call(slot);
+  }
+
+  /// Recorded as `message:<pair>`, with `:expedited` after it when it was
+  /// and `:behind` when it was asked behind the work that runs — otherwise
+  /// it takes the place of whatever stands.
   @override
   Future<void> scheduleMessage(
     String pairId, {
     required bool expedited,
+    bool behindRunning = false,
   }) async {
     _mayFail();
-    calls.add('message:$pairId${expedited ? ':expedited' : ''}');
+    calls.add(
+      'message:$pairId${expedited ? ':expedited' : ''}'
+      '${behindRunning ? ':behind' : ''}',
+    );
   }
 }

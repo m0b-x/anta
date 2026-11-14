@@ -97,7 +97,8 @@ void main() {
       expect(
         after.sharedStamp,
         after.hlcTimestamp,
-        reason: 'a mark taken away is stamped too: that is what tells it '
+        reason:
+            'a mark taken away is stamped too: that is what tells it '
             'from a mark never heard of',
       );
       expect(after.version, marked.version + 1);
@@ -563,12 +564,15 @@ void main() {
           expect(row.sharedStamp, outer.sharedStamp, reason: 'one stamp');
           expect(row.version, before[id]! + 1);
         }
-        expect(await queued(), containsAll({
-          'folders/$box',
-          'folders/$deep',
-          'folders/$gone',
-          'notes/$inBox',
-        }));
+        expect(
+          await queued(),
+          containsAll({
+            'folders/$box',
+            'folders/$deep',
+            'folders/$gone',
+            'notes/$inBox',
+          }),
+        );
         expect(await db.folderDao.sharedPairsOf([box, deep, gone]), isEmpty);
       });
 
@@ -640,60 +644,66 @@ void main() {
         );
       });
 
-      test('the census and the overview say the same of the live rows, and a '
-          'live folder under the deleted mark can be shared on its own',
-          () async {
-        final census = await db.folderDao.shareCensus();
-        expect(census.outermost[liveUnderLive], liveMarked);
-        expect(census.outermost.containsKey(liveUnderTomb), isFalse);
-
-        expect(
-          await db.folderDao.setSharedPair(markedUnderTomb, 'pair-1'),
-          isTrue,
-          reason: 'no live mark covers it',
-        );
-        expect(
-          (await db.folderDao.shareCensus()).outermost[markedUnderTomb],
-          markedUnderTomb,
-        );
-        expect(
-          [for (final f in await db.folderDao.mySharedFolders()) f.id],
-          unorderedEquals([shelf, liveMarked, markedUnderTomb]),
-          reason: 'a deleted marked folder neither lists nor covers',
-        );
-        expect(
-          (await db.folderDao.sharedPairsOf([markedUnderTomb]))[markedUnderTomb],
-          'pair-1',
-        );
-      });
-    });
-
-    test('as a selection says what the move did to each one\'s sharing',
+      test(
+        'the census and the overview say the same of the live rows, and a '
+        'live folder under the deleted mark can be shared on its own',
         () async {
-      final plain = await folder('Plain');
-      final apart = await folder('Apart');
-      final marked = await folder('Marked');
-      await db.folderDao.setSharedPair(marked, 'pair-1');
-      await settle();
+          final census = await db.folderDao.shareCensus();
+          expect(census.outermost[liveUnderLive], liveMarked);
+          expect(census.outermost.containsKey(liveUnderTomb), isFalse);
 
-      final into = await db.folderDao.moveFolders([box, plain], shelf);
-      expect(into.shareChanges, {
-        box: MoveShareChange.nowShared,
-        plain: MoveShareChange.nowShared,
-      });
-      expect(into.shareChange, MoveShareChange.nowShared);
-
-      final out = await db.folderDao.moveFolders([box], null);
-      expect(out.shareChanges, {box: MoveShareChange.noLongerShared});
-
-      final kept = await db.folderDao.moveFolders([marked], apart);
-      expect(
-        kept.shareChanges,
-        isEmpty,
-        reason: 'its own mark goes with it: shared before and after',
+          expect(
+            await db.folderDao.setSharedPair(markedUnderTomb, 'pair-1'),
+            isTrue,
+            reason: 'no live mark covers it',
+          );
+          expect(
+            (await db.folderDao.shareCensus()).outermost[markedUnderTomb],
+            markedUnderTomb,
+          );
+          expect(
+            [for (final f in await db.folderDao.mySharedFolders()) f.id],
+            unorderedEquals([shelf, liveMarked, markedUnderTomb]),
+            reason: 'a deleted marked folder neither lists nor covers',
+          );
+          expect(
+            (await db.folderDao.sharedPairsOf([
+              markedUnderTomb,
+            ]))[markedUnderTomb],
+            'pair-1',
+          );
+        },
       );
-      expect(kept.shareChange, isNull);
     });
+
+    test(
+      'as a selection says what the move did to each one\'s sharing',
+      () async {
+        final plain = await folder('Plain');
+        final apart = await folder('Apart');
+        final marked = await folder('Marked');
+        await db.folderDao.setSharedPair(marked, 'pair-1');
+        await settle();
+
+        final into = await db.folderDao.moveFolders([box, plain], shelf);
+        expect(into.shareChanges, {
+          box: MoveShareChange.nowShared,
+          plain: MoveShareChange.nowShared,
+        });
+        expect(into.shareChange, MoveShareChange.nowShared);
+
+        final out = await db.folderDao.moveFolders([box], null);
+        expect(out.shareChanges, {box: MoveShareChange.noLongerShared});
+
+        final kept = await db.folderDao.moveFolders([marked], apart);
+        expect(
+          kept.shareChanges,
+          isEmpty,
+          reason: 'its own mark goes with it: shared before and after',
+        );
+        expect(kept.shareChange, isNull);
+      },
+    );
 
     test('under a shared folder queues its subtree again, and out of it '
         'too', () async {
@@ -789,11 +799,7 @@ void main() {
       await settle();
 
       await db.folderDao.mergeFolder(
-        later(
-          await folderRow(shelf),
-          n: 1,
-          mark: (pair: null, stamp: high(1)),
-        ),
+        later(await folderRow(shelf), n: 1, mark: (pair: null, stamp: high(1))),
       );
       expect((await folderRow(shelf)).sharedPair, isNull);
       expect((await folderRow(shelf)).sharedStamp, high(1));
@@ -857,6 +863,191 @@ void main() {
       expect(tombstone.sharedStamp, marked.sharedStamp);
     });
 
+    /// [local] deleted by another device later, as the wire brings it: a
+    /// data-less tombstone at a higher stamp.
+    Folder buried(Folder local, {int n = 3}) => Folder(
+      id: local.id,
+      name: local.id,
+      parentId: local.parentId,
+      position: 0,
+      label: 0,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+      hlcTimestamp: high(n),
+      deviceId: 'other',
+      version: local.version + 1,
+      isDeleted: true,
+      deletedAt: day,
+    );
+
+    /// The pokes this device owes, as `pair: urgency`.
+    Future<Map<String, String>> owed() async => {
+      for (final (key, value) in await db.syncDao.valuesByPrefix(
+        SyncDao.sharePokeOwedPrefix,
+      ))
+        key.substring(SyncDao.sharePokeOwedPrefix.length): value,
+    };
+
+    Future<void> settleAll() async {
+      await settle();
+      await db.syncDao.deleteByPrefix(SyncDao.sharePokeOwedPrefix);
+    }
+
+    test('of a folder inside a shared one, deleted on my other device, queues '
+        'again what this device holds live under it — its grant ended — and '
+        'owes the pair a normal poke (P2)', () async {
+      final shelf = await folder('Shelf');
+      final box = await folder('Box', under: shelf);
+      final inBox = await note('In the box', box);
+      final deep = await folder('Deep', under: box);
+      final inDeep = await note('Deep down', deep);
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      await settleAll();
+
+      final outcome = await db.folderDao.mergeFolder(
+        buried(await folderRow(box)),
+      );
+
+      expect(outcome.result, MergeResult.applied);
+      expect(await queued(), {
+        'notes/$inBox',
+        'folders/$deep',
+        'notes/$inDeep',
+      });
+      expect(await owed(), {'pair-1': 'normal'});
+      expect(await db.folderDao.sharedPairsOf([deep]), isEmpty);
+    });
+
+    test('of the marked folder itself, deleted on my other device, queues '
+        'again what this device holds live under it and owes the pair a '
+        'normal poke (P2)', () async {
+      final shelf = await folder('Shelf');
+      final inside = await note('Inside', shelf);
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      await settleAll();
+
+      await db.folderDao.mergeFolder(buried(await folderRow(shelf)));
+
+      expect((await folderRow(shelf)).sharedPair, 'pair-1');
+      expect(await queued(), {'notes/$inside'});
+      expect(await owed(), {'pair-1': 'normal'});
+    });
+
+    test('of a folder shared into nothing queues nothing and owes no poke '
+        '(P2)', () async {
+      final shelf = await folder('Shelf');
+      await note('Inside', shelf);
+      await settleAll();
+
+      await db.folderDao.mergeFolder(buried(await folderRow(shelf)));
+
+      expect(await queued(), isEmpty);
+      expect(await owed(), isEmpty);
+    });
+
+    test('of a shared folder with nothing live under it queues nothing and '
+        'owes no poke: no row\'s grant changed (B3)', () async {
+      final shelf = await folder('Shelf');
+      final box = await folder('Box', under: shelf);
+      final gone = await note('Gone', box);
+      await db.noteDao.softDeleteNoteWithChunks(gone);
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      await settleAll();
+
+      await db.folderDao.mergeFolder(buried(await folderRow(box)));
+
+      expect(await queued(), isEmpty, reason: 'a tombstone\'s grant stands');
+      expect(await owed(), isEmpty);
+    });
+
+    test('of a tombstone that loses to the live folder here queues nothing '
+        'new and owes nothing (B8)', () async {
+      final shelf = await folder('Shelf');
+      final box = await folder('Box', under: shelf);
+      await note('In the box', box);
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      final older = buried(await folderRow(box));
+      await db.folderDao.updateFolder(id: box, name: 'Renamed here later');
+      final local = await folderRow(box);
+      await settleAll();
+
+      final outcome = await db.folderDao.mergeFolder(
+        Folder(
+          id: older.id,
+          name: older.name,
+          parentId: older.parentId,
+          position: 0,
+          label: 0,
+          createdAt: older.createdAt,
+          updatedAt: older.updatedAt,
+          hlcTimestamp: '000000000001:0000:other',
+          deviceId: 'other',
+          version: 1,
+          isDeleted: true,
+          deletedAt: day,
+        ),
+      );
+
+      expect(outcome.result, MergeResult.keptLocal);
+      expect((await folderRow(box)).isDeleted, isFalse);
+      expect((await folderRow(box)).hlcTimestamp, local.hlcTimestamp);
+      expect(await owed(), isEmpty);
+      expect(
+        await queued(),
+        isNot(contains(startsWith('notes/'))),
+        reason: 'nothing under it is queued again',
+      );
+    });
+
+    test('of a folder above the marked one, deleted elsewhere, leaves the '
+        'marked folder shared — both sides agree — though the browser cannot '
+        'reach it until the repair lifts it (B8, as it stands)', () async {
+      final top = await folder('Top');
+      final marked = await folder('Marked', under: top);
+      final inside = await note('Inside', marked);
+      await db.folderDao.setSharedPair(marked, 'pair-1');
+      await settleAll();
+
+      final outcome = await db.folderDao.mergeFolder(
+        buried(await folderRow(top)),
+      );
+
+      expect(outcome.result, MergeResult.applied);
+      expect(await queued(), isEmpty);
+      expect(await owed(), isEmpty);
+      expect(await db.folderDao.sharedPairsOf([marked]), {marked: 'pair-1'});
+      final row = await folderRow(marked);
+      expect(row.isDeleted, isFalse);
+      expect((await folderRow(row.parentId!)).isDeleted, isTrue);
+      expect(
+        await db.folderDao.sharedPairsOfNotes([
+          (id: inside, folderId: marked, isDeleted: false),
+        ]),
+        {inside: 'pair-1'},
+      );
+    });
+
+    test('of a buried folder brought back live by a newer version queues '
+        'again what this device holds live under it — shared again — and '
+        'owes the pair a normal poke (A2)', () async {
+      final shelf = await folder('Shelf');
+      final box = await folder('Box', under: shelf);
+      final inBox = await note('In the box', box);
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      await db.folderDao.mergeFolder(buried(await folderRow(box)));
+      expect(await db.folderDao.sharedPairsOf([box]), {box: 'pair-1'});
+      await settleAll();
+
+      final outcome = await db.folderDao.mergeFolder(
+        later(await folderRow(box), n: 4, name: 'Box, renamed elsewhere'),
+      );
+
+      expect(outcome.result, MergeResult.applied);
+      expect((await folderRow(box)).isDeleted, isFalse);
+      expect(await queued(), contains('notes/$inBox'));
+      expect(await owed(), {'pair-1': 'normal'});
+    });
+
     group('settles the mark apart from the row', () {
       test('a rename made where the end of a share had not arrived wins the '
           'row and does not bring the share back: the mark taken away later '
@@ -915,53 +1106,56 @@ void main() {
         expect(await queued(), {'folders/$shelf'});
       });
 
-      test('a newer mark is taken from a remote whose row loses: this '
-          'device\'s later rename stands, shared as the other one says', () async {
-        final shelf = await folder('Shelf');
-        final inside = await note('Inside', shelf);
-        final local = await folderRow(shelf);
-        final lower = HlcTimestamp.parse(local.hlcTimestamp);
-        // Stamped between this device's two writes: the share, made
-        // elsewhere, then this device's rename.
-        final stamp = HlcTimestamp(
-          wallTime: lower.wallTime,
-          logicalCounter: lower.logicalCounter + 1,
-          nodeId: 'other',
-        ).toString();
-        // Past the millisecond the folder was made in, so the rename's stamp
-        // is above the share's by its wall time, not by a node id.
-        await Future<void>.delayed(const Duration(milliseconds: 3));
-        await db.folderDao.updateFolder(id: shelf, name: 'Renamed here');
-        final renamed = await folderRow(shelf);
-        expect(renamed.hlcTimestamp.compareTo(stamp), greaterThan(0));
-        await settle();
+      test(
+        'a newer mark is taken from a remote whose row loses: this '
+        'device\'s later rename stands, shared as the other one says',
+        () async {
+          final shelf = await folder('Shelf');
+          final inside = await note('Inside', shelf);
+          final local = await folderRow(shelf);
+          final lower = HlcTimestamp.parse(local.hlcTimestamp);
+          // Stamped between this device's two writes: the share, made
+          // elsewhere, then this device's rename.
+          final stamp = HlcTimestamp(
+            wallTime: lower.wallTime,
+            logicalCounter: lower.logicalCounter + 1,
+            nodeId: 'other',
+          ).toString();
+          // Past the millisecond the folder was made in, so the rename's stamp
+          // is above the share's by its wall time, not by a node id.
+          await Future<void>.delayed(const Duration(milliseconds: 3));
+          await db.folderDao.updateFolder(id: shelf, name: 'Renamed here');
+          final renamed = await folderRow(shelf);
+          expect(renamed.hlcTimestamp.compareTo(stamp), greaterThan(0));
+          await settle();
 
-        final outcome = await db.folderDao.mergeFolder(
-          Folder(
-            id: local.id,
-            name: local.name,
-            parentId: local.parentId,
-            position: local.position,
-            label: local.label,
-            createdAt: local.createdAt,
-            updatedAt: local.updatedAt,
-            hlcTimestamp: stamp,
-            deviceId: 'other',
-            version: local.version + 1,
-            isDeleted: false,
-            sharedPair: 'pair-1',
-            sharedStamp: stamp,
-          ),
-        );
+          final outcome = await db.folderDao.mergeFolder(
+            Folder(
+              id: local.id,
+              name: local.name,
+              parentId: local.parentId,
+              position: local.position,
+              label: local.label,
+              createdAt: local.createdAt,
+              updatedAt: local.updatedAt,
+              hlcTimestamp: stamp,
+              deviceId: 'other',
+              version: local.version + 1,
+              isDeleted: false,
+              sharedPair: 'pair-1',
+              sharedStamp: stamp,
+            ),
+          );
 
-        expect(outcome.result, MergeResult.keptLocal);
-        final merged = await folderRow(shelf);
-        expect(merged.name, 'Renamed here');
-        expect(merged.hlcTimestamp, renamed.hlcTimestamp);
-        expect(merged.sharedPair, 'pair-1');
-        expect(merged.sharedStamp, stamp);
-        expect(await queued(), {'folders/$shelf', 'notes/$inside'});
-      });
+          expect(outcome.result, MergeResult.keptLocal);
+          final merged = await folderRow(shelf);
+          expect(merged.name, 'Renamed here');
+          expect(merged.hlcTimestamp, renamed.hlcTimestamp);
+          expect(merged.sharedPair, 'pair-1');
+          expect(merged.sharedStamp, stamp);
+          expect(await queued(), {'folders/$shelf', 'notes/$inside'});
+        },
+      );
 
       test('a mark that arrives at the row\'s own stamp is taken: a build '
           'that could not read marks stored the row without it', () async {

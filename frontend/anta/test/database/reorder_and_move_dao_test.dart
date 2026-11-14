@@ -330,6 +330,31 @@ void main() {
   });
 
   group('FolderDao.moveFolders', () {
+    test('into a folder under the moved one, through a tombstone, moves '
+        'nothing: the rule refusesParent keeps (C6)', () async {
+      final top = await db.folderDao.createFolder(name: 'Top');
+      final gone = await db.folderDao.createFolder(
+        name: 'Gone',
+        parentId: top.id,
+      );
+      final stranded = await db.folderDao.createFolder(
+        name: 'Stranded',
+        parentId: gone.id,
+      );
+      await db.customStatement(
+        'UPDATE folders SET is_deleted = 1 WHERE id = ?',
+        [gone.id],
+      );
+      await db.syncOutboxDao.clear();
+
+      final result = await db.folderDao.moveFolders([top.id], stranded.id);
+
+      expect(result.moved, isEmpty);
+      expect((await folderRow(top.id)).parentId, isNull);
+      expect(await queued('folders'), isEmpty);
+      expect(await db.folderDao.refusesParent(top.id, stranded.id), isTrue);
+    });
+
     test('names clash at the root too, and within the batch', () async {
       await db.folderDao.createFolder(name: 'Inbox');
       final parent = await db.folderDao.createFolder(name: 'Parent');
@@ -406,6 +431,94 @@ void main() {
         [for (final row in rows) row.version],
         [for (final folder in picked) folder.version + 1],
       );
+    });
+  });
+
+  // Both doors that re-parent one folder take one rule (share surfaces P7):
+  // a live target, never the folder itself or one of its descendants.
+  group('FolderDao.updateFolder with a move', () {
+    late Folder shelf;
+    late Folder box;
+    late Folder inner;
+
+    setUp(() async {
+      shelf = await db.folderDao.createFolder(name: 'Shelf');
+      box = await db.folderDao.createFolder(name: 'Box', parentId: shelf.id);
+      inner = await db.folderDao.createFolder(name: 'Inner', parentId: box.id);
+      await db.syncOutboxDao.clear();
+    });
+
+    Future<void> refused(String target, {String? name}) async {
+      final before = await folderRow(box.id);
+
+      expect(
+        await db.folderDao.updateFolder(
+          id: box.id,
+          name: name,
+          parentId: target,
+          updateParent: true,
+        ),
+        isNull,
+      );
+      expect(
+        await db.folderDao.moveFolder(id: box.id, targetParentId: target),
+        isNull,
+        reason: 'the other door says the same',
+      );
+      expect(await folderRow(box.id), before, reason: 'nothing written');
+      expect(await queued('folders'), isEmpty);
+    }
+
+    test('refuses a deleted target (P7)', () async {
+      final gone = await db.folderDao.createFolder(name: 'Gone');
+      await db.folderDao.softDeleteFolder(gone.id);
+      await db.syncOutboxDao.clear();
+
+      await refused(gone.id);
+      await refused(gone.id, name: 'Renamed');
+    });
+
+    test('refuses a missing target (P7)', () async {
+      await refused('nowhere');
+    });
+
+    test('refuses itself and its own descendants (P7)', () async {
+      await refused(box.id);
+      await refused(inner.id);
+    });
+
+    test('refuses a live folder stranded under a deleted one of its own '
+        'subtree: the walk goes up through tombstones (B5)', () async {
+      final stranded = await db.folderDao.createFolder(
+        name: 'Stranded',
+        parentId: inner.id,
+      );
+      // Deleted on another device, its live child kept: only a merge leaves
+      // this.
+      await db.customStatement(
+        'UPDATE folders SET is_deleted = 1 WHERE id = ?',
+        [inner.id],
+      );
+      await db.syncOutboxDao.clear();
+
+      await refused(stranded.id);
+    });
+
+    test('still moves to a live folder and to the top level (P7)', () async {
+      final other = await db.folderDao.createFolder(name: 'Other');
+
+      final moved = await db.folderDao.updateFolder(
+        id: box.id,
+        parentId: other.id,
+        updateParent: true,
+      );
+      expect(moved!.parentId, other.id);
+      final top = await db.folderDao.updateFolder(
+        id: box.id,
+        parentId: null,
+        updateParent: true,
+      );
+      expect(top!.parentId, isNull);
     });
   });
 

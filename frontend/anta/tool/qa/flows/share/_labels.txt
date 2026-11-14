@@ -5,6 +5,15 @@
 # partner's guest as on the owner's, since a shared row keeps its name.
 Training
 Week 1
+# The folder flows (04_n–04_q): basic.json's other folder and its notes,
+# the partner's own folder its copy goes into, and the path a search row
+# writes under the shared Session 1.
+Money
+January
+Session 1
+Session 2
+My copies
+Training › Week 1
 # The events the category flows make in the editor (04a, 04e): a new
 # event's id is minted on the device, so its day-panel row is named by its
 # title.
@@ -19,3 +28,7 @@ Lifting session
 # the received-categories sheet's — are named by title.
 Stretching
 Hip openers
+# The category the owner makes for the D29 and hide-bar flows (04ha,
+# 04hb) and the event in it: minted ids, named by title.
+Recovery
+Foam rolling

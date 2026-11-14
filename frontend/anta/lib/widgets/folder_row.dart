@@ -63,10 +63,6 @@ class FolderRow extends StatelessWidget {
   /// The sheet's share entry for a folder of mine, as the page resolves it
   /// when the sheet opens; null leaves it out (`FolderShareEntry`).
   final FolderShareEntry? Function()? partnerShare;
-
-  /// Run before the sheet opens while the page does not yet know whether
-  /// the database is paired, so the sheet opens with its entry in place.
-  final Future<void> Function()? beforeActions;
   final VoidCallback? onPartnerShare;
 
   const FolderRow({
@@ -86,7 +82,6 @@ class FolderRow extends StatelessWidget {
     this.partnerLook,
     this.partnerShare,
     this.onPartnerShare,
-    this.beforeActions,
   });
 
   MovableItemRef get _ref => MovableItemRef(
@@ -292,11 +287,6 @@ class FolderRow extends StatelessWidget {
   /// Select too, which leads only to writes — and the reason said once at
   /// its top in place of the colour strip, a label being a write (§16.8).
   Future<void> _showActionSheet(BuildContext context) async {
-    final ask = beforeActions;
-    if (ask != null) {
-      await ask();
-      if (!context.mounted) return;
-    }
     final l10n = AppLocalizations.of(context)!;
     final enterSelection = onLongPressItem;
     final theirs = folder.fromPartner;
@@ -334,12 +324,14 @@ class FolderRow extends StatelessWidget {
         RowAction(
           icon: Icons.edit_rounded,
           label: l10n.rename,
+          identifier: SemanticsIds.rowActionRename,
           enabled: !theirs,
           onSelected: () => _showRenameDialog(context),
         ),
         RowAction(
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
+          identifier: SemanticsIds.rowActionMove,
           enabled: !theirs,
           onSelected: () => MoveCoordinator.moveFolder(
             context,
@@ -360,6 +352,7 @@ class FolderRow extends StatelessWidget {
         RowAction(
           icon: Icons.share_rounded,
           label: l10n.shareFolder,
+          identifier: SemanticsIds.rowActionSendCopy,
           enabled: !theirs,
           onSelected: () => context.read<ImportExportBloc>().add(
             ExportFolderRequested(folderId: folder.id, share: true),
@@ -368,6 +361,7 @@ class FolderRow extends StatelessWidget {
         RowAction(
           icon: Icons.delete_rounded,
           label: l10n.delete,
+          identifier: SemanticsIds.rowActionDelete,
           isDestructive: true,
           enabled: !theirs,
           onSelected: () => _confirmDelete(context),

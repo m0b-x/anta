@@ -274,6 +274,14 @@ void main() {
     await settle(tester);
   }
 
+  /// Every line the page's rows draw, as [summaryOf] reads one.
+  List<String> rowLines(WidgetTester tester) => [
+    for (final line in tester.widgetList<HighlightedText>(
+      find.byType(HighlightedText),
+    ))
+      line.text,
+  ];
+
   /// The paired row's description as drawn: its slot lays the summary's
   /// templates out unseen beside it, so the words are read off the row's
   /// own text, the last after its title.
@@ -496,6 +504,59 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('a pair ended by a partner with no name to say: the notice '
+      'and the row\'s line both say "your partner" — never a sentence that '
+      'starts with a blank (device leg 2, R5)', (tester) async {
+    await boot(user: userA);
+    await pumpPage(tester);
+
+    pairingBloc!.show(PairingEnded.from('  '));
+    await settle(tester);
+
+    expect(notice(), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text(l10n.pairingEndedByPartner),
+      ),
+      findsOneWidget,
+    );
+    // The row behind the notice, while the pair still reads as ended.
+    expect(rowLines(tester), contains(l10n.pairingEndedByPartner));
+    expect(rowLines(tester), isNot(contains(l10n.pairingEndedBy('  '))));
+
+    await answerDialog(tester, SemanticsIds.sharingEndedNoticeClose);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
+  testWidgets(
+    'a pair ended by a partner with a name says it in both',
+    (tester) async {
+      await boot(user: userA);
+      await pumpPage(tester);
+
+      pairingBloc!.show(PairingEnded.from('Ana'));
+      await settle(tester);
+
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(l10n.pairingEndedBy('Ana')),
+        ),
+        findsOneWidget,
+      );
+      // The row behind the notice, while the pair still reads as ended.
+      expect(rowLines(tester), contains(l10n.pairingEndedBy('Ana')));
+      await answerDialog(tester, SemanticsIds.sharingEndedNoticeClose);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    timeout: const Timeout(Duration(seconds: 250)),
+  );
+
   // The order the Sharing page's leave relies on: this page raises its
   // ended notice before the Sharing page hears the pair end, so the page
   // takes itself and the sheet over it out from under the notice.
@@ -594,7 +655,9 @@ void main() {
       share.partnerRows.add('calendar_events/e-run');
       await pumpPage(tester, openSharing: true);
       await settle(tester, rounds: 4);
-      final entry = find.bySemanticsIdentifier(SemanticsIds.sharingTheirsEvents);
+      final entry = find.bySemanticsIdentifier(
+        SemanticsIds.sharingTheirsEvents,
+      );
       await tester.ensureVisible(entry);
       await tester.tap(entry);
       await settle(tester, rounds: 4);

@@ -7,6 +7,7 @@ import '../models/date_range.dart';
 import '../models/event_digest.dart';
 import '../models/upcoming_agenda_filters.dart';
 import 'alert_planner.dart';
+import 'category_allowlist.dart';
 import 'event_agenda.dart';
 
 /// One digest, at one instant, listing one span — the unit the scheduler arms
@@ -98,20 +99,27 @@ abstract final class DigestPlanner {
     ]..sort(_byDisplayOrder);
     final planned = <PlannedDigest>[];
     for (final digest in enabled.take(horizon.maxDigests)) {
+      // A report holds no part of the partner's (D15), whatever the setting
+      // and whatever its stored list still names: scanned by its own part,
+      // and never kept alive by their events alone.
+      final categoryIds = CategoryAllowlist.forDigest(
+        digest.cadence,
+        digest.categoryIds,
+      );
+      final withPartner = includePartner && !digest.cadence.isReport;
       for (final fire in _fires(digest, now).take(horizon.perDigest)) {
         final span = spanFor(digest, fire.day, weekStart: weekStart);
         final scanned = EventAgenda.occurrencesInRange(
           events: events,
           from: span.start,
           to: span.end,
-          categoryIds: digest.categoryIds,
+          categoryIds: categoryIds,
           eventType: AgendaEventType.all,
           collapseRecurring: false,
         );
         // Dropped after the scan, never by a filtered copy of [events]: the
         // scan's window index is memoised on the list's identity.
-        final entries =
-            includePartner || !scanned.any((o) => o.event.fromPartner)
+        final entries = withPartner || !scanned.any((o) => o.event.fromPartner)
             ? scanned
             : [
                 for (final occurrence in scanned)

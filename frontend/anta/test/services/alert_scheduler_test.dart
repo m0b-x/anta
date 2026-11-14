@@ -165,6 +165,22 @@ class FakeAlertGateway implements AlertGateway {
     return armContext;
   }
 
+  /// What only the "app's engine" can read, as the binding hands it on;
+  /// null is a binding that reads nothing of the kind.
+  @override
+  String? armFacts;
+
+  /// Stored facts a pass with no app handed this "platform".
+  final List<String> adopted = [];
+
+  /// `facts:<token>` adopts as `<token>`; anything else is not this
+  /// binding's to read.
+  @override
+  Future<String?> adoptArmFacts(String stored) async {
+    adopted.add(stored);
+    return stored.startsWith('facts:') ? stored.substring(6) : null;
+  }
+
   /// What this "platform" writes an entry's times and days with: 24-hour
   /// English, as the no-op binding answers, unless a test puts the phone on
   /// another clock or the app in another language.
@@ -196,6 +212,25 @@ class FakeAlertGateway implements AlertGateway {
 
   @override
   Set<int> get ringingIds => ringingNow;
+
+  /// What each pass said of the arm facts before it asked for the context:
+  /// kept for a pass with no app, or not.
+  final List<bool> factsKept = [];
+
+  @override
+  set keepsArmFacts(bool keeps) => factsKept.add(keeps);
+
+  /// How often a pass asked which alarms sound, and what the "platform"
+  /// does as it is asked — an alarm that began to sound since the binding
+  /// came up is put into [ringingNow] here.
+  int ringingAsked = 0;
+  void Function()? onNoteRinging;
+
+  @override
+  Future<void> noteRinging() async {
+    ringingAsked++;
+    onNoteRinging?.call();
+  }
 
   @override
   List<AlertPayload> get ringingPayloads => const [];
@@ -305,8 +340,13 @@ class FakeAlertGateway implements AlertGateway {
   /// Every move the scheduler told the platform it had written down.
   final List<AlertMove> acknowledged = [];
 
+  /// A binding that did not come up: every question that waits for its
+  /// start throws.
+  bool movesFail = false;
+
   @override
   Future<List<AlertMove>> takeMoves() async {
+    if (movesFail) throw StateError('the binding did not start');
     final taken = List<AlertMove>.of(moves);
     moves.clear();
     return taken;
@@ -326,6 +366,41 @@ class FakeAlertGateway implements AlertGateway {
 
   @override
   Future<void> dispose() async {}
+}
+
+/// A platform reached from an engine with no activity: what only the
+/// activity answers throws, as a channel nobody handles does.
+class _NoActivityGateway extends FakeAlertGateway {
+  @override
+  Future<String> refreshArmContext() =>
+      throw MissingPluginException('alarmStreamVolume');
+
+  @override
+  String? get armFacts => throw MissingPluginException('armFacts');
+
+  @override
+  Future<DateTime?> processStartedAt() =>
+      throw MissingPluginException('processStartedAt');
+
+  @override
+  Future<String?> soundTitle(String value) =>
+      throw MissingPluginException('alarmSoundTitle');
+
+  @override
+  Future<bool> isLockScreenUp() =>
+      throw MissingPluginException('keyguardLocked');
+
+  @override
+  Future<bool> dismissLockScreen() =>
+      throw MissingPluginException('dismissKeyguard');
+
+  @override
+  Future<void> clearSessionChip() =>
+      throw MissingPluginException('clearSessionChip');
+
+  @override
+  Future<AlertIntent?> launchIntent() =>
+      throw MissingPluginException('consumeSessionOpenRequest');
 }
 
 /// A platform whose every cancel throws, as a plugin call that fails would:
@@ -1181,6 +1256,279 @@ void main() {
 
       expect(blind.scheduled, isEmpty);
       expect(blind.cancelled, isEmpty);
+    });
+  });
+
+  group('a pass away from the app (shared freshness §6)', () {
+    final gate = AlertScheduler.runsCanExist;
+    // An install where such a pass can exist: a check was planned.
+    setUp(() => AlertScheduler.runsCanExist = () async => true);
+    tearDown(() {
+      AlertScheduler.awayFromApp = false;
+      AlertScheduler.runsCanExist = gate;
+    });
+
+    /// Every statement since the counter's reset that read or wrote the
+    /// arm facts' row — told by its argument: the key is bound, never
+    /// spelled in the SQL.
+    List<String> factsStatements() => [
+      for (final statement in counter.captured)
+        if (statement.args.contains('alert_arm_facts')) statement.sql,
+    ];
+
+    test('an install where no such pass can exist pays nothing for one '
+        '(review R6): the facts are not worked out, read or stored — and '
+        'the moment one can, they are stored with no pass in between, so '
+        'no run finds them missing', () async {
+      AlertScheduler.runsCanExist = () async => false;
+      await seed();
+      gateway.armFacts = 'facts:fake';
+      counter.reset();
+      final scheduler = schedulerOf();
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+      expect(gateway.scheduled, hasLength(1), reason: 'alerts arm as ever');
+      expect(gateway.factsKept, [false, false]);
+      expect(factsStatements(), isEmpty);
+      await AlertScheduler.keepArmFactsQuietly();
+      expect(await db.alertRegistrationDao.armFacts(), isNull);
+
+      // The first check is planned, or a push address arrives.
+      AlertScheduler.runsCanExist = () async => true;
+      gateway.resetCalls();
+      await AlertScheduler.keepArmFactsQuietly();
+
+      expect(await db.alertRegistrationDao.armFacts(), 'facts:fake');
+      expect(gateway.factsKept.last, isTrue);
+      expect(gateway.scheduled, isEmpty, reason: 'no pass ran for it');
+    });
+
+    /// The engine of a run: every question only the app's activity answers
+    /// fails, as a channel with no handler does.
+    FakeAlertGateway awayGateway() =>
+        _NoActivityGateway()..platform.addAll(gateway.platform);
+
+    test('the app\'s pass keeps what it armed under with the database, and '
+        'an unchanged phone costs no write', () async {
+      await seed();
+      gateway.armFacts = 'facts:fake';
+      final scheduler = schedulerOf();
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(await db.alertRegistrationDao.armFacts(), 'facts:fake');
+
+      counter.reset();
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      expect(factsStatements(), isEmpty);
+
+      gateway.armFacts = 'facts:other';
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      expect(await db.alertRegistrationDao.armFacts(), 'facts:other');
+    });
+
+    test('a binding with nothing of the kind stores nothing', () async {
+      await seed();
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(await db.alertRegistrationDao.armFacts(), isNull);
+    });
+
+    test('over an unchanged calendar, with every activity-only call '
+        'failing, the pass makes zero platform calls and writes no '
+        'registration', () async {
+      await seed(
+        eventAlerts: [
+          alertOf(),
+          alertOf(id: 'a2', mode: AlertMode.notify, offsetMinutes: 10),
+        ],
+      );
+      gateway.armFacts = 'facts:fake';
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      final armed = await registrations();
+      expect(armed, hasLength(2));
+
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = true;
+      final away = awayGateway();
+      final scheduler = schedulerOf(withGateway: away);
+      counter.reset();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(scheduler.awayPassRefused, isFalse);
+      expect(away.adopted, ['facts:fake']);
+      expect(away.scheduled, isEmpty);
+      expect(away.scheduledDigests, isEmpty);
+      expect(away.notices, isEmpty);
+      expect(away.cancelled, isEmpty);
+      expect(away.stopped, isEmpty);
+      expect(away.missed, isEmpty);
+      expect(away.chips, isEmpty);
+      expect(away.acknowledged, isEmpty);
+      expect(await registrations(), armed);
+      // The week-old history's sweep is a delete that finds nothing; what
+      // must not be issued is a row written.
+      final writes = RegExp(
+        r'^\s*(INSERT|UPDATE|REPLACE)\b',
+        caseSensitive: false,
+      );
+      expect(
+        counter.statements.where(
+          (s) => s.contains('alert_registrations') && writes.hasMatch(s),
+        ),
+        isEmpty,
+      );
+    });
+
+    test('it arms a new fire under the stored context, so the app\'s next '
+        'pass finds nothing to write again', () async {
+      await seed();
+      gateway.armFacts = 'facts:fake';
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      await events.upsert(eventOf(id: 'e2', title: 'Run'));
+      await alerts.replaceForEvent('e2', [alertOf(id: 'b1', eventId: 'e2')]);
+
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = true;
+      final away = awayGateway();
+      await schedulerOf(
+        withGateway: away,
+      ).reconcileAll(AlertReconcileReason.sync);
+      expect(away.scheduled.map((fire) => fire.event.id), ['e2']);
+
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = false;
+      gateway.platform.addAll(away.platform);
+      gateway.resetCalls();
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+    });
+
+    test('an alarm that began to sound after the run\'s binding came up is '
+        'asked for right before the pass arms (review R7): nothing is armed '
+        'over it, which would stop the ring — and the app\'s own pass, which '
+        'hears every ring, asks nothing', () async {
+      await seed();
+      gateway.armFacts = 'facts:fake';
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      expect(gateway.ringingAsked, 0);
+      final osId = (await registrations()).single.osId;
+      final sounding = gateway.platform[osId];
+      // The partner moved the event: the same alert plans another instant.
+      await events.upsert(eventOf(time: const EventTime(startMinute: 19 * 60)));
+
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = true;
+      final away = awayGateway();
+      away.onNoteRinging = () => away.ringingNow.add(osId);
+      await schedulerOf(
+        withGateway: away,
+      ).reconcileAll(AlertReconcileReason.sync);
+
+      expect(away.ringingAsked, 1);
+      expect(away.platform[osId], same(sounding));
+      expect(away.cancelled, isNot(contains(osId)));
+      expect(away.stopped, isEmpty);
+    });
+
+    test('a run never works the facts out or stores them (closing review, '
+        'K2; probe R8-A): asked to keep them — it planned the install\'s '
+        'first check — its own engine\'s reading does not go over the '
+        'app\'s, and its binding is not asked', () async {
+      await db.alertRegistrationDao.putArmFacts('facts:the-app');
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = true;
+      final run = FakeAlertGateway()..armFacts = 'facts:headless';
+      schedulerOf(withGateway: run);
+
+      await AlertScheduler.keepArmFactsQuietly();
+
+      expect(await db.alertRegistrationDao.armFacts(), 'facts:the-app');
+      expect(run.factsKept, isEmpty);
+    });
+
+    test('nothing to arm and a binding that did not come up (closing '
+        'review, K6): the pass throws nothing and is refused — the run '
+        'ends as one that cannot arm, where it failed and was retried for '
+        'good', () async {
+      AlertScheduler.awayFromApp = true;
+      final away = awayGateway()..movesFail = true;
+      final scheduler = schedulerOf(withGateway: away);
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(scheduler.awayPassRefused, isTrue);
+
+      // The app's own binding is not spared its failure.
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = false;
+      await expectLater(
+        schedulerOf(
+          withGateway: FakeAlertGateway()..movesFail = true,
+        ).reconcileAll(AlertReconcileReason.launch),
+        throwsStateError,
+      );
+    });
+
+    test('with nothing stored it is no pass at all, and says so', () async {
+      await seed();
+      AlertScheduler.awayFromApp = true;
+      final away = awayGateway();
+      final scheduler = schedulerOf(withGateway: away);
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(scheduler.awayPassRefused, isTrue);
+      expect(away.scheduled, isEmpty);
+      expect(await registrations(), isEmpty);
+    });
+
+    test('facts this build cannot read are no facts', () async {
+      await seed();
+      await db.alertRegistrationDao.putArmFacts('another build');
+      AlertScheduler.awayFromApp = true;
+      final scheduler = schedulerOf(withGateway: awayGateway());
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      expect(scheduler.awayPassRefused, isTrue);
+      expect(await registrations(), isEmpty);
+    });
+
+    test('an alarm long past its instant is neither marked missed nor '
+        'shown as one, and no delivery evidence is asked for: the verdict '
+        'waits for the app', () async {
+      await seed();
+      gateway.armFacts = 'facts:fake';
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      final armed = (await registrations()).single;
+
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = true;
+      final away = awayGateway();
+      now = DateTime(2026, 9, 20, 18, 45);
+      await schedulerOf(
+        withGateway: away,
+      ).reconcileAll(AlertReconcileReason.sync);
+
+      final row = (await registrations()).single;
+      expect(row.osId, armed.osId);
+      expect(row.state, AlertRegistrationState.pending.name);
+      expect(away.missed, isEmpty);
+      expect(away.cancelled, isEmpty);
+
+      // The app's own pass, later, gives the verdict it always gave.
+      AlertScheduler.reset();
+      AlertScheduler.awayFromApp = false;
+      gateway.resetCalls();
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      expect(
+        (await registrations()).single.state,
+        AlertRegistrationState.missed.name,
+      );
+      expect(gateway.missed, hasLength(1));
     });
   });
 
@@ -4977,6 +5325,55 @@ void main() {
         expect(
           spanFrom(DateTime.utc(2026, 10, 1)).digestText,
           "Last month's report is ready",
+        );
+      });
+
+      /// A report holds no part of the partner's (D15). The editor stores a
+      /// report's own part alone, but a list can reach this reader from my
+      /// other device or from before that rule, so it is right by itself.
+      test("a stored list that names the partner's group counts as its own "
+          'part alone', () async {
+        // Monday 21 September, before the 09:00 fire: last week has ended.
+        await reportsAt(DateTime(2026, 9, 21, 8));
+        await events.upsert(routine);
+        await events.upsert(
+          eventOf(
+            id: 'o1',
+            title: 'Dentist',
+            startDate: DateTime.utc(2026, 9, 16),
+            time: null,
+          ).copyWith(categoryId: 'other'),
+        );
+        final service = await EventDigestService.getInstance();
+        final digest = (await service.create(
+          const EventDigest(
+            id: '',
+            cadence: DigestCadence.weeklyReport,
+            anchor: DateTime.monday,
+          ),
+        ))!;
+        final scheduler = schedulerOf();
+
+        Future<List<String?>> wordsFor(Set<String> ids) async {
+          await service.update(digest.copyWith(categoryIds: ids));
+          await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+          final ended = spanFrom(DateTime.utc(2026, 9, 14));
+          return [ended.title, ended.digestText, ...ended.digestLines];
+        }
+
+        final every = await wordsFor(const {});
+        final gymAlone = await wordsFor(const {'gym'});
+        expect(every, isNot(gymAlone), reason: 'the two lists read apart');
+
+        expect(
+          await wordsFor(const {CategoryAllowlist.partnerEntry}),
+          every,
+          reason: 'their group alone leaves no part of mine out',
+        );
+        expect(
+          await wordsFor(const {'gym', CategoryAllowlist.partnerEntry}),
+          gymAlone,
+          reason: 'my part of the list is what the report counts',
         );
       });
 

@@ -11309,6 +11309,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String pickShareAlready(String folder) {
+    return 'Schon geteilt: $folder';
+  }
+
+  @override
   String shareStoppedWithInner(String folder, int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

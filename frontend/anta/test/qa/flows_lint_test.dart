@@ -229,7 +229,7 @@ const Set<String> _actingVerbs = {
   'drag',
 };
 
-final RegExp _idForm = RegExp(r'^id:[A-Za-z0-9_+{}-]+$');
+final RegExp _idForm = RegExp(r'^id:[A-Za-z0-9_+{}-]+\*?$');
 final RegExp _indexForm = RegExp(r'^#\d+$');
 final RegExp _pointForm = RegExp(r'^-?\d+\s*,\s*-?\d+$');
 
@@ -393,8 +393,15 @@ class _KnownIds {
   final Set<String> literals;
   final Set<String> prefixes;
 
-  bool knows(String id) =>
-      literals.contains(id) || prefixes.any((p) => id.startsWith(p));
+  /// A prefix target (`share-folder-unshare-*`) must start with a
+  /// function-built id's fixed part: a literal's own prefix names no family.
+  bool knows(String id) {
+    if (id.endsWith('*')) {
+      final stem = id.substring(0, id.length - 1);
+      return prefixes.any((p) => stem.startsWith(p));
+    }
+    return literals.contains(id) || prefixes.any((p) => id.startsWith(p));
+  }
 }
 
 String _nameOf(FileSystemEntity entity) =>

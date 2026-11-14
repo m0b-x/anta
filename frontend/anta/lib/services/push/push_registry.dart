@@ -118,10 +118,18 @@ class PushRegistry {
   /// [uid] can still write it, and the address with it. The whole of it —
   /// the wait for a call in flight included — is bounded, so a sign-out
   /// offline goes on; what did not finish by then finishes on its own.
+  ///
+  /// The pokes waiting for their minute go first, while the account's token
+  /// still does: at once, and again once the steps queued before this one —
+  /// an end's urgent poke among them — have run.
   Future<void> leave(String? uid) {
-    // Whatever is in flight for this account is not written after this.
+    // Forgotten now, so a renewal heard meanwhile writes nothing. An answer
+    // already queued still runs before this leave and may write its entry;
+    // the leave's step then finds that pair in memory and removes it.
     _forget();
+    final flushed = _relay.flush();
     final step = _queue('leave', () async {
+      await _relay.flush();
       if (!await _addresses.holds()) return;
       final pairId = _current?.pairId ?? await _storedPair();
       if (uid != null && pairId != null) await _remove(pairId, uid);
@@ -134,7 +142,7 @@ class PushRegistry {
       debugPrint('[PushRegistry] leave: past its deadline');
       done.complete();
     });
-    step.whenComplete(() {
+    Future.wait([flushed, step]).whenComplete(() {
       deadline.cancel();
       if (!done.isCompleted) done.complete();
     }).ignore();
@@ -148,11 +156,23 @@ class PushRegistry {
         if (pair.isActive && pair.contains(uid)) pair,
     ];
     if (live.isEmpty) {
-      // Nothing is asked of anything unless this install holds an address.
-      if (!await _addresses.holds()) return;
-      final pairId = _current?.pairId ?? await _storedPair();
-      if (pairId != null) await _remove(pairId, uid);
+      // Nothing is asked of anything unless this install holds an address
+      // or its entry may still stand somewhere: a run with the app closed
+      // gives the address up when it learns the pair ended, and leaves the
+      // entry and the stored write to this, the next open.
+      final written = await _writtenPair();
+      if (!await _addresses.holds() && written == null) return;
+      // The end first, as below: owed before anything else can fail.
       await _addresses.giveUp();
+      final pairId = _current?.pairId ?? written ?? await _storedPair();
+      if (pairId != null) {
+        final refused = await _remove(pairId, uid);
+        // Refused for good, the entry names an address that is dead; kept,
+        // the stored write would have every later answer ask again.
+        if (refused == PairingError.permissionDenied) {
+          await (await _prefs).remove(SettingsKeys.pushWritten);
+        }
+      }
       _forget();
       return;
     }
@@ -161,11 +181,17 @@ class PushRegistry {
       return byTime != 0 ? byTime : a.pairId.compareTo(b.pairId);
     });
     final pair = live.first;
+    // A later pair carries a new address (decision n) — in a new process
+    // too, where only the stored write remembers the earlier pair.
     final previous = _current;
-    if (previous != null && previous.pairId != pair.pairId) {
-      // A later pair carries a new address (decision n).
-      await _remove(previous.pairId, previous.uid);
+    final earlier = previous?.pairId ?? await _writtenPair();
+    if (earlier != null && earlier != pair.pairId) {
+      // The address's end is made owed first, the entry removed second: the
+      // removal clears the stored write, the only thing a later process
+      // knows the earlier pair by — cleared first, a process that died
+      // between the two left the old address alive under the new pair.
       await _addresses.giveUp();
+      await _remove(earlier, previous?.uid ?? uid);
       _forget();
     }
     if (!await _shares(uid)) return;
@@ -190,7 +216,13 @@ class PushRegistry {
       _writtenAddress = address;
       return;
     }
-    await _write(pair.pairId, uid, deviceId, address, drop: _drops(mine, deviceId));
+    await _write(
+      pair.pairId,
+      uid,
+      deviceId,
+      address,
+      drop: _drops(mine, deviceId),
+    );
   }
 
   /// My devices this write takes out: each one sixty days older than the
@@ -207,8 +239,7 @@ class PushRegistry {
         .reduce((a, b) => a.isAfter(b) ? a : b);
     final drop = <String>[
       for (final MapEntry(key: id, value: device) in mine.entries)
-        if (id != deviceId &&
-            newest.difference(device.at) > kPushDeviceStale)
+        if (id != deviceId && newest.difference(device.at) > kPushDeviceStale)
           id,
     ];
     final others =
@@ -224,6 +255,19 @@ class PushRegistry {
     }
     return drop;
   }
+
+  /// The pair a stored [SettingsKeys.pushWritten] (`pair|address|ms`)
+  /// names; null for none or one that does not read whole. Read by the
+  /// background handler too, which builds no registry.
+  static String? writtenPairOf(String? stored) {
+    if (stored == null) return null;
+    final parts = stored.split('|');
+    return parts.length == 3 && parts[0].isNotEmpty ? parts[0] : null;
+  }
+
+  /// The pair this install last wrote its entry into, by any process.
+  Future<String?> _writtenPair() async =>
+      writtenPairOf((await _prefs).getString(SettingsKeys.pushWritten));
 
   /// Whether this install wrote [address] into [pairId] less than seven
   /// days ago by its own clock.
@@ -278,7 +322,10 @@ class PushRegistry {
     );
   }
 
-  Future<void> _remove(String pairId, String uid) async {
+  /// Null when the entry is gone and the stored write with it; else why the
+  /// pair refused. A refusal keeps the stored write, so a later answer asks
+  /// the removal again.
+  Future<PairingError?> _remove(String pairId, String uid) async {
     try {
       await _gateway.removePushDevices(
         pairId: pairId,
@@ -286,10 +333,12 @@ class PushRegistry {
         deviceIds: [await _deviceId()],
       );
       await (await _prefs).remove(SettingsKeys.pushWritten);
+      return null;
     } on PairingException catch (e) {
       // The address is given up all the same, so an entry left behind
       // names nothing that can receive.
       debugPrint('[PushRegistry] entry not removed: ${e.error.name}');
+      return e.error;
     }
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../constants/app_constants.dart';
 import '../models/partner_look.dart';
 import '../models/share_settings.dart';
 import '../services/pairing_service.dart';
@@ -35,11 +36,14 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
   static Future<ShareService> service() => openService();
 
   /// Whether a page should [start] one: the database holds something shared
-  /// (`FolderStorageService.holdsShared`), or a pair is known from memory —
-  /// the pairing or the share service already built. Answered without a
-  /// statement, so an account that never paired asks nothing.
-  static bool mayShare({required bool holdsShared}) =>
+  /// (`FolderStorageService.holdsShared`), the census says a pair is stored
+  /// ([paired], `FolderStorageService.holdsPair` — for a page that offers a
+  /// folder's share entry), or a pair is known from memory — the pairing or
+  /// the share service already built. Answered without a statement, so an
+  /// account that never paired asks nothing.
+  static bool mayShare({required bool holdsShared, bool paired = false}) =>
       holdsShared ||
+      paired ||
       PairingService.pairedInMemory == true ||
       _knownAvailability()?.audience != null;
 
@@ -51,32 +55,32 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
       ? null
       : ShareService.knownAvailability;
 
-  /// The database generation [resolve] last asked under: whether this
-  /// database is paired is asked once per process and database, never
-  /// again by a later menu.
-  static int? _askedGeneration;
-
-  /// Drops the record of [resolve] having asked, as a new process would.
-  @visibleForTesting
-  static void forgetAsked() => _askedGeneration = null;
-
-  /// Whether nothing in memory says if this database is paired — no
-  /// pairing or share service built, and no [resolve] asked yet: what a
-  /// folder's share entry must learn before its menu or sheet opens.
-  static bool get pairingUnknown =>
-      PairingService.pairedInMemory == null &&
-      ShareService.knownAvailability == null &&
-      _askedGeneration != ShareService.databaseGeneration;
-
   ShareService? _service;
   StreamSubscription<ShareAvailability>? _availability;
   bool _started = false;
   bool _disposed = false;
-  bool _failed = false;
+  bool _holdEnded = false;
+  Timer? _holdLimit;
 
   /// Started and still without a look: what a page that holds its first
-  /// frame for the look waits on. A read that failed ends the wait.
-  bool get pending => _started && value == null && !_failed;
+  /// frame for the look waits on. The first open or read that fails ends
+  /// the wait, and so does [AppConstants.partnerLookHoldLimit] — the page
+  /// then draws as it would with no look known, never a blank ground.
+  bool get pending => _started && value == null && !_holdEnded;
+
+  void _endHold() {
+    _holdLimit?.cancel();
+    _holdLimit = null;
+    if (_disposed || _holdEnded) return;
+    _holdEnded = true;
+    notifyListeners();
+  }
+
+  /// What the last failed start was asked under — the page state that
+  /// asked, the pairing and the database — so only a change outside the
+  /// reader asks again: a page starts it on every build, and the rebuild
+  /// its own notify causes would otherwise ask once per frame.
+  (Object?, bool?, int)? _failedUnder;
 
   /// What [ShareService.changes] last said, or the service's last value.
   ShareAvailability? _heard;
@@ -86,42 +90,27 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
   /// anything was — the share entry of a folder is then absent.
   ShareAvailability? get availability => _heard;
 
-  /// Learns whether this database is paired when nothing in memory says
-  /// ([pairingUnknown]) — the share service's own local reads, no network
-  /// — so the first folder menu or row sheet of a process opens with its
-  /// share entry in place, the way the calendar's editors ask. A pair
-  /// found is followed from then on ([start]); none costs nothing more.
-  Future<void> resolve() async {
-    if (_disposed || !pairingUnknown) return;
-    _askedGeneration = ShareService.databaseGeneration;
-    try {
-      final service = await openService();
-      if (_disposed) return;
-      final availability = service.availability;
-      if (availability.audience == null) return;
-      _heard = availability;
-      _looks ??= await service.looks();
-      if (_disposed) return;
-      _publish();
-      start();
-    } catch (e, st) {
-      debugPrint('[PartnerLookReader] pairing not read: $e\n$st');
-    }
-  }
-
   /// Bumped by every [refresh], so a slow read never lands over a newer one.
   int _reads = 0;
 
   /// Starts following sharing, once. An account the pairing already knows
-  /// is unpaired starts nothing: its rows have no partner to name.
-  void start() {
+  /// is unpaired starts nothing: its rows have no partner to name. [asker]
+  /// is the page state asking; after a failed start only a new one, a
+  /// pairing change or a database switch asks again.
+  void start({Object? asker}) {
     if (_started || _disposed) return;
-    if (PairingService.pairedInMemory == false) return;
+    final paired = PairingService.pairedInMemory;
+    if (paired == false) return;
+    final under = (asker, paired, ShareService.databaseGeneration);
+    if (under == _failedUnder) return;
     _started = true;
-    unawaited(_open());
+    if (value == null && !_holdEnded) {
+      _holdLimit ??= Timer(AppConstants.partnerLookHoldLimit, _endHold);
+    }
+    unawaited(_open(under));
   }
 
-  Future<void> _open() async {
+  Future<void> _open((Object?, bool?, int) under) async {
     try {
       final service = await openService();
       if (_disposed) return;
@@ -139,8 +128,11 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
       // The rows keep the look they had; the next page state asks again.
       debugPrint('[PartnerLookReader] sharing not read: $e\n$st');
       _started = false;
+      _failedUnder = under;
       if (!_disposed) {
-        _failed = true;
+        _holdEnded = true;
+        _holdLimit?.cancel();
+        _holdLimit = null;
         notifyListeners();
       }
     }
@@ -159,6 +151,7 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
       _publish();
     } catch (e, st) {
       debugPrint('[PartnerLookReader] look not read: $e\n$st');
+      _endHold();
     }
   }
 
@@ -184,6 +177,8 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
     if (_disposed) return;
     final next = _build();
     if (next == null) return;
+    _holdLimit?.cancel();
+    _holdLimit = null;
     if (next != value) {
       _told = _heard;
       value = next;
@@ -196,6 +191,7 @@ class PartnerLookReader extends ValueNotifier<PartnerLook?> {
   @override
   void dispose() {
     _disposed = true;
+    _holdLimit?.cancel();
     unawaited(_availability?.cancel());
     super.dispose();
   }

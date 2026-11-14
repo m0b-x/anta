@@ -81,8 +81,9 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   final Set<String> _leaving = {};
 
   /// The rows whose Undo the bloc was asked for, oldest first. The bloc runs
-  /// its acts in order and none but this sheet's can be asked for while it
-  /// is up, so each undo outcome answers the oldest.
+  /// its acts in order and this sheet hears only the outcomes of the acts it
+  /// asked for (`ShareActEvent.asker`), so each undo outcome answers the
+  /// oldest.
   final List<String> _undoing = [];
 
   /// The last outcome this sheet has seen, so a failure is answered once.
@@ -96,8 +97,6 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   /// is said once it has gone.
   ScaffoldMessengerState? _messenger;
   AppLocalizations? _l10n;
-
-  static const Set<ShareAct> _acts = {ShareAct.eventUnshared, ShareAct.undo};
 
   @override
   void initState() {
@@ -119,7 +118,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     if (l10n != null) {
       sayShareFailuresPastSheet(
         bloc: widget.bloc,
-        acts: _acts,
+        asker: this,
         pending: _pending,
         seen: _seenOutcome,
         messenger: _messenger,
@@ -142,7 +141,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     final event = shared.event;
     setState(() => _leaving.add(event.id));
     _pending++;
-    bloc.add(ShareEventUnshared(event.id));
+    bloc.add(ShareEventUnshared(event.id, asker: this));
     // Said at the tap, as every share switch says it (D6): the reload that
     // drops the row may land after the finger has moved on.
     final category = CalendarCategories.byId(event.categoryId);
@@ -196,11 +195,14 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
       l10n: l10n,
     );
     if (!bloc.isClosed) {
-      if (mounted) {
+      // Tapped once the sheet has gone, the Undo is no one's: the page says
+      // how it ended.
+      final asker = mounted ? this : null;
+      if (asker != null) {
         _undoing.add(event.id);
         _pending++;
       }
-      bloc.add(ShareUndoRequested(change, pastBloc: pastBloc));
+      bloc.add(ShareUndoRequested(change, pastBloc: pastBloc, asker: asker));
       return;
     }
     unawaited(pastBloc(change));
@@ -215,7 +217,10 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     final outcome = state.outcome;
     if (outcome == null || outcome.sequence == _seenOutcome) return;
     _seenOutcome = outcome.sequence;
-    if (_acts.contains(outcome.act) && _pending > 0) _pending--;
+    // Another's act — a sheet dismissed before it answered, the page's —
+    // is said by whoever asked for it.
+    if (!identical(outcome.asker, this)) return;
+    if (_pending > 0) _pending--;
     final failure = outcome.failure;
     switch (outcome.act) {
       case ShareAct.eventUnshared:

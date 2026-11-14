@@ -15,6 +15,7 @@ import 'package:alarm/utils/alarm_exception.dart';
 import 'package:alarm/utils/alarm_set.dart';
 import 'package:alarm/utils/extensions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -306,6 +307,43 @@ class Alarm {
     await checkAlarm();
   }
 
+  /// The fork's own channel beside the generated bindings (ANTA fork,
+  /// Patch 10): the one word an engine says to the host about itself,
+  /// `AlarmPlugin.RESIGN`.
+  static const _presenterChannel = MethodChannel(
+    'com.gdelataillade.alarm/presenter',
+  );
+
+  /// Whether this isolate is one a ring may be presented to: true until
+  /// [initWithoutPresenting].
+  static bool get presents => _presents;
+  static bool _presents = true;
+
+  /// ANTA fork, Patch 10. [init] for an engine that must never be where a
+  /// ring is shown: one started for background work, with no activity and a
+  /// life of seconds. It sets and stops alarms like any other, and nothing
+  /// else:
+  ///
+  /// - the host is told first, and passes this engine over when it reports
+  ///   a ring, a stop or a host event (`AlarmPlugin.presenters`). Those
+  ///   reach the app's own engine when one lives; with none, the host goes
+  ///   on by itself as it does in a process with no engine at all. Before,
+  ///   a lone background engine was the one chosen: the ring's page, and any
+  ///   timer the application hung on it, went to an isolate about to end;
+  /// - nothing is reconciled. [checkAlarm] re-sets every stored future alarm
+  ///   and drains the host's pending events, which belong to the isolate
+  ///   that presents;
+  /// - no fallback timer is armed for what this isolate sets
+  ///   ([PlatformTimers]): it announces a ring to the isolate that armed it.
+  ///
+  /// Throws what the host throws: an engine that could not resign must not
+  /// go on as if it had.
+  static Future<void> initWithoutPresenting() async {
+    _presents = false;
+    if (android) await _presenterChannel.invokeMethod<void>('resign');
+    await AlarmStorage.init();
+  }
+
   /// Checks if some alarms were set on previous session.
   /// If it's the case then reschedules them.
   ///
@@ -481,6 +519,7 @@ class Alarm {
     _events = _newEventSubject();
     _reportedEvents.clear();
     _acknowledgeEventsAutomatically = true;
+    _presents = true;
     PlatformTimers.stopAll();
   }
 
