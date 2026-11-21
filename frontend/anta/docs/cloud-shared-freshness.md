@@ -1,7 +1,9 @@
 # Shared Freshness — ANTA
 
 **Status: BUILT AND REVIEWED 2026-11-13 → 14, COMMITTED `7803e07a`; the
-rules are live since 2026-11-14, the relay is not deployed — slice I
+rules are live since 2026-11-14, the relay is deployed (the owner's
+first upload 2026-11-14, as Cloudflare's deployment list shows; again on
+2026-11-22 with the pair read's field mask, version `20047acb`) — slice I
 (the check) and slice J (the relay) of
 `cloud-share-surfaces-roadmap.md` §16, and the finishing pass that
 answered five reviews of them. §1–§11 are the plan; §12 says what is

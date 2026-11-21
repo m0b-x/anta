@@ -1392,7 +1392,7 @@ verifiable in the driver build, as in Phase 2: the real keyboard's lift.
 
 ## 11. Phase 4 — "Sync and sharing", a guide of its own (2026-11-21)
 
-**Status: BUILT 2026-11-21, UNCOMMITTED pending the owner — the book,
+**Status: BUILT 2026-11-21, COMMITTED `f6af7a70` — the book,
 its ten pages and ten "Try it" cards, "Your setup" and the help buttons;
 three closing reviews and a second round, their findings answered or
 left by name (§11.8); the whole suite 19,038 passed, 17 skipped, none

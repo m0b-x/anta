@@ -3477,8 +3477,11 @@ one way and can be turned:
 **Only two real phones and the deployed relay can show** — the lists
 "Only a device can show" and "Still owed" of `cloud-shared-freshness.md`
 §12, after the owner's steps of its §9. The rules are live since
-2026-11-14 (the indexes were already); left: the relay deployed,
-`config/push` written, this build on both phones.
+2026-11-14 (the indexes were already); left then: the relay deployed,
+`config/push` written, this build on both phones. *(2026-11-22: the
+relay is deployed — Cloudflare lists the owner's first upload on
+2026-11-14 and its secret the same hour; whether `config/push` is
+written cannot be seen from the repository.)*
 
 **Not built, by decision**: the partner never edits (E5, N3); presence
 on a shared event (§13); R9 (D36); the partner's counters and currency
@@ -3494,9 +3497,9 @@ when a partner's note leaves before its folder.
 
 ## 17. The correctness review (2026-11-21)
 
-**Status: A1–A13 FIXED 2026-11-21, uncommitted (§17.7; the share device
-pass 27 of 27 on the final build, the sync pass not run); §17.3 and §17.4
-open.** The owner asked for a correctness review of sharing as it stands
+**Status: A1–A13 FIXED 2026-11-21, COMMITTED `f6af7a70` (§17.7; the
+share device pass 27 of 27 on the final build, the sync pass not run;
+the relay's mask deployed 2026-11-22); §17.3 and §17.4 open.** The owner asked for a correctness review of sharing as it stands
 on `main` (`698f5292`, a clean tree), and on its list answered "fix all
 13, tests first" the same day. §17.2 keeps each finding as it was read;
 §17.7 says what was built for it.
@@ -4098,7 +4101,12 @@ caches its share service across a database switch; a day row stored at
 a local midnight gets a second row at the UTC midnight when the device
 pulls its own push back.
 
-**For the owner:** the relay's mask (A10) needs a deploy; the device
+**For the owner:** the relay's mask (A10) is live since 2026-11-22
+(`wrangler deploy` on the owner's word after his commit `f6af7a70`; the
+relay's 106 tests green first; version `20047acb`; without credentials
+the Worker answers 404, 405 and 401 as §8 says — a poke from a paired
+phone is still the only proof of the masked read). The `sync` device
+pass is still to run; the device
 checks of §17.5's last line still stand. **Found on the way, not
 fixed:** the day list writes an event's time in 24-hour form while its
 read sheet follows the locale (`EventSummaryProvider.formatRange`
