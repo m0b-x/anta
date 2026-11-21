@@ -32,8 +32,9 @@ abstract interface class PushRelay {
 
   /// Sends what waits for the minute's end now — the app is leaving the
   /// screen, and its process may not live to see the timer, or the account
-  /// is about to go and its token with it. Done when those sends are, each
-  /// bounded by its deadline.
+  /// or a pair is about to go and its token or its document with it. Done
+  /// when those sends are, and the ones already under way, each bounded by
+  /// its deadline.
   Future<void> flush();
 }
 
@@ -95,6 +96,10 @@ class HttpPushRelay implements PushRelay {
   /// and the timer that sends them.
   final Map<({String pair, String? uid}), bool> _held = {};
   Timer? _holding;
+
+  /// The pokes sent at once and not yet answered, which a [flush] waits for
+  /// too.
+  final Set<Future<void>> _sending = {};
 
   /// The pairs the relay refused (403) as the account asked under — not a
   /// member, or the pair is gone — and until when each is not poked again
@@ -217,7 +222,9 @@ class HttpPushRelay implements PushRelay {
     final since = sentAt == null ? null : now.difference(sentAt);
     if (since == null || since.isNegative || since >= kPushPokeSpacing) {
       _sentAt = now;
-      unawaited(_send(key.pair, urgent: urgent, askedAs: key.uid));
+      final sending = _send(key.pair, urgent: urgent, askedAs: key.uid);
+      _sending.add(sending);
+      unawaited(sending.whenComplete(() => _sending.remove(sending)));
       return;
     }
     _held[key] = urgent;
@@ -228,11 +235,11 @@ class HttpPushRelay implements PushRelay {
   Future<void> flush() async {
     _holding?.cancel();
     _holding = null;
-    if (_held.isEmpty) return;
     final held = {..._held};
     _held.clear();
-    _sentAt = _clock();
+    if (held.isNotEmpty) _sentAt = _clock();
     await Future.wait([
+      ..._sending,
       for (final MapEntry(key: (:pair, :uid), value: urgent) in held.entries)
         _send(pair, urgent: urgent, askedAs: uid),
     ]);

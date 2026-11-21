@@ -68,6 +68,7 @@ void main() {
     expect(getIt.isRegistered<PushReceiver>(), isFalse);
     expect(FirebaseAuthService.beforeSignOut, isNull);
     expect(PairedAccountCloser.beforeAccountGone, isNull);
+    expect(PairedAccountCloser.afterPairEnded, isNull);
     expect(SyncBindingService.onUnbound, isNull);
   });
 
@@ -91,6 +92,7 @@ void main() {
     final registry = getIt<PushRegistry>();
     expect(FirebaseAuthService.beforeSignOut, registry.leave);
     expect(PairedAccountCloser.beforeAccountGone, registry.leave);
+    expect(PairedAccountCloser.afterPairEnded, registry.pokesSent);
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(SettingsKeys.pushAddressHeld, '1');

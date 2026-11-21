@@ -1,16 +1,20 @@
+import 'dart:async';
 import 'dart:ui' show AppLifecycleState;
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/services/sync/sync_cadence.dart';
+import 'package:anta/services/sync/sync_engine.dart' show SyncRunSkip;
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/sync_suspension.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
 import 'package:anta/services/sync/tables/calendar_categories_binding.dart';
@@ -18,6 +22,7 @@ import 'package:anta/services/sync/tables/calendar_event_occurrences_binding.dar
 import 'package:anta/services/sync/tables/calendar_event_skips_binding.dart';
 import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 import 'package:anta/services/sync/tables/folders_binding.dart';
+import 'package:anta/services/sync/tables/notes_binding.dart';
 
 import 'support/sync_pair.dart';
 
@@ -69,6 +74,11 @@ void main() {
     );
     await device.db.syncOutboxDao.ackThrough(binding.table, key, envelope.hlc);
   }
+
+  /// Makes [device]'s database one that has been in a pair, as storing a
+  /// pairing leaves it: the only kind whose documents may name one.
+  Future<void> everPaired(SyncDevice device) =>
+      device.db.userSettingsDao.setValue(SettingsKeys.pairingLastPair, pairId);
 
   /// The rows whose newest document names a pair, with the pair.
   Map<String, String> shared() => {
@@ -207,6 +217,72 @@ void main() {
         shared()['calendar_event_skips/${dayRowKey('e1', later)}'],
         pairId,
       );
+    });
+
+    test('made private while a day text\'s newest write is parked, the '
+        'document the partner reads loses the grant all the same', () async {
+      await everPaired(a());
+      await a().db.calendarEventDao.setSharedPair('e1', pairId);
+      await a().sync();
+      final text = dayKey('calendar_event_occurrences', 'e1');
+      final before = documents()[text]!;
+      await a().db.eventOccurrenceDao.upsert(
+        EventOccurrenceDescriptionsCompanion.insert(
+          eventId: 'e1',
+          day: day,
+          description: 'Bring the keys and the map',
+          createdAt: day,
+          updatedAt: day,
+        ),
+      );
+      pair.gateway.refuse(
+        'calendar_event_occurrences',
+        dayRowKey('e1', day),
+        SyncGatewayFailure.invalidData,
+      );
+      await a().sync();
+
+      await a().db.calendarEventDao.setSharedPair('e1', null);
+      await a().sync();
+
+      final after = documents()[text]!;
+      expect(after.sharedPair, isNull);
+      expect(after.wire, isNull);
+      expect(after.hlc, before.hlc, reason: 'the grant alone is taken off');
+      expect(shared(), isEmpty);
+    });
+
+    test('made private while a skipped day stored at a local midnight is '
+        'parked, the document its push wrote — named by the UTC midnight — '
+        'loses the grant', () async {
+      await everPaired(a());
+      // Two hours under a UTC midnight: a row written before days were
+      // normalised, whose outbox key is not its document's id.
+      final legacy = DateTime.fromMillisecondsSinceEpoch(
+        DateTime.utc(2026, 6, 8).millisecondsSinceEpoch -
+            const Duration(hours: 2).inMilliseconds,
+      );
+      final id = dayEnvelopeKey('e1', legacy);
+      expect(dayRowKey('e1', legacy), isNot(id));
+      final document = 'calendar_event_skips/$id';
+      await a().db.eventSkipDao.markSkipped('e1', legacy);
+      await a().db.calendarEventDao.setSharedPair('e1', pairId);
+      await a().sync();
+      expect(shared()[document], pairId);
+      await a().db.eventSkipDao.unskip('e1', legacy);
+      pair.gateway.refuse(
+        'calendar_event_skips',
+        id,
+        SyncGatewayFailure.invalidData,
+      );
+      await a().sync();
+
+      await a().db.calendarEventDao.setSharedPair('e1', null);
+      await a().sync();
+
+      expect(pair.gateway.unshared, [document]);
+      expect(documents()[document]!.sharedPair, isNull);
+      expect(shared(), isEmpty);
     });
 
     test('reaches the account\'s other device with its mark, and a day row '
@@ -470,6 +546,332 @@ void main() {
 
       expect(shared(), isEmpty);
       expect(pair.gateway.sharedPairOf(pair.space), isNull);
+    });
+
+    group('with a note\'s newest write parked', () {
+      const notes = NotesBinding();
+
+      /// Shares the shelf, pushes [top] shared, then edits it and has the
+      /// space refuse it: its entry is parked at the edit's stamp, which a
+      /// re-queue at that stamp cannot raise. Returns the document the
+      /// partner reads meanwhile.
+      Future<SyncEnvelope> parkTheEdit() async {
+        await a().db.folderDao.setSharedPair(shelf.id, pairId);
+        await a().sync();
+        final pushed = documents()['notes/${top.id}']!;
+        expect(pushed.sharedPair, pairId);
+        await editNote(a(), top.id, 'One, and more');
+        pair.gateway.refuse('notes', top.id, SyncGatewayFailure.invalidData);
+        await a().sync();
+        expect(documents()['notes/${top.id}']!.hlc, pushed.hlc);
+        return pushed;
+      }
+
+      test('un-sharing the folder takes the grant off the document the '
+          'partner reads, once', () async {
+        await everPaired(a());
+        final pushed = await parkTheEdit();
+
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+
+        final after = documents()['notes/${top.id}']!;
+        expect(after.sharedPair, isNull);
+        expect(after.wire, isNull);
+        expect(after.hlc, pushed.hlc, reason: 'the grant alone is taken off');
+        expect(shared(), isEmpty);
+        expect(pair.gateway.unshared, ['notes/${top.id}']);
+
+        await a().sync();
+        await a().engine.syncNow();
+        await a().settle();
+        expect(pair.gateway.unshared, [
+          'notes/${top.id}',
+        ], reason: 'once per park, not once per drain');
+      });
+
+      test('a folder that stays shared leaves its grant where it is', () async {
+        await everPaired(a());
+        await parkTheEdit();
+
+        await a().sync();
+
+        expect(documents()['notes/${top.id}']!.sharedPair, pairId);
+        expect(pair.gateway.unshared, isEmpty);
+      });
+
+      test('a database never in a pair takes nothing off', () async {
+        await parkTheEdit();
+
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+
+        expect(pair.gateway.unshared, isEmpty);
+      });
+
+      test('an edit raised past the park and parked again is a new park: the '
+          'record no longer matches, and the document is asked about '
+          'again', () async {
+        await everPaired(a());
+        await parkTheEdit();
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+        expect(pair.gateway.unshared, hasLength(1));
+
+        await editNote(a(), top.id, 'One, and more again');
+        await a().sync();
+
+        expect(pair.gateway.unshared, hasLength(2));
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
+
+      test('a clearing whose call fails records nothing, fails nothing, and '
+          'is tried again at the next drain', () async {
+        await everPaired(a());
+        await parkTheEdit();
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        pair.gateway.failNextUnshare = const SyncGatewayException(
+          SyncGatewayFailure.offline,
+          'scripted',
+        );
+
+        final report = await a().sync();
+
+        expect(report.failure, isNull);
+        expect(documents()['notes/${top.id}']!.sharedPair, pairId);
+        expect(
+          await a().db.syncDao.valuesByPrefix(SyncDao.shareClearedPrefix),
+          isEmpty,
+        );
+        await a().sync();
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
+
+      test('a halt while the clearing is in flight ends the run before '
+          'anything is recorded, and the next drain asks again', () async {
+        await everPaired(a());
+        await parkTheEdit();
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        final restore = Completer<void>();
+        pair.gateway.onUnshareRows = () async {
+          pair.gateway.onUnshareRows = null;
+          // A restore begins while the call is in flight.
+          unawaited(SyncSuspension.run(() => restore.future));
+        };
+
+        final report = await a().sync();
+        restore.complete();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(report.skipped, SyncRunSkip.suspended);
+        expect(
+          await a().db.syncDao.valuesByPrefix(SyncDao.shareClearedPrefix),
+          isEmpty,
+        );
+        await a().sync();
+        expect(pair.gateway.unshared, hasLength(2));
+      });
+
+      /// Runs [body] — the other device's turn — with the space taking the
+      /// note from it: only this device's edit is refused.
+      Future<void> acceptingTop(Future<void> Function() body) async {
+        pair.gateway.accept('notes', top.id);
+        await body();
+        pair.gateway.refuse('notes', top.id, SyncGatewayFailure.invalidData);
+      }
+
+      test('un-shared again after the other device shared it anew, at the '
+          'same held stamp, the document that device wrote loses the grant '
+          'too: the share merged here let the record go', () async {
+        await everPaired(a());
+        await parkTheEdit();
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+        expect(pair.gateway.unshared, ['notes/${top.id}']);
+
+        // The other device merges the end, then shares the folder anew: its
+        // copy of the note goes out again with the grant.
+        await acceptingTop(() async {
+          await b().sync();
+          await b().db.folderDao.setSharedPair(shelf.id, pairId);
+          await b().sync();
+        });
+        expect(documents()['notes/${top.id}']!.sharedPair, pairId);
+        await a().sync();
+
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+        expect(pair.gateway.unshared, hasLength(2));
+      });
+
+      test('a document the other device pushed after this one decided the '
+          'note private loses its grant all the same, in a run that only '
+          'drains: private is the side every doubt errs on', () async {
+        await everPaired(a());
+        await parkTheEdit();
+        await acceptingTop(b().sync);
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        // The other device, not having heard of it, shares the folder anew.
+        await acceptingTop(() async {
+          await b().db.folderDao.setSharedPair(shelf.id, null);
+          await b().db.folderDao.setSharedPair(shelf.id, pairId);
+          await b().sync();
+        });
+        expect(documents()['notes/${top.id}']!.sharedPair, pairId);
+
+        // A run that only drains: the re-share is not merged here yet.
+        await a().engine.pushNow();
+        await a().settle();
+
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
+
+      test('a share merged here lets the record go: un-shared again at the '
+          'same held stamp, a run that only drains clears the document the '
+          'other device pushed meanwhile', () async {
+        await everPaired(a());
+        await parkTheEdit();
+        await acceptingTop(b().sync);
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+        expect(pair.gateway.unshared, ['notes/${top.id}']);
+        // The other device shares the folder anew; its note is refused, so
+        // nothing this device pulls of the note names the pair.
+        await b().db.folderDao.setSharedPair(shelf.id, null);
+        await b().db.folderDao.setSharedPair(shelf.id, pairId);
+        await b().sync();
+        await a().sync();
+        expect(
+          (await a().db.folderDao.getByIdsIncludingDeleted([
+            shelf.id,
+          ])).single.sharedPair,
+          pairId,
+        );
+        expect(pair.gateway.unshared, hasLength(1));
+        // Its note lands after this device's pull.
+        await pushedAs(b(), notes, top.id, sharedPair: pairId);
+
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().engine.pushNow();
+        await a().settle();
+
+        expect(pair.gateway.unshared, hasLength(2));
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
+
+      group('the other device, behind — it has not merged the un-share — '
+          'pushes the note again with the grant', () {
+        /// Clears [top] on this device, and has the other one hold the
+        /// folder shared still.
+        Future<void> clearedHere() async {
+          await everPaired(a());
+          await parkTheEdit();
+          await acceptingTop(b().sync);
+          await a().db.folderDao.setSharedPair(shelf.id, null);
+          await a().sync();
+          expect(pair.gateway.unshared, ['notes/${top.id}']);
+        }
+
+        test('merged here, the document loses the grant again at this '
+            'device\'s next sync', () async {
+          await clearedHere();
+          await pushedAs(b(), notes, top.id, sharedPair: pairId);
+          expect(documents()['notes/${top.id}']!.sharedPair, pairId);
+
+          await a().sync();
+
+          expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+          expect(pair.gateway.unshared, hasLength(2));
+        });
+
+        test('parked here, it loses the grant again all the same', () async {
+          await clearedHere();
+          final row = (await notes.loadByKeys(b().db, [top.id])).single;
+          final copy = await notes.encode(b().db, row, boundUid: syncUid);
+          // A version this device cannot merge: its pull parks it.
+          pair.gateway.plant(
+            pair.space,
+            SyncEnvelope(
+              table: copy.table,
+              rowKey: copy.rowKey,
+              hlc: copy.hlc,
+              deviceId: copy.deviceId,
+              version: copy.version,
+              op: copy.op,
+              ownerId: copy.ownerId,
+              data: {...copy.data!, 'position': 'first'},
+            ).sharedInto(pairId),
+            pushedBy: b().id,
+          );
+
+          await a().sync();
+
+          expect(
+            await a().db.syncDao.getValue(
+              SyncDao.keyPullParked('notes', top.id),
+            ),
+            isNotNull,
+          );
+          expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+          expect(pair.gateway.unshared, hasLength(2));
+        });
+      });
+    });
+
+    group('held back only by its own pulled version, which this device '
+        'cannot read', () {
+      test('a note whose stored document is older than the un-share loses '
+          'the grant', () async {
+        await everPaired(a());
+        await a().db.folderDao.setSharedPair(shelf.id, pairId);
+        await a().sync();
+        await b().sync();
+        await editNote(b(), top.id, 'One, from the other device');
+        await b().sync();
+        pair.gateway.unreadable.add(('notes', top.id));
+
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await a().sync();
+
+        expect(pair.gateway.unshared, ['notes/${top.id}']);
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
+
+      test('one pushed after the un-share loses it too', () async {
+        await everPaired(a());
+        await a().db.folderDao.setSharedPair(shelf.id, pairId);
+        await a().sync();
+        await b().sync();
+        await a().db.folderDao.setSharedPair(shelf.id, null);
+        await editNote(b(), top.id, 'One, from the other device');
+        await b().sync();
+        pair.gateway.unreadable.add(('notes', top.id));
+
+        await a().sync();
+
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
+
+      test('a note moved into a private folder made before that push loses '
+          'the grant: the move decides it, whatever the folders\' stamps '
+          'say', () async {
+        await everPaired(a());
+        await a().db.folderDao.setSharedPair(shelf.id, pairId);
+        await a().sync();
+        await b().sync();
+        await editNote(b(), top.id, 'One, from the other device');
+        await b().sync();
+        expect(documents()['notes/${top.id}']!.sharedPair, pairId);
+        pair.gateway.unreadable.add(('notes', top.id));
+
+        await a().db.noteDao.moveNote(id: top.id, targetFolderId: beside.id);
+        await a().sync();
+
+        expect(pair.gateway.unshared, ['notes/${top.id}']);
+        expect(documents()['notes/${top.id}']!.sharedPair, isNull);
+      });
     });
 
     test('renamed on a device that last ran below the wire that carries '
@@ -887,6 +1289,87 @@ void main() {
       await a().sync();
 
       expect(shared(), isEmpty);
+    });
+
+    test(
+      'made private while a skipped day\'s newest write is parked, the '
+      'document the partner reads loses the grant all the same (A3)',
+      () async {
+        await everPaired(a());
+        await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+        await a().sync();
+        final skip = dayKey('calendar_event_skips', 'e1');
+        final before = documents()[skip]!;
+        expect(before.sharedPair, pairId);
+        await a().db.eventSkipDao.unskip('e1', day);
+        pair.gateway.refuse(
+          'calendar_event_skips',
+          dayRowKey('e1', day),
+          SyncGatewayFailure.invalidData,
+        );
+        await a().sync();
+
+        await a().db.calendarCategoryDao.setSharedPair('climb', null);
+        await a().sync();
+
+        final after = documents()[skip]!;
+        expect(after.sharedPair, isNull);
+        expect(after.hlc, before.hlc, reason: 'the grant alone is taken off');
+        expect(shared(), isEmpty);
+      },
+    );
+
+    test('deleted while a skipped day\'s newest write is parked, the '
+        'document the partner reads loses the grant all the same', () async {
+      await everPaired(a());
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      final skip = dayKey('calendar_event_skips', 'e1');
+      final before = documents()[skip]!;
+      expect(before.sharedPair, pairId);
+      await a().db.eventSkipDao.unskip('e1', day);
+      pair.gateway.refuse(
+        'calendar_event_skips',
+        dayRowKey('e1', day),
+        SyncGatewayFailure.invalidData,
+      );
+      await a().sync();
+
+      expect(await a().db.calendarCategoryDao.softDeleteById('climb'), isTrue);
+      await a().sync();
+
+      final after = documents()[skip]!;
+      expect(after.sharedPair, isNull);
+      expect(after.hlc, before.hlc, reason: 'the grant alone is taken off');
+    });
+
+    test('its own document loses the grant when it is made private while '
+        'its newest write is parked', () async {
+      await everPaired(a());
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      final before = documents()['calendar_categories/climb']!;
+      expect(before.sharedPair, pairId);
+      pair.gateway.refuse(
+        'calendar_categories',
+        'climb',
+        SyncGatewayFailure.invalidData,
+      );
+      await a().db.calendarCategoryDao.updateCategory(
+        const CalendarCategoriesCompanion(
+          id: Value('climb'),
+          name: Value('Climbing'),
+        ),
+      );
+      await a().sync();
+
+      await a().db.calendarCategoryDao.setSharedPair('climb', null);
+      await a().sync();
+
+      final after = documents()['calendar_categories/climb']!;
+      expect(after.sharedPair, isNull);
+      expect(after.wire, isNull);
+      expect(after.hlc, before.hlc, reason: 'the grant alone is taken off');
     });
 
     test('pushed shared by another device, where this one holds it private, '

@@ -29,6 +29,7 @@ import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
+import 'package:anta/services/sync/sync_gateway.dart' show SyncSpaceRef;
 import 'package:anta/utils/auth_error.dart';
 import 'package:anta/utils/data_notice.dart';
 import 'package:anta/widgets/form_rows.dart';
@@ -262,6 +263,8 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: locale,
+        // The page asks it whether another page stands over it.
+        navigatorObservers: [AppNavigator.routeObserver],
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
             context,
@@ -1561,6 +1564,224 @@ void main() {
       expect(find.text(l10n.dataNoticeTitle), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('the help in the bar (D49)', () {
+    Finder byId(String id) => find.bySemanticsIdentifier(id);
+
+    List<SettingsSectionData> sections(WidgetTester tester) =>
+        tester.widget<SettingsSectionList>(find.byType(SettingsSectionList))
+            .sections;
+
+    /// The ids of the entries of the section titled [title].
+    List<String?> idsOf(WidgetTester tester, String title) => [
+      for (final entry
+          in sections(tester).singleWhere((s) => s.title == title).entries)
+        entry.identifier,
+    ];
+
+    /// The help is the bar's button, a 48 dp target under the shared
+    /// tooltip; the list holds no help row and no "How it works" header,
+    /// so it still ends with the held-back and deletion sections (H2).
+    void expectHelpInBar(WidgetTester tester) {
+      final button = find.descendant(
+        of: byId(SemanticsIds.sharingSyncHow),
+        matching: find.byType(IconButton),
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: button),
+        findsOneWidget,
+      );
+      final size = tester.getSize(button);
+      expect(size.width, greaterThanOrEqualTo(48));
+      expect(size.height, greaterThanOrEqualTo(48));
+      expect(
+        tester.widget<IconButton>(button).tooltip,
+        l10n.syncGuideHowSyncWorks,
+      );
+
+      for (final section in sections(tester)) {
+        expect(section.title, isNot(l10n.calendarGuideHowItWorks));
+        for (final entry in section.entries) {
+          expect(entry.identifier, isNot(SemanticsIds.sharingSyncHow));
+        }
+      }
+      expect(
+        find.text(l10n.calendarGuideHowItWorks.toUpperCase()),
+        findsNothing,
+      );
+    }
+
+    testWidgets('unbound, the help is a button in the bar that opens the '
+        'sync book\'s hub; the Sync and Pairing sections end with their own '
+        'rows', (tester) async {
+      await boot(user: userA);
+      await pumpPage(tester);
+
+      expectHelpInBar(tester);
+      expect(idsOf(tester, l10n.syncSection).last, SemanticsIds.sharingSync);
+      expect(idsOf(tester, l10n.pairingSection), [SemanticsIds.sharingPair]);
+
+      await tester.tap(byId(SemanticsIds.sharingSyncHow));
+      await settle(tester);
+      expect(byId(SemanticsIds.guideBook('sync')), findsOneWidget);
+      await tester.pageBack();
+      await settle(tester);
+      expect(byId(SemanticsIds.sharingList), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('bound and paired, the Sync section ends with Delete cloud '
+        'copy and the Pairing section is the paired row; with a deletion '
+        'pending, that section ends the list and the help stays in the bar', (
+      tester,
+    ) async {
+      await boot(user: userA, paired: true);
+      await pumpPage(tester);
+      const binding = SyncBinding(
+        spaceId: 'space-1',
+        ownerUid: 'uid-a',
+        accountUid: 'uid-a',
+      );
+      syncBloc!.show(
+        const SyncSignedIn(userA, status: SyncStatus(binding: binding)),
+      );
+      await settle(tester, rounds: 4);
+
+      expect(
+        idsOf(tester, l10n.syncSection).last,
+        SemanticsIds.sharingSyncDelete,
+      );
+      expect(idsOf(tester, l10n.pairingSection), [SemanticsIds.sharingPaired]);
+      expectHelpInBar(tester);
+
+      // A copy left half deleted brings the deletion section, the list's
+      // last; the bar is untouched.
+      syncBloc!.show(
+        SyncSignedIn(
+          userA,
+          status: const SyncStatus(binding: binding),
+          deletion: SyncDeletionStatus(
+            accountUid: userA.uid,
+            pending: const [
+              SyncPendingDeletion(
+                space: SyncSpaceRef(ownerUid: 'uid-a', spaceId: 'space-9'),
+                spaceName: 'Phone',
+              ),
+            ],
+          ),
+        ),
+      );
+      await settle(tester, rounds: 4);
+      expect(sections(tester).last.title, l10n.syncDeletionSection);
+      expectHelpInBar(tester);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('without sync the bar still carries the help, and it still '
+        'opens the sync book\'s hub', (tester) async {
+      await boot(available: false);
+      await pumpPage(tester);
+
+      expectHelpInBar(tester);
+      expect(
+        sections(tester).where((s) => s.title == l10n.pairingSection),
+        isEmpty,
+      );
+      await tester.tap(byId(SemanticsIds.sharingSyncHow));
+      await settle(tester);
+      expect(byId(SemanticsIds.guideBook('sync')), findsOneWidget);
+      await tester.pageBack();
+      await settle(tester);
+      expect(byId(SemanticsIds.sharingList), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    group('a pair made while the page waits to open Sharing', () {
+      Future<void> openSheet(WidgetTester tester) async {
+        await tester.tap(byId(SemanticsIds.sharingPair));
+        await settle(tester);
+        expect(byId(SemanticsIds.pairingHow), findsOneWidget);
+      }
+
+      testWidgets('with the pairing sheet on top, the sheet closes and '
+          'Sharing opens over the page, as before', (tester) async {
+        await boot(user: userA);
+        await pumpPage(tester, openSharing: true);
+        await openSheet(tester);
+
+        pairingBloc!.show(const PairingPaired());
+        await settle(tester);
+
+        expect(find.byType(SharingPage), findsOneWidget);
+        expect(byId(SemanticsIds.pairingHow), findsNothing);
+        Navigator.of(tester.element(find.byType(SharingPage))).pop();
+        await settle(tester);
+        expect(byId(SemanticsIds.sharingList), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      // A sheet or a dialog the page raised is no page over it.
+      testWidgets('with a dialog of the page on top, Sharing opens over the '
+          'page, as before', (tester) async {
+        await boot(user: userA);
+        await pumpPage(tester, openSharing: true);
+        unawaited(
+          showDialog<void>(
+            context: tester.element(byId(SemanticsIds.sharingList)),
+            builder: (_) => const AlertDialog(content: Text('asking')),
+          ),
+        );
+        await settle(tester);
+        expect(find.text('asking'), findsOneWidget);
+
+        pairingBloc!.show(const PairingPaired());
+        await settle(tester);
+
+        expect(find.byType(SharingPage), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('with the guide opened over the sheet, nothing is pushed '
+          'over the guide, the ask is dropped, and back lands on the page', (
+        tester,
+      ) async {
+        await boot(user: userA);
+        await pumpPage(tester, openSharing: true);
+        await openSheet(tester);
+        await tester.tap(byId(SemanticsIds.pairingHow));
+        await settle(tester);
+        final guide = byId(SemanticsIds.guideBookTopic('sync', 'pair'));
+        expect(guide, findsOneWidget);
+
+        pairingBloc!.show(const PairingPaired());
+        await settle(tester);
+
+        expect(find.byType(SharingPage), findsNothing);
+        expect(guide, findsOneWidget);
+
+        await tester.pageBack();
+        await settle(tester);
+        expect(byId(SemanticsIds.pairingHow), findsNothing);
+        expect(byId(SemanticsIds.sharingList), findsOneWidget);
+        expect(find.byType(SharingPage), findsNothing);
+
+        // The ask was dropped: a later paired state opens nothing.
+        pairingBloc!.show(const PairingPaired(busy: true));
+        await settle(tester, rounds: 3);
+        pairingBloc!.show(const PairingPaired());
+        await settle(tester);
+        expect(find.byType(SharingPage), findsNothing);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
     });
   });
 

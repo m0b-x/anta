@@ -41,6 +41,20 @@ Future<void> loadGoldenFonts() async {
   _loaded = true;
 }
 
+/// Roboto registered as `monospace` as well, for a suite that measures text
+/// the app draws in the platform's monospace (the pairing code and its
+/// field): the SDK caches no monospace face, and the test font's square
+/// glyphs are near twice a phone's monospace advance. Roboto's capitals and
+/// digits stand within a few percent of it.
+Future<void> loadMonospaceStandIn() async {
+  final dir = _fontDirectory();
+  final mono = FontLoader('monospace');
+  for (final face in const ['roboto-regular.ttf', 'roboto-medium.ttf']) {
+    mono.addFont(_read(dir, face));
+  }
+  await mono.load();
+}
+
 Future<ByteData> _read(Directory dir, String face) async {
   final bytes = await File('${dir.path}/$face').readAsBytes();
   return ByteData.sublistView(bytes);

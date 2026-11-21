@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart' show Durations;
 import 'package:flutter/widgets.dart';
 
+import 'form_metrics.dart';
 import 'row_metrics.dart';
 
 /// The calendar guide's own numbers.
@@ -122,6 +124,46 @@ abstract final class GuideMetrics {
   /// switch already at 1.3 — which the full-width sheets never do. Below it
   /// the stage keeps its inset patch.
   static const double stageFullBleedTextScale = 1.3;
+
+  /// The two-phone stage's flip (`docs/guide-hub-roadmap.md` D42, §11.8 D):
+  /// the dot that says the phone not in view changed — a step under the
+  /// label's 14 px so it reads as a mark on the word, not a control, and
+  /// never scaled with the text. Its slot is always kept, so a dot that comes
+  /// or goes never moves the label.
+  static const double flipDotSize = 8;
+  static const double flipDotGap = 6;
+
+  /// Flip to the phone under it: the two belong together, so less than the
+  /// coach line's [coachToStage].
+  static const double flipToStage = 8;
+
+  /// The flip is guide chrome, as the coach line is (§11.8 B): unclamped, the
+  /// sync card's flip stood 120 dp tall at 2.0 in German.
+  static const double flipMaxTextScale = coachMaxTextScale;
+
+  /// The phone's bar: the app's 40 dp visible row height, so a bar with a
+  /// 48 dp toggle grows only for that card.
+  static const double phoneBarMinHeight = 40;
+
+  /// The bar's mark — a phone glyph, or the partner's face — and the gap to
+  /// its title: the size the partner's face wears on a row's share mark.
+  static const double phoneMarkSize = 20;
+  static const double phoneMarkGap = 8;
+
+  /// The bar names the phone, as the flip does, so it stops growing with it:
+  /// unclamped at 2.0 in German it took two 26 px lines and stood taller
+  /// than the flip.
+  static const double phoneBarMaxTextScale = coachMaxTextScale;
+
+  /// How long a change takes to reach the other phone on a stage (D47): long
+  /// enough to see that it travels, short enough not to bore. A wait, never
+  /// an animation, so reduced motion has nothing to take away (§11.8 E).
+  static const Duration syncBeat = Durations.extralong4;
+
+  /// The lines the `pair` stage lets a refused code's message take under
+  /// Sam's field: the sheet's own bound, so the stage shows the sentence as
+  /// the sheet does — whole, four lines at 2.0 in German on a 360 phone.
+  static const int pairErrorMaxLines = FormMetrics.fieldErrorMaxLines;
 
   /// The kinds and finding cards' month of dots: as large as the stage's
   /// width allows, in whole steps of the year tiles' size so the dots stay

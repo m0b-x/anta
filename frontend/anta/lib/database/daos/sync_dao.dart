@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../constants/settings_keys.dart';
 import '../crdt/crdt_merge.dart';
 import '../database.dart';
 import '../tables/sync_metadata_table.dart';
@@ -366,6 +367,47 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     for (final pairId in {...pairs.nonNulls}) {
       await oweSharePoke(pairId: pairId, urgent: urgent);
     }
+  }
+
+  /// The prefix every [keyShareCleared] shares, for [deleteByPrefix].
+  static const String shareClearedPrefix = 'share_cleared.';
+
+  /// Present once the push took the grant off the stored document of
+  /// [table]'s [rowKey] while the row's newest write was held back by a
+  /// park (`SyncGateway.unshareRows`, review A3); the value is the outbox
+  /// stamp held back then, so a park at another stamp is a new one, and a
+  /// later drain repeats nothing while the record stands. Keyed as the park
+  /// is, by the outbox key. It says "cleared at this park" and nothing more,
+  /// so it goes whenever the document may name a pair again:
+  ///
+  /// - when the park lifts — the row's next push writes its document whole —
+  ///   and at an unbind, with the cursors;
+  /// - when a drain finds the held row shared here: another device's share
+  ///   merged, whose own pushes say the grant, and an un-share after it is
+  ///   a new decision at the same held stamp;
+  /// - when a pull meets the row's document naming a pair, merged or parked:
+  ///   a device of the owner that is behind pushed the grant back, and only
+  ///   this device's next drain takes it off again.
+  ///
+  /// Device-local.
+  static String keyShareCleared(String table, String rowKey) =>
+      '$shareClearedPrefix$table.$rowKey';
+
+  /// Whether this database has ever been in a pair — the last pair stored
+  /// ([SettingsKeys.pairingLastPair]), or a partner the reader began for
+  /// ([keySharedEverHeld]) — so whether a document of its space may ever
+  /// have named one. One statement; a database that never paired takes no
+  /// grant off anything.
+  Future<bool> everPaired() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM user_settings WHERE key = ?1) '
+      'OR EXISTS(SELECT 1 FROM sync_metadata WHERE key = ?2) AS paired',
+      variables: [
+        Variable<String>(SettingsKeys.pairingLastPair),
+        Variable<String>(keySharedEverHeld),
+      ],
+    ).getSingle();
+    return row.read<bool>('paired');
   }
 
   Future<String?> getValue(String key) async {

@@ -31,6 +31,15 @@ const String sharedPairKey = 'sharedPair';
 /// (`docs/cloud-sharing-foundations.md` §3).
 const String sharedStampKey = 'sharedStamp';
 
+/// Whether a document the server timed at [pushedAt] was pushed before a
+/// write a device stamped at [decidedAt] by its own clock — in whole
+/// milliseconds, the precision of a stamp's wall time. What a pull weighs
+/// before it says a document shared again (`_Puller._resayShares`); the
+/// other direction, private, never waits on it. The two clocks differ by the
+/// device's skew, inside which a share may wait for the row's next push.
+bool pushedBefore(DateTime pushedAt, DateTime decidedAt) =>
+    pushedAt.millisecondsSinceEpoch < decidedAt.millisecondsSinceEpoch;
+
 /// One row on the wire, keyed as the outbox keys it.
 class SyncEnvelope extends Equatable {
   /// The SQL table name.
@@ -450,6 +459,28 @@ abstract interface class SyncGateway {
     required String? sharedPair,
     required String pushedBy,
     required int schema,
+  });
+
+  /// Takes the grant off the stored documents of [table] under [rowKeys] —
+  /// at most [maxBatch] of them, each the document's id as a push names it
+  /// ([SyncEnvelope.rowKey]) — and nothing else: `sharedPair` and its
+  /// `wire` removed, `pushedAt` and `pushedBy` stamped anew, the row's own
+  /// fields and the space document untouched. For a row whose newest write
+  /// cannot be pushed while its grant ended: a push writes the document
+  /// whole, but a parked one never goes, and the earlier version would go on
+  /// naming the pair (review A3).
+  ///
+  /// Whoever pushed the document and whenever: private is the side every
+  /// doubt errs on (`docs/cloud-sharing-foundations.md` §3), and a share
+  /// this device has not merged yet is said again by the row's next push
+  /// once the park lifts. A key with no document and one whose document
+  /// names no pair are left as they are — nothing is created. The rules
+  /// judge the merged document, which a field update keeps valid.
+  Future<void> unshareRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys, {
+    required String pushedBy,
   });
 
   /// The envelopes of [table] in arrival order strictly after [after] — all

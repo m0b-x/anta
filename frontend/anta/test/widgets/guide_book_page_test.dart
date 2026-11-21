@@ -4,31 +4,42 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/controllers/guide_setup_reader.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/l10n/app_localizations_ro.dart';
 import 'package:anta/models/app_guide_content.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/calendar_guide_content.dart';
 import 'package:anta/models/guide_book.dart';
 import 'package:anta/models/guide_content.dart';
 import 'package:anta/models/notes_guide_content.dart';
+import 'package:anta/models/share_overview.dart';
+import 'package:anta/models/sync_binding.dart';
+import 'package:anta/models/sync_guide_content.dart';
+import 'package:anta/models/sync_guide_tries.dart';
 import 'package:anta/pages/guide_book_page.dart';
 import 'package:anta/pages/guide_topic_page.dart';
+import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/services/shared_refresh/shared_refresh_scheduler.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:anta/utils/settings_search.dart';
 import 'package:anta/utils/share_copy.dart';
 import 'package:anta/widgets/calendar_guide_rows.dart';
+import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/guide_example_row.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 import 'package:anta/widgets/simple_markdown_preview.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import '../services/pairing_support.dart';
+import '../support/fake_share_service.dart';
 
 Widget _app(
   Widget home, {
@@ -49,12 +60,16 @@ Widget _app(
   );
 }
 
-/// Every page of both books, each written in full (§6 of
+/// Every page of the three books, each written in full (§6 and §11.4 of
 /// docs/guide-hub-roadmap.md).
 final List<(GuideBook, GuideTopic)> _written = [
   for (final topic in NotesGuideTopic.values) (GuideBook.notes, topic),
+  for (final topic in SyncGuideTopic.values) (GuideBook.sync, topic),
   for (final topic in AppGuideTopic.values) (GuideBook.app, topic),
 ];
+
+/// The books a `GuideBookPage` draws: the calendar's is its own page.
+const _books = [GuideBook.notes, GuideBook.sync, GuideBook.app];
 
 /// The page's read rows, in page order.
 List<CalendarGuideRow> _readRows(GuideTopic topic, AppLocalizations l10n) => [
@@ -116,13 +131,15 @@ Iterable<String> _textsUnder(WidgetTester tester, Finder row) => tester
 /// lines need and none ran out of lines. The search field's hint is the
 /// kit's, cut at 2.0 on every settings page alike, and is left out.
 void _expectNoClippedText(WidgetTester tester) {
-  final paragraphs = tester.renderObjectList<RenderParagraph>(
-    find.descendant(
-      of: find.byType(SettingsSectionList),
-      matching: find.byType(RichText),
-    ),
-  );
-  for (final paragraph in paragraphs) {
+  final elements = find
+      .descendant(
+        of: find.byType(SettingsSectionList),
+        matching: find.byType(RichText),
+      )
+      .evaluate();
+  for (final element in elements) {
+    if (_sizingCandidate(element)) continue;
+    final paragraph = element.renderObject! as RenderParagraph;
     final reason = paragraph.text.toPlainText();
     expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
     expect(
@@ -134,6 +151,36 @@ void _expectNoClippedText(WidgetTester tester) {
       reason: reason,
     );
   }
+}
+
+/// [paragraph] is a slot's sizing candidate, laid out unseen so no reader
+/// sees it cut: a `FormCaptionSlot`'s candidate, or a line held alone under
+/// `Opacity(0)` — the Sync section's status row, on the sync card's stage,
+/// sizes its details by one line of "Never synced" held to one line on
+/// purpose. A stage's unseen phone is no candidate: its words are the other
+/// phone's, and are checked like the shown one's.
+bool _sizingCandidate(Element paragraph) {
+  final below = <Widget>[paragraph.widget];
+  // No widget of several children passed yet: an `Opacity(0)` met now holds
+  // this line alone.
+  var alone = true;
+  var candidate = false;
+  paragraph.visitAncestorElements((ancestor) {
+    final widget = ancestor.widget;
+    if (alone && widget is Opacity && widget.opacity == 0) {
+      candidate = true;
+      return false;
+    }
+    if (widget is FormCaptionSlot &&
+        below.any((w) => widget.candidates.any((c) => identical(c, w)))) {
+      candidate = true;
+      return false;
+    }
+    if (widget is MultiChildRenderObjectWidget) alone = false;
+    below.add(widget);
+    return true;
+  });
+  return candidate;
 }
 
 void main() {
@@ -157,7 +204,7 @@ void main() {
 
   test('the catalogues: every slug once per book, the hub split covers '
       'every page once', () {
-    for (final book in [GuideBook.notes, GuideBook.app]) {
+    for (final book in _books) {
       final topics = book.topics.map((topic) => topic.slug).toList();
       expect(topics.toSet(), hasLength(topics.length), reason: book.slug);
       expect(book.topics, containsAll(book.startHere));
@@ -172,9 +219,11 @@ void main() {
       expect(rows.toSet(), hasLength(rows.length), reason: book.slug);
     }
     expect(NotesGuideTopic.values, hasLength(12));
+    expect(SyncGuideTopic.values, hasLength(10));
+    expect(AppGuideTopic.values, hasLength(3));
   });
 
-  for (final book in [GuideBook.notes, GuideBook.app]) {
+  for (final book in _books) {
     testWidgets('${book.slug}: every page row sits in its card, by id', (
       tester,
     ) async {
@@ -241,171 +290,339 @@ void main() {
   }
 
   testWidgets('the book search finds a row under its page', (tester) async {
-    await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.app)));
+    await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.sync)));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), en.appGuideSyncStopTitle);
+    await tester.enterText(find.byType(TextField), en.syncGuideStopWhenTitle);
     await tester.pumpAndSettle();
-    final row = _row(GuideBook.app, 'sync-stop');
+    final row = _row(GuideBook.sync, 'stop-when');
     expect(row, findsOneWidget);
     expect(
       find.descendant(
         of: _cardOf(row),
-        matching: _hubRow(GuideBook.app, AppGuideTopic.sync),
+        matching: _hubRow(GuideBook.sync, SyncGuideTopic.stop),
       ),
       findsOneWidget,
     );
-    expect(_hubRow(GuideBook.app, AppGuideTopic.menu), findsNothing);
+    expect(_hubRow(GuideBook.sync, SyncGuideTopic.sync), findsNothing);
   });
 
-  testWidgets('the book search finds the cloud copy\'s deletion under the '
-      'sync page, right after stopping', (tester) async {
-    await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.app)));
-    await tester.pumpAndSettle();
+  group('"Your setup" (D48, D54)', () {
+    final setupSources = GuideSetupReader.sources;
+    tearDown(() => GuideSetupReader.sources = setupSources);
 
-    await tester.enterText(find.byType(TextField), en.appGuideSyncDeleteTitle);
-    await tester.pumpAndSettle();
-    final row = _row(GuideBook.app, 'sync-delete');
-    expect(row, findsOneWidget);
-    expect(
-      find.descendant(
-        of: _cardOf(row),
-        matching: _hubRow(GuideBook.app, AppGuideTopic.sync),
-      ),
-      findsOneWidget,
-    );
-    final slugs = [
-      for (final entry in AppGuideTopic.sync.entries(en))
-        if (entry is GuideReadEntry) entry.row.slug,
-    ];
-    // The account's own deletion after its copies', then where all of it is
-    // kept, which closes the page.
-    expect(slugs.sublist(slugs.length - 4), [
-      'sync-stop',
-      'sync-delete',
-      'sync-delete-account',
-      'sync-data',
-    ]);
+    Finder setup() => find.bySemanticsIdentifier(SemanticsIds.guideSyncSetup);
+
+    testWidgets('the sync book\'s hub opens on it, above Start here; no other '
+        'book\'s hub has it', (tester) async {
+      for (final book in _books) {
+        // A page per book, as each is pushed: never one state handed on.
+        await tester.pumpWidget(
+          _app(GuideBookPage(key: ValueKey(book), book: book)),
+        );
+        await tester.pumpAndSettle();
+        if (book != GuideBook.sync) {
+          expect(setup(), findsNothing, reason: book.slug);
+          continue;
+        }
+        // No identity is registered here: a build without sync, its line.
+        expect(setup(), findsOneWidget);
+        expect(
+          find.descendant(
+            of: setup(),
+            matching: find.bySemanticsIdentifier(
+              SemanticsIds.guideSyncSetupRow('unavailable'),
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.getRect(setup()).bottom,
+          lessThanOrEqualTo(
+            tester.getRect(_header(en.calendarGuideStartHere)).top,
+          ),
+        );
+        expect(
+          tester.getRect(_header(en.syncGuideSetupTitle)).top,
+          lessThan(tester.getRect(_header(en.calendarGuideStartHere)).top),
+        );
+      }
+    });
+
+    testWidgets('a query takes it away, its own words included: it is state, '
+        'not text', (tester) async {
+      await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.sync)));
+      await tester.pumpAndSettle();
+      expect(setup(), findsOneWidget);
+
+      for (final words in [
+        en.syncGuideSetupTitle,
+        en.syncThisDatabaseUnavailable,
+      ]) {
+        await tester.enterText(find.byType(TextField), words);
+        await tester.pumpAndSettle();
+        expect(setup(), findsNothing, reason: words);
+      }
+
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pumpAndSettle();
+      expect(setup(), findsOneWidget);
+    });
+
+    testWidgets('read again when the hub comes back to the front', (
+      tester,
+    ) async {
+      final auth = FakeAuthService(user: userA);
+      addTearDown(auth.dispose);
+      SyncBinding? binding;
+      GuideSetupReader.sources = () => GuideSetupSources(
+        auth: auth,
+        storedPairing: () => throw StateError('memory answers the pair'),
+        binding: () async => binding,
+        share: () => throw StateError('never paired'),
+        pairedInMemory: () => false,
+        knownSharing: () => null,
+        pairingWrites: () => const Stream.empty(),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          navigatorObservers: [AppNavigator.routeObserver],
+          home: const GuideBookPage(book: GuideBook.sync),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final sync = find.bySemanticsIdentifier(
+        SemanticsIds.guideSyncSetupRow('sync'),
+      );
+      Finder done() => find.descendant(
+        of: sync,
+        matching: find.byIcon(Icons.check_circle_rounded),
+      );
+      expect(done(), findsNothing);
+
+      // She turns sync on on the screen the row opened, and comes back.
+      Navigator.of(
+        tester.element(setup()),
+      ).push(MaterialPageRoute<void>(builder: (_) => const Scaffold()));
+      await tester.pumpAndSettle();
+      binding = SyncBinding(
+        spaceId: 'space',
+        ownerUid: userA.uid,
+        accountUid: userA.uid,
+      );
+      Navigator.of(tester.element(find.byType(Scaffold).last)).pop();
+      await tester.pumpAndSettle();
+
+      expect(done(), findsOneWidget);
+    });
+
+    testWidgets('the count is asked again after any page that covered the '
+        'hub, never after a page of the book the hub opened', (tester) async {
+      final auth = FakeAuthService(user: userA);
+      addTearDown(auth.dispose);
+      final share = FakeShareService(
+        availability: const ShareReady(
+          ShareAudience(
+            id: 'pair-1',
+            displayName: 'Maria',
+            members: [AppUser(uid: 'maria', displayName: 'Maria')],
+          ),
+        ),
+      )..shareOverview = const ShareOverview(folderCount: 2);
+      GuideSetupReader.sources = () => GuideSetupSources(
+        auth: auth,
+        storedPairing: () => throw StateError('memory answers the pair'),
+        binding: () async => null,
+        share: () async => share,
+        knownSharing: () => share.availability,
+        pairingWrites: () => const Stream.empty(),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          navigatorObservers: [AppNavigator.routeObserver],
+          home: const GuideBookPage(book: GuideBook.sync),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(share.overviews, 1);
+
+      // A share notice's View, say: she may share something there.
+      Navigator.of(
+        tester.element(setup()),
+      ).push(MaterialPageRoute<void>(builder: (_) => const Scaffold()));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(Scaffold).last)).pop();
+      await tester.pumpAndSettle();
+      expect(share.overviews, 2);
+
+      final topic = _hubRow(GuideBook.sync, SyncGuideTopic.sync);
+      await _scrollTo(tester, topic);
+      await tester.tap(topic);
+      await tester.pumpAndSettle();
+      expect(find.byType(GuideTopicPage), findsOneWidget);
+      Navigator.of(tester.element(find.byType(GuideTopicPage))).pop();
+      await tester.pumpAndSettle();
+      expect(share.overviews, 2);
+    });
   });
 
-  testWidgets('the app book lists sharing right after sync, its title over '
-      'its caption', (tester) async {
+  // §11 D39: sync and sharing left for a book of their own.
+  testWidgets('the app book keeps three pages: the menu and the settings to '
+      'start, backup under How do I…', (tester) async {
     expect(AppGuideTopic.values, [
       AppGuideTopic.menu,
       AppGuideTopic.settings,
       AppGuideTopic.backup,
-      AppGuideTopic.sync,
-      AppGuideTopic.sharing,
+    ]);
+    expect(GuideBook.app.startHere, [
+      AppGuideTopic.menu,
+      AppGuideTopic.settings,
     ]);
     await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.app)));
     await tester.pumpAndSettle();
 
-    final sharing = _hubRow(GuideBook.app, AppGuideTopic.sharing);
-    await _scrollTo(tester, sharing);
-    final title = find.descendant(
-      of: sharing,
-      matching: find.text(en.appGuidePageSharing),
-    );
-    final caption = find.descendant(
-      of: sharing,
-      matching: find.text(en.appGuidePageSharingCaption),
-    );
-    expect(title, findsOneWidget);
-    expect(caption, findsOneWidget);
-    expect(
-      tester.getRect(caption).top,
-      greaterThanOrEqualTo(tester.getRect(title).bottom),
-    );
-    final sync = _hubRow(GuideBook.app, AppGuideTopic.sync);
-    expect(sync, findsOneWidget);
-    expect(
-      tester.getRect(sharing).top,
-      greaterThanOrEqualTo(tester.getRect(sync).bottom),
-    );
+    final backup = _hubRow(GuideBook.app, AppGuideTopic.backup);
+    await _scrollTo(tester, backup);
     expect(
       find.descendant(
-        of: _cardOf(sharing),
+        of: _cardOf(backup),
         matching: _header(en.calendarGuideHowDoI),
       ),
       findsOneWidget,
     );
+    expect(find.text(en.guideBookAppTitle), findsOneWidget);
   });
 
-  group('the sharing page', () {
-    const slugs = [
-      'sharing-pair',
-      'sharing-category',
-      'sharing-event',
-      'sharing-folder',
-      'sharing-readonly',
-      'sharing-theirs',
-      'sharing-alerts',
-      'sharing-stop',
-      'sharing-private',
-    ];
+  group('the sync book (§11.4)', () {
+    const pages = {
+      SyncGuideTopic.sync: [
+        'sync-signin',
+        'sync-on',
+        'sync-status',
+        'sync-cadence',
+        'sync-other',
+      ],
+      SyncGuideTopic.pair: ['pair-one', 'pair-code', 'pair-sync', 'pair-empty'],
+      SyncGuideTopic.offline: [
+        'offline-normal',
+        'offline-conflict',
+        'offline-close',
+      ],
+      SyncGuideTopic.event: [
+        'event-switch',
+        'event-theirs',
+        'event-follow',
+        'event-copy',
+      ],
+      SyncGuideTopic.category: [
+        'category-where',
+        'category-all',
+        'category-out',
+        'category-theirs',
+      ],
+      SyncGuideTopic.folder: [
+        'folder-where',
+        'folder-inside',
+        'folder-readonly',
+        'folder-note',
+      ],
+      SyncGuideTopic.look: [
+        'look-events',
+        'look-notes',
+        'look-mark',
+        'look-hide',
+      ],
+      SyncGuideTopic.alerts: [
+        'alerts-choices',
+        'alerts-own',
+        'alerts-follow',
+        'alerts-from',
+      ],
+      SyncGuideTopic.stop: [
+        'stop-one',
+        'stop-all',
+        'stop-unpair',
+        'stop-when',
+        'stop-sync',
+      ],
+      SyncGuideTopic.private: [
+        'private-never',
+        'private-readonly',
+        'private-backups',
+        'private-data',
+      ],
+    };
+
+    test('its pages in order, sync and pair to start, every row by its '
+        'frozen slug', () {
+      expect(SyncGuideTopic.values, pages.keys.toList());
+      expect(
+        [for (final topic in SyncGuideTopic.values) topic.slug],
+        [
+          'sync',
+          'pair',
+          'offline',
+          'event',
+          'category',
+          'folder',
+          'look',
+          'alerts',
+          'stop',
+          'private',
+        ],
+      );
+      expect(GuideBook.sync.startHere, [
+        SyncGuideTopic.sync,
+        SyncGuideTopic.pair,
+      ]);
+      expect(SyncGuideTopic.pair.icon, Icons.link_rounded);
+      for (final MapEntry(key: topic, value: slugs) in pages.entries) {
+        expect(topic.editorCards, isEmpty, reason: topic.slug);
+        expect(
+          [for (final row in _readRows(topic, en)) row.slug],
+          slugs,
+          reason: topic.slug,
+        );
+      }
+    });
 
     for (final locale in const [Locale('en'), Locale('de'), Locale('ro')]) {
-      testWidgets('${locale.languageCode}: its lead, then its nine rows in '
-          'order, every placeholder filled', (tester) async {
+      test('${locale.languageCode}: every page has its lead and every row a '
+          'title and a body, every placeholder filled', () {
         final l10n = lookupAppLocalizations(locale);
-        await tester.pumpWidget(
-          _app(
-            const GuideTopicPage(
-              book: GuideBook.app,
-              topic: AppGuideTopic.sharing,
-            ),
-            locale: locale,
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        final lead = AppGuideTopic.sharing.lead(l10n)!;
-        expect(lead, l10n.appGuideSharingLead);
-        expect(find.text(lead), findsOneWidget);
-        final rows = _readRows(AppGuideTopic.sharing, l10n);
-        expect([for (final row in rows) row.slug], slugs);
-
-        final position = tester.state<ScrollableState>(_list()).position;
-        var previous = tester.getRect(find.text(lead)).top + position.pixels;
-        for (final row in rows) {
-          final found = _row(GuideBook.app, row.slug);
-          await _scrollTo(tester, found);
-          final texts = _textsUnder(tester, found).toList();
-          expect(texts, containsAll([row.title, row.body]), reason: row.slug);
-          for (final text in texts) {
-            expect(text, isNot(contains('{')), reason: row.slug);
+        for (final topic in SyncGuideTopic.values) {
+          expect(topic.lead(l10n), isNotEmpty, reason: topic.slug);
+          for (final row in _readRows(topic, l10n)) {
+            for (final text in [row.title, row.body]) {
+              expect(text, isNotEmpty, reason: row.slug);
+              expect(text, isNot(contains('{')), reason: row.slug);
+            }
           }
-          final top = tester.getRect(found).top + position.pixels;
-          expect(top, greaterThan(previous), reason: row.slug);
-          previous = top;
         }
-        expect(tester.takeException(), isNull);
       });
 
-      test('${locale.languageCode}: the alerts row closes on what is true on '
-          'the device — changes followed while ANTA is closed, or what the '
-          'phone last received (D32)', () {
+      test('${locale.languageCode}: the alerts page says what is true on the '
+          'device — changes followed while ANTA is closed, or what the phone '
+          'last received (D32)', () {
         addTearDown(() => SharedRefreshAvailability.debugSupported = null);
         final l10n = lookupAppLocalizations(locale);
-        String alertsBody() => _readRows(
-          AppGuideTopic.sharing,
+        String followBody() => _readRows(
+          SyncGuideTopic.alerts,
           l10n,
-        ).singleWhere((row) => row.slug == 'sharing-alerts').body;
-        final shared = l10n.appGuideSharingAlertsBody(
-          l10n.shareAlerts,
-          l10n.shareAlertsOff,
-          l10n.shareAlertsCategory,
-        );
+        ).singleWhere((row) => row.slug == 'alerts-follow').body;
 
         SharedRefreshAvailability.debugSupported = true;
-        expect(alertsBody(), '$shared ${l10n.appGuideSharingAlertsFresh}');
-        expect(l10n.appGuideSharingAlertsFresh, contains('ANTA'));
+        expect(followBody(), l10n.syncGuideAlertsFollowFreshBody);
+        expect(l10n.syncGuideAlertsFollowFreshBody, contains('ANTA'));
 
         SharedRefreshAvailability.debugSupported = false;
-        expect(
-          alertsBody(),
-          '$shared ${l10n.appGuideSharingAlertsLastReceived}',
-        );
+        expect(followBody(), l10n.syncGuideAlertsFollowLastReceivedBody);
       });
     }
   });
@@ -455,10 +672,13 @@ void main() {
         findsOneWidget,
       );
       // No search field: the hubs search every page. The one field a page
-      // can hold is a card's own (`docs/guide-hub-roadmap.md` D34).
+      // can hold is a card's own (`docs/guide-hub-roadmap.md` D34) — the
+      // pair card's is Sam's code field, laid out unseen while her phone is
+      // in view.
       expect(
         find.byType(TextField),
-        topic.editorCards.any((card) => card.maker)
+        topic.editorCards.any((card) => card.maker) ||
+                topic.demoCards.contains(SyncGuideTries.pair)
             ? findsOneWidget
             : findsNothing,
       );
@@ -475,6 +695,9 @@ void main() {
       expect(levelOne.evaluate().single.label, book.title(en));
       final lead = topic.lead(en);
       if (lead != null) expect(find.text(lead), findsOneWidget);
+      // A two-phone card can stand between the lead and the rows' card
+      // (§11.3), past what the list builds at first.
+      await _scrollTo(tester, _header(en.calendarGuideHowItWorks));
       expect(
         find.text(en.calendarGuideHowItWorks.toUpperCase()),
         findsOneWidget,
@@ -914,45 +1137,40 @@ void main() {
               'backup-folder',
               l10n.shareFolder,
             ),
-            (GuideBook.app, AppGuideTopic.sync, 'sync-stop', l10n.syncStop),
-            (
-              GuideBook.app,
-              AppGuideTopic.sync,
-              'sync-delete',
-              l10n.syncDeleteCloud,
-            ),
-            (
-              GuideBook.app,
-              AppGuideTopic.sync,
-              'sync-delete-account',
-              l10n.syncDeleteAccount,
-            ),
-            (
-              GuideBook.app,
-              AppGuideTopic.sync,
-              'sync-data',
-              l10n.dataNoticeTitle,
-            ),
-            for (final (slug, label) in [
-              ('sharing-pair', l10n.pairingSection),
-              ('sharing-pair', l10n.sharingSettings),
-              ('sharing-pair', l10n.syncThisDatabase),
-              ('sharing-category', shareWith(l10n)),
-              ('sharing-category', l10n.calendarCategories),
-              ('sharing-category', sharingPage(l10n)),
-              ('sharing-event', shareWith(l10n)),
-              ('sharing-folder', shareWith(l10n)),
-              ('sharing-folder', l10n.shareAddFolder),
-              ('sharing-folder', sharingPage(l10n)),
-              ('sharing-readonly', l10n.sharedEventCopy),
-              ('sharing-theirs', sharingPage(l10n)),
-              ('sharing-alerts', l10n.shareAlerts),
-              ('sharing-alerts', l10n.shareAlertsOff),
-              ('sharing-alerts', l10n.shareAlertsCategory),
-              ('sharing-stop', l10n.shareStopAll),
-              ('sharing-stop', l10n.unpair),
+            for (final (topic, slug, label) in [
+              (SyncGuideTopic.sync, 'sync-signin', l10n.signInWithGoogle),
+              (SyncGuideTopic.sync, 'sync-on', l10n.syncThisDatabase),
+              (SyncGuideTopic.sync, 'sync-status', l10n.syncUpToDate),
+              (SyncGuideTopic.sync, 'sync-cadence', l10n.syncAutomatic),
+              (SyncGuideTopic.pair, 'pair-code', l10n.pairingSection),
+              (SyncGuideTopic.pair, 'pair-code', l10n.pairingGenerateCode),
+              (SyncGuideTopic.pair, 'pair-code', l10n.pairingEnterCode),
+              (SyncGuideTopic.pair, 'pair-one', l10n.unpair),
+              (SyncGuideTopic.offline, 'offline-normal', l10n.syncOffline),
+              (SyncGuideTopic.event, 'event-switch', shareWith(l10n)),
+              (SyncGuideTopic.event, 'event-copy', l10n.sharedEventCopy),
+              (SyncGuideTopic.category, 'category-where', sharingPage(l10n)),
+              (
+                SyncGuideTopic.category,
+                'category-where',
+                l10n.calendarCategories,
+              ),
+              (
+                SyncGuideTopic.category,
+                'category-out',
+                l10n.shareThroughCategory('…'),
+              ),
+              (SyncGuideTopic.folder, 'folder-where', l10n.shareAddFolder),
+              (SyncGuideTopic.folder, 'folder-readonly', l10n.sharedNoteCopy),
+              (SyncGuideTopic.look, 'look-events', l10n.shareLookOutlined),
+              (SyncGuideTopic.look, 'look-notes', l10n.shareNoteLook),
+              (SyncGuideTopic.alerts, 'alerts-choices', l10n.shareAlertsOwn),
+              (SyncGuideTopic.stop, 'stop-all', l10n.shareStopAll),
+              (SyncGuideTopic.stop, 'stop-sync', l10n.syncStop),
+              (SyncGuideTopic.stop, 'stop-sync', l10n.syncDeleteAccount),
+              (SyncGuideTopic.private, 'private-data', l10n.dataNoticeTitle),
             ])
-              (GuideBook.app, AppGuideTopic.sharing, slug, label),
+              (GuideBook.sync, topic, slug, label),
           ]) {
         testWidgets('${locale.languageCode}: ${book.slug} $slug', (
           tester,
@@ -979,7 +1197,7 @@ void main() {
     for (final locale in const [Locale('de'), Locale('ro')]) {
       for (final size in const [Size(360, 780), Size(412, 915)]) {
         for (final brightness in Brightness.values) {
-          for (final book in [GuideBook.notes, GuideBook.app]) {
+          for (final book in _books) {
             testWidgets('${locale.languageCode} ${size.width.toInt()}×'
                 '${size.height.toInt()} ${brightness.name}: ${book.slug}', (
               tester,

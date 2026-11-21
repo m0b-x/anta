@@ -51,6 +51,26 @@ const Duration kPushEndDeadline = Duration(seconds: 30);
 /// How long the removal of this device's entry may hold a sign-out.
 const Duration kPushLeaveDeadline = Duration(seconds: 5);
 
+/// How long the end of a pair this device made waits for its poke before
+/// its entry's removal and the address's end go on
+/// (`PushRegistry.endedByMe`). A sign-out right after an Unpair queues its
+/// leave behind that end and goes on at [kPushLeaveDeadline], signed out
+/// from then: a removal still waiting out a poke of [kPushPokeDeadline]
+/// would then be refused, and the entry left in the ended pair. Half the
+/// leave's deadline gives the poke a fair chance and the removal the other
+/// half. An account's deletion bounds its own wait apart
+/// ([kPushEndedPokeBound]).
+final Duration kPushEndedPokeWait = kPushLeaveDeadline ~/ 2;
+
+/// How long an account's deletion waits, between ending a pair and removing
+/// it, for what the end asked the relay for: the relay refuses a pair that
+/// is gone, so the partner's closed app is woken only while it stands. Past
+/// it the removal goes on — an unreachable relay never holds up or fails a
+/// deletion, and the partner learns at its next check. As long as one poke
+/// may take ([kPushPokeDeadline]): the end sends its poke first, so a
+/// shorter wait would remove the pair under a poke still on its way.
+const Duration kPushEndedPokeBound = kPushPokeDeadline;
+
 /// How long an engine with no app waits for the alarm host to hear that it
 /// is no presenter, before it goes on regardless: the messaging plugin's
 /// background handler, ahead of handing a message's work over

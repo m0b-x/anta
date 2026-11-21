@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+
+import '../../constants/push_constants.dart';
 import '../../models/pair_record.dart';
 import '../../utils/auth_error.dart';
 import '../../utils/pairing_error.dart';
@@ -69,6 +72,13 @@ final class PairedAccountCloser implements AccountCloser {
   /// for (`docs/cloud-shared-freshness.md` §7). Bounded; never throws.
   static Future<void> Function(String uid)? beforeAccountGone;
 
+  /// Set by DI to the push registry's `pokesSent`: awaited
+  /// between a pair's end and its removal, since the relay refuses a poke
+  /// for a pair that is gone and the "pair ended" one would never wake the
+  /// partner's closed app. Bounded here by [kPushEndedPokeBound]; a failure
+  /// is ignored — neither may hold up or fail the deletion.
+  static Future<void> Function()? afterPairEnded;
+
   final AuthService _auth;
   final PairingGateway _pairing;
   final Future<void> Function()? _forgetLocalPairing;
@@ -131,17 +141,30 @@ final class PairedAccountCloser implements AccountCloser {
 
   /// An active pair is ended before it is removed: the rules delete only an
   /// ended one, and the tombstone is what a partner's listening device
-  /// hears.
+  /// hears — and what its closed app is woken for ([afterPairEnded]).
   Future<void> _removePairs(String accountUid) async {
     for (var page = 0; page < maxPages; page++) {
       final pairs = await _pairing.findPairs(accountUid);
       if (pairs.isEmpty) return;
       for (final pair in pairs) {
-        if (pair.isActive) await _end(pair, accountUid);
+        if (pair.isActive) {
+          await _end(pair, accountUid);
+          await _endedPokesSent();
+        }
         await _pairing.deletePair(pair.pairId);
       }
     }
     throw const AccountCloseException(AccountCloseFailure.unknown);
+  }
+
+  Future<void> _endedPokesSent() async {
+    final sent = afterPairEnded;
+    if (sent == null) return;
+    try {
+      await sent().timeout(kPushEndedPokeBound);
+    } catch (e) {
+      debugPrint('[AccountCloser] ended pair poke not confirmed: $e');
+    }
   }
 
   /// Ends [pair]. A refusal is read back before it counts: the partner may

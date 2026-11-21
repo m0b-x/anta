@@ -1,18 +1,33 @@
-# The drawer's How to use ANTA hub opens the two guide books
-# (docs/guide-hub-roadmap.md D1, D11): the notes book, its first page, its
-# markdown page with the "Try it" editor and its bar (D17, D27) and its
+# The drawer's How to use ANTA hub opens the three guide books
+# (docs/guide-hub-roadmap.md D1, D11, D51): the notes book, its first page,
+# its markdown page with the "Try it" editor and its bar (D17, D27) and its
 # shortcuts page, whose card also holds the field her own button writes
-# from (D34), then the app book and its backup page, each left by system
-# back down to the hub and then to the folder root. The drawer row alone is
-# 01_drawer_places; the calendar guide is 11_hub_guide and
-# calendar/26_guide.
+# from (D34), then the sync book's first page, whose two-phone card turns
+# sync on, makes a note and flips to her other phone, its pair page, whose
+# card makes a code and fills it in on Sam's phone, and its event page, whose
+# two-phone card (§11.3) shares an event and flips to Sam's phone, its
+# category page, and its look page, whose one-phone card sets the Sharing
+# page's events look to Avatar on the stage, then the app book and its
+# backup page, each left by system back down to the hub and then to the
+# folder root. The drawer row alone is 01_drawer_places; the
+# calendar guide is 11_hub_guide and calendar/26_guide.
 # - Each page is known by its list's id: guide-hub, guide-<book>,
 #   guide-<book>-topic-<slug>; a read row by guide-<book>-<slug>; a card by
-#   guide-<book>-try-<slug>, its bar by …-bar and its field by …-maker.
+#   guide-<book>-try-<slug>, its bar by …-bar and its field by …-maker; a
+#   two-phone card's stage by …-stage, its flip by …-phone-here / -there and
+#   its share switch by …-share.
+# - The shot is taken a beat after the share, waited for on Sam's row; the
+#   event page's rows sit under the card, so the first one is scrolled to
+#   inside the page's list.
 # - The shortcuts row sits under the fold of the notes hub, so it is
-#   scrolled to inside the hub's list.
+#   scrolled to inside the hub's list; the sync book's event row may too.
 # - How to use ANTA sits low in the drawer, so it is scrolled to inside the
 #   list before the tap (--in id:drawer-list).
+# - The sync book's hub opens on "Your setup" (D48). The QA build runs
+#   without cloud, so the card is its one line, guide-sync-setup-unavailable,
+#   as Sync & sharing opens on sharing-unavailable (09_hub_sharing); a build
+#   with cloud allowed shows the four rows, guide-sync-setup-<row>, each
+#   opening Sync & sharing.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-how-to --in id:drawer-list
@@ -42,6 +57,72 @@ expect id:guide-notes-try-shortcuts-bar
 shot 20_guide_notes_shortcuts_try
 key back
 wait id:guide-notes
+key back
+wait id:guide-hub
+tap id:guide-hub-book-sync
+wait id:guide-sync
+expect id:guide-sync-setup id:guide-sync-setup-unavailable
+tap id:guide-sync-page-sync
+wait id:guide-sync-topic-sync
+expect id:guide-sync-try-sync
+expect id:guide-sync-try-sync-stage
+tap id:guide-sync-try-sync-bind
+tap id:guide-sync-try-sync-new-note
+tap id:guide-sync-try-sync-phone-there
+wait id:guide-sync-try-sync-there-new-1
+shot 20_guide_sync_sync
+scroll-to id:guide-sync-sync-signin --in id:guide-sync-topic-sync
+expect id:guide-sync-sync-signin
+key back
+wait id:guide-sync
+scroll-to id:guide-sync-page-pair --in id:guide-sync
+tap id:guide-sync-page-pair
+wait id:guide-sync-topic-pair
+expect id:guide-sync-try-pair
+expect id:guide-sync-try-pair-stage
+tap id:guide-sync-try-pair-create
+wait id:guide-sync-try-pair-code
+tap id:guide-sync-try-pair-phone-there
+tap id:guide-sync-try-pair-fill
+shot 20_guide_sync_pair_try
+key back
+wait id:guide-sync
+scroll-to id:guide-sync-page-event --in id:guide-sync
+tap id:guide-sync-page-event
+wait id:guide-sync-topic-event
+expect id:guide-sync-try-event
+expect id:guide-sync-try-event-stage
+tap id:guide-sync-try-event-share
+tap id:guide-sync-try-event-phone-there
+wait id:guide-sync-try-event-there-dentist
+shot 20_guide_sync_event_try
+scroll-to id:guide-sync-event-switch --in id:guide-sync-topic-event
+expect id:guide-sync-event-switch
+key back
+wait id:guide-sync
+scroll-to id:guide-sync-page-category --in id:guide-sync
+tap id:guide-sync-page-category
+wait id:guide-sync-topic-category
+expect id:guide-sync-try-category
+expect id:guide-sync-try-category-stage
+tap id:guide-sync-try-category-more-gym
+wait id:guide-sync-try-category-share
+tap id:guide-sync-try-category-share
+tap id:guide-sync-try-category-phone-there
+wait id:guide-sync-try-category-there-pilates
+shot 20_guide_sync_category_try
+key back
+wait id:guide-sync
+scroll-to id:guide-sync-page-look --in id:guide-sync
+tap id:guide-sync-page-look
+wait id:guide-sync-topic-look
+expect id:guide-sync-try-look
+expect id:guide-sync-try-look-stage
+scroll-to id:guide-sync-try-look-events-avatar --in id:guide-sync-topic-look
+tap id:guide-sync-try-look-events-avatar
+shot 20_guide_sync_look_try
+key back
+wait id:guide-sync
 key back
 wait id:guide-hub
 tap id:guide-hub-book-app

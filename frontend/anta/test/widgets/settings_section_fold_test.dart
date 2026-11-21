@@ -784,4 +784,45 @@ void main() {
       );
     });
   });
+
+  // The sync guide's stop card draws the Sharing page's section inside the
+  // guide page's own scroll.
+  testWidgets('shrink-wrapped, the list is as tall as its sections inside '
+      'another scroll and never scrolls itself', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: ListView(
+            children: [
+              SettingsSectionList(
+                sections: sections,
+                query: SettingsQuery.empty,
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+              ),
+              const SizedBox(height: 40, child: Text('after')),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('Description limit'), findsOneWidget);
+    final inner = tester.widget<ListView>(
+      find.descendant(
+        of: find.byType(SettingsSectionList),
+        matching: find.byType(ListView),
+      ),
+    );
+    expect(inner.shrinkWrap, isTrue);
+    expect(inner.primary, isFalse);
+    expect(inner.physics, isA<NeverScrollableScrollPhysics>());
+    expect(
+      tester.getTopLeft(find.text('after')).dy,
+      tester.getBottomLeft(find.byType(SettingsSectionList)).dy,
+    );
+  });
 }

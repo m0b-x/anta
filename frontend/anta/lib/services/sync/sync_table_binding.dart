@@ -79,6 +79,13 @@ abstract class SyncTableBinding<R> {
   /// queued key and a pushed document's id are byte for byte the same.
   String rowKeyOf(R row);
 
+  /// The id of the document a push of the row under [rowKey] writes — the
+  /// key its envelope carries — read off the outbox key alone. The same key
+  /// for every table but a day row's, whose envelope names the UTC midnight
+  /// while a row stored at a local one keeps its own key ([dayEnvelopeKey]).
+  /// What a write to a document other than through a push has to address.
+  String documentKeyOf(String rowKey) => rowKey;
+
   /// The pair each of [rows] is shared into, by [rowKeyOf] — a row that is
   /// private has no entry — for the push to stamp on their envelopes
   /// ([SyncEnvelope.sharedPair]). Empty for a table that is never shared,
@@ -385,6 +392,13 @@ int dayEnvelopeMs(DateTime day) {
 /// reads back. The row and the outbox entry naming it keep their own key.
 String dayEnvelopeKey(String eventId, DateTime day) =>
     '$eventId|${dayEnvelopeMs(day)}';
+
+/// The day bindings' [SyncTableBinding.documentKeyOf]: [dayEnvelopeKey] of
+/// the row this device's outbox key names ([localDayKeyOf]).
+String dayDocumentKeyOf(String rowKey) {
+  final key = localDayKeyOf(rowKey);
+  return dayEnvelopeKey(key.eventId, key.day);
+}
 
 /// The largest epoch-milliseconds magnitude a [DateTime] holds.
 const int _maxEpochMs = 8640000000000000;

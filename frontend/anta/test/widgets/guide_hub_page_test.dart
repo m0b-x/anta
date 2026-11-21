@@ -103,7 +103,7 @@ void main() {
     await db.close();
   });
 
-  testWidgets('the hub lists the three guides under one card, by id', (
+  testWidgets('the hub lists the four guides under one card, by id', (
     tester,
   ) async {
     await tester.pumpWidget(_host());
@@ -128,12 +128,19 @@ void main() {
         findsOneWidget,
       );
     }
-    // Top to bottom: the calendar, the notes, the app.
+    // Top to bottom: the calendar, the notes, sync and sharing, the app.
+    expect(GuideBook.values, [
+      GuideBook.calendar,
+      GuideBook.notes,
+      GuideBook.sync,
+      GuideBook.app,
+    ]);
     final tops = [
       for (final book in GuideBook.values) tester.getTopLeft(_book(book)).dy,
     ];
-    expect(tops[1], greaterThan(tops[0]));
-    expect(tops[2], greaterThan(tops[1]));
+    for (var i = 1; i < tops.length; i++) {
+      expect(tops[i], greaterThan(tops[i - 1]), reason: '$i');
+    }
   });
 
   testWidgets('each guide row pushes its guide, stamped, and back returns to '
@@ -153,6 +160,12 @@ void main() {
         GuideBookPage,
         NavDestinationKind.notesGuide,
         SemanticsIds.guideBook('notes'),
+      ),
+      (
+        GuideBook.sync,
+        GuideBookPage,
+        NavDestinationKind.syncGuide,
+        SemanticsIds.guideBook('sync'),
       ),
       (
         GuideBook.app,
@@ -197,6 +210,13 @@ void main() {
         SemanticsIds.guideBookRow('notes', 'basics-sort'),
         SemanticsIds.guideBookPage('notes', 'basics'),
         en.notesGuidePageBasics,
+      ),
+      (
+        'a sync word',
+        en.syncGuideOfflineConflictTitle,
+        SemanticsIds.guideBookRow('sync', 'offline-conflict'),
+        SemanticsIds.guideBookPage('sync', 'offline'),
+        en.syncGuidePageOffline,
       ),
       (
         'an app word',

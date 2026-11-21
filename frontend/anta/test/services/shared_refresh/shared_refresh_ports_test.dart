@@ -410,6 +410,23 @@ void main() {
 
       expect(registry.names[kSharedRefreshRunPort], isNot(dead.sendPort));
     });
+
+    test('a holder that was only silent is still asked to give way before '
+        'its name is taken (review A8): a run busy past the pings must not '
+        'go on beside the next one unaware', () async {
+      final busy = ReceivePort();
+      addTearDown(busy.close);
+      final heard = <Object?>[];
+      busy.listen((message) => heard.add((message as List).first));
+      registry.names[kSharedRefreshRunPort] = busy.sendPort;
+
+      final taking = run(pingTimeout: short);
+      expect(await taking.open(), isTrue);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(heard, contains(SharedRefreshWire.giveWayToRun));
+      expect(registry.names[kSharedRefreshRunPort], isNot(busy.sendPort));
+    });
   });
 
   group('a run that finds the name held (review item 6)', () {

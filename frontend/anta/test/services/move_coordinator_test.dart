@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/folder.dart' as model;
 import 'package:anta/models/movable_item.dart';
+import 'package:anta/models/note_metadata.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/folder_name_index.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/move_coordinator.dart';
 import 'package:anta/services/move_history_service.dart';
@@ -68,6 +72,16 @@ void main() {
       ),
     );
     return context;
+  }
+
+  /// Lets the database answer, a turn of the real event loop at a time,
+  /// until the Undo's picker is up — never a fixed wait it could outrun.
+  Future<void> untilPickerUp(WidgetTester tester, BuildContext context) async {
+    for (var turn = 0; turn < 200; turn++) {
+      if (Navigator.of(context).canPop()) break;
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    }
+    await tester.pump();
   }
 
   MovableItemRef noteRef(Note note) => MovableItemRef(
@@ -276,6 +290,123 @@ void main() {
     expect(find.text(l10n.moveSkippedDueToDuplicates(1)), findsOneWidget);
   });
 
+  /// Moves a note into a folder of its own and deletes the folder it came
+  /// from, beside a partner's top-level folder at position 0, one of mine
+  /// at 5 and the rest at 9 — the first top-level folder an Undo falls back
+  /// to is the partner's. Returns my folder at 5 and the note. In
+  /// `runAsync`.
+  Future<(Folder, Note)> orphanBesideAPartner(BuildContext context) async {
+    final theirs = await db.folderDao.createFolder(name: 'Theirs');
+    final mine = await db.folderDao.createFolder(name: 'Mine');
+    final doomed = await db.folderDao.createFolder(name: 'Doomed');
+    final target = await db.folderDao.createFolder(name: 'Target');
+    final orphan = await db.noteDao.createNote(
+      folderId: doomed.id,
+      title: 'Orphan',
+    );
+    // A second note, so the move is one undo unit with a batch id.
+    final sibling = await db.noteDao.createNote(
+      folderId: mine.id,
+      title: 'Sibling',
+    );
+    await MoveCoordinator.moveItemsTo(
+      context,
+      items: [noteRef(orphan), noteRef(sibling)],
+      targetParentId: target.id,
+    );
+    await GetIt.I<FolderStorageService>().deleteFolder(doomed.id);
+    await db.customStatement('UPDATE folders SET position = 9');
+    await db.customStatement('UPDATE folders SET position = 5 WHERE id = ?', [
+      mine.id,
+    ]);
+    // Handed to the partner as the shared reader stores it: the owner on
+    // the row, then the key that names whose shared rows these are.
+    await db.customStatement(
+      "UPDATE folders SET position = 0, owner_id = 'maria' WHERE id = ?",
+      [theirs.id],
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'maria');
+    ShareCensus.of(db).forget();
+    GetIt.I<FolderStorageService>().invalidateCache();
+    return (mine, orphan);
+  }
+
+  // Review A6: the fallback took the first top-level folder, a partner's
+  // included, and the move into it is refused.
+  testWidgets('the batch Undo sends a note whose folder is gone to a folder '
+      'of mine, never to a partner\'s that sorts first', (tester) async {
+    final context = await pumpHost(tester);
+    late Folder mine;
+    late Note orphan;
+    await tester.runAsync(() async {
+      (mine, orphan) = await orphanBesideAPartner(context);
+      await MoveCoordinator.undoBatch(context, history.history.first.batchId!);
+    });
+    await tester.pump();
+
+    final row = await tester.runAsync(() => noteRow(orphan.id));
+    expect(row!.folderId, mine.id);
+    expect(history.undoableCount, 0);
+    expect(find.text(l10n.moveUndone), findsOneWidget);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
+  testWidgets('the single Undo, its picker left without a pick, sends the '
+      'note to a folder of mine and throws nothing', (tester) async {
+    final context = await pumpHost(tester);
+    late Folder mine;
+    late Note orphan;
+    late Future<void> undo;
+    // The picker searches folders by name.
+    GetIt.I.registerSingleton<FolderNameIndex>(
+      FolderNameIndex(folderService: GetIt.I<FolderStorageService>()),
+    );
+    await tester.runAsync(() async {
+      (mine, orphan) = await orphanBesideAPartner(context);
+      undo = MoveCoordinator.undoEntry(
+        context,
+        history.history.firstWhere((entry) => entry.itemId == orphan.id),
+      );
+    });
+    await untilPickerUp(tester, context);
+    expect(Navigator.of(context).canPop(), isTrue, reason: 'the picker is up');
+    Navigator.of(context).pop();
+    await tester.pump();
+    await tester.runAsync(() => undo);
+    await tester.pump();
+
+    final row = await tester.runAsync(() => noteRow(orphan.id));
+    expect(row!.folderId, mine.id);
+    expect(history.undoableCount, 1, reason: 'the sibling\'s entry stays');
+    expect(tester.takeException(), isNull);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
+  testWidgets('a single Undo whose move fails says so and stays undoable, '
+      'throwing nothing', (tester) async {
+    final context = await pumpHost(tester);
+    await tester.runAsync(() async {
+      final source = await db.folderDao.createFolder(name: 'Source');
+      final target = await db.folderDao.createFolder(name: 'Target');
+      final note = await db.noteDao.createNote(
+        folderId: source.id,
+        title: 'Row',
+      );
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [noteRef(note)],
+        targetParentId: target.id,
+      );
+      GetIt.I.unregister<NoteStorageService>();
+      GetIt.I.registerSingleton<NoteStorageService>(
+        _ThrowingNoteStorage(NoteRepository(database: db)),
+      );
+      await MoveCoordinator.undoEntry(context, history.history.first);
+    });
+    await tester.pump();
+
+    expect(find.text(l10n.noteMoveFailed), findsOneWidget);
+    expect(history.undoableCount, 1);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
   testWidgets('a database failure in the move or its Undo shows the failure '
       'snackbar instead of escaping', (tester) async {
     final context = await pumpHost(tester);
@@ -312,6 +443,156 @@ void main() {
     await tester.pump();
     expect(find.text(l10n.noteMoveFailed), findsOneWidget);
   });
+
+  // Review A6, second leg: the single Undo's loose ends.
+  MovableItemRef folderRef(Folder folder) => MovableItemRef(
+    kind: MovableItemKind.folder,
+    id: folder.id,
+    name: folder.name,
+    currentParentId: folder.parentId,
+  );
+
+  testWidgets('a single note Undo kept out by a title at the source says so '
+      'in the batch\'s words and stays undoable', (tester) async {
+    final context = await pumpHost(tester);
+    await tester.runAsync(() async {
+      final source = await db.folderDao.createFolder(name: 'Source');
+      final target = await db.folderDao.createFolder(name: 'Target');
+      final note = await db.noteDao.createNote(
+        folderId: source.id,
+        title: 'Row',
+      );
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [noteRef(note)],
+        targetParentId: target.id,
+      );
+      await db.noteDao.createNote(folderId: source.id, title: 'row');
+      await MoveCoordinator.undoEntry(context, history.history.first);
+    });
+    await tester.pump();
+
+    expect(find.text(l10n.moveSkippedDueToDuplicates(1)), findsOneWidget);
+    expect(find.text(l10n.noteMoveFailed), findsNothing);
+    expect(history.undoableCount, 1);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
+  // Review A6, third leg: no pick is a cancel, never the top level.
+  testWidgets('a folder Undo whose parent was deleted asks where it goes; '
+      'left without a pick it is canceled and stays undoable', (tester) async {
+    final context = await pumpHost(tester);
+    late Folder moved;
+    late Folder target;
+    late Future<void> undo;
+    // The picker searches folders by name.
+    GetIt.I.registerSingleton<FolderNameIndex>(
+      FolderNameIndex(folderService: GetIt.I<FolderStorageService>()),
+    );
+    await tester.runAsync(() async {
+      final parent = await db.folderDao.createFolder(name: 'Parent');
+      target = await db.folderDao.createFolder(name: 'Target');
+      moved = await db.folderDao.createFolder(
+        name: 'Moved',
+        parentId: parent.id,
+      );
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [folderRef(moved)],
+        targetParentId: target.id,
+      );
+      await GetIt.I<FolderStorageService>().deleteFolder(parent.id);
+      undo = MoveCoordinator.undoEntry(context, history.history.first);
+    });
+    await untilPickerUp(tester, context);
+    expect(Navigator.of(context).canPop(), isTrue, reason: 'the picker is up');
+    Navigator.of(context).pop();
+    await tester.pump();
+    await tester.runAsync(() => undo);
+    await tester.pump();
+
+    final row = await tester.runAsync(
+      () => (db.select(
+        db.folders,
+      )..where((f) => f.id.equals(moved.id))).getSingle(),
+    );
+    expect(row!.parentId, target.id, reason: 'no pick: it stays');
+    expect(find.text(l10n.moveUndoCanceled), findsOneWidget);
+    expect(history.undoableCount, 1);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
+  testWidgets('a folder Undo kept out by a name at the source says so in the '
+      'batch\'s words and stays undoable', (tester) async {
+    final context = await pumpHost(tester);
+    late Folder moved;
+    late Folder target;
+    await tester.runAsync(() async {
+      final source = await db.folderDao.createFolder(name: 'Source');
+      target = await db.folderDao.createFolder(name: 'Target');
+      moved = await db.folderDao.createFolder(
+        name: 'Moved',
+        parentId: source.id,
+      );
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [folderRef(moved)],
+        targetParentId: target.id,
+      );
+      await db.folderDao.createFolder(name: 'Moved', parentId: source.id);
+      await MoveCoordinator.undoEntry(context, history.history.first);
+    });
+    await tester.pump();
+
+    final row = await tester.runAsync(
+      () => (db.select(
+        db.folders,
+      )..where((f) => f.id.equals(moved.id))).getSingle(),
+    );
+    expect(row!.parentId, target.id);
+    expect(find.text(l10n.moveSkippedDueToDuplicates(1)), findsOneWidget);
+    expect(find.text(l10n.folderMoveFailed), findsNothing);
+    expect(history.undoableCount, 1);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+
+  testWidgets('a folder Undo whose move fails says the folder could not be '
+      'moved and stays undoable, throwing nothing', (tester) async {
+    final context = await pumpHost(tester);
+    await tester.runAsync(() async {
+      final source = await db.folderDao.createFolder(name: 'Source');
+      final target = await db.folderDao.createFolder(name: 'Target');
+      final moved = await db.folderDao.createFolder(
+        name: 'Moved',
+        parentId: source.id,
+      );
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [folderRef(moved)],
+        targetParentId: target.id,
+      );
+      GetIt.I.unregister<FolderStorageService>();
+      GetIt.I.registerSingleton<FolderStorageService>(
+        _ThrowingFolderStorage(FolderRepository(database: db)),
+      );
+      await MoveCoordinator.undoEntry(context, history.history.first);
+    });
+    await tester.pump();
+
+    expect(find.text(l10n.folderMoveFailed), findsOneWidget);
+    expect(history.undoableCount, 1);
+    expect(tester.takeException(), isNull);
+  }, timeout: const Timeout(Duration(seconds: 250)));
+}
+
+/// A folder store whose single move fails the way a locked or full
+/// database would.
+class _ThrowingFolderStorage extends FolderStorageService {
+  _ThrowingFolderStorage(FolderRepository repository)
+    : super(repository: repository);
+
+  @override
+  Future<model.Folder?> moveFolder({
+    required String folderId,
+    required String? targetParentId,
+  }) => throw StateError('database is locked');
 }
 
 /// A note store whose bulk move fails the way a locked or full database
@@ -323,6 +604,12 @@ class _ThrowingNoteStorage extends NoteStorageService {
   @override
   Future<BulkMoveResult> moveNotes({
     required List<String> noteIds,
+    required String targetFolderId,
+  }) => throw StateError('database is locked');
+
+  @override
+  Future<NoteMetadata?> moveNote({
+    required String noteId,
     required String targetFolderId,
   }) => throw StateError('database is locked');
 }

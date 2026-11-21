@@ -110,6 +110,16 @@ class SharedEventSheet extends StatefulWidget {
   /// "Not found" (§6.9 item 2, C12). Null asks nothing.
   final Future<NoteMetadata?> Function(String noteId)? resolveNote;
 
+  /// Whether the sheet offers my alerts on the event; false leaves the
+  /// Yours group out — the guide's stage (`docs/guide-hub-roadmap.md` D56),
+  /// whose demo event must open no alert editor.
+  final bool ownAlerts;
+
+  /// The line under the copy action in place of the one that names the
+  /// partner — the guide's stage, whose partner is the reader herself
+  /// (D45), which a name placeholder cannot say in German or Romanian.
+  final String? caption;
+
   const SharedEventSheet({
     super.key,
     required this.event,
@@ -123,6 +133,8 @@ class SharedEventSheet extends StatefulWidget {
     this.onCopy,
     this.onOpenWikiLink,
     this.resolveNote,
+    this.ownAlerts = true,
+    this.caption,
   });
 
   /// The detail sheet's sub-sheet shape: content-tall, clamped at the
@@ -146,6 +158,8 @@ class SharedEventSheet extends StatefulWidget {
     Future<CalendarEvent?> Function()? onCopy,
     ValueChanged<String>? onOpenWikiLink,
     Future<NoteMetadata?> Function(String noteId)? resolveNote,
+    bool ownAlerts = true,
+    String? caption,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<SharedEventExit>(
@@ -180,6 +194,8 @@ class SharedEventSheet extends StatefulWidget {
             onCopy: onCopy,
             onOpenWikiLink: onOpenWikiLink,
             resolveNote: resolveNote,
+            ownAlerts: ownAlerts,
+            caption: caption,
           ),
         ),
       ),
@@ -517,12 +533,14 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
                   // The pinned set's row stays a read row: its list is the
                   // multi-date picker, which writes (decision z).
                   FormRowGroup(children: _facts.whenRows(context, l10n)),
-                  FormSectionLabel(text: l10n.sharedEventYours),
-                  FormRowGroup(
-                    trailingGap: !off,
-                    children: _yoursRows(l10n, off: off),
-                  ),
-                  if (off) ...[
+                  if (widget.ownAlerts) ...[
+                    FormSectionLabel(text: l10n.sharedEventYours),
+                    FormRowGroup(
+                      trailingGap: !off,
+                      children: _yoursRows(l10n, off: off),
+                    ),
+                  ],
+                  if (widget.ownAlerts && off) ...[
                     FormCaption(
                       text: l10n.shareAlertsOffCaption,
                       padding: FormMetrics.groupCaptionPadding,
@@ -567,9 +585,11 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
                     ],
                   ),
                   FormCaption(
-                    text: SharedRefreshAvailability.isSupported
-                        ? l10n.sharedEventCaptionFresh(name)
-                        : l10n.sharedEventCaption(name),
+                    text:
+                        widget.caption ??
+                        (SharedRefreshAvailability.isSupported
+                            ? l10n.sharedEventCaptionFresh(name)
+                            : l10n.sharedEventCaption(name)),
                     padding: FormMetrics.groupCaptionPadding,
                   ),
                 ],

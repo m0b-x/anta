@@ -96,6 +96,10 @@ enum NotesGuideTopic implements GuideTopic {
     _ => const [],
   };
 
+  /// Every notes card is an editor.
+  @override
+  List<GuideCardSpec> get demoCards => const [];
+
   /// A source or body that shows a brace takes it through `open` / `close`:
   /// ICU reads a bare brace as a placeholder, so the ARBs cannot hold one.
   @override
@@ -316,7 +320,10 @@ enum NotesGuideTopic implements GuideTopic {
           'safe-backup',
           Icons.backup_rounded,
           l10n.notesGuideSafeBackupTitle,
-          l10n.notesGuideSafeBackupBody(l10n.guideBookAppTitle),
+          l10n.notesGuideSafeBackupBody(
+            l10n.guideBookAppTitle,
+            l10n.guideBookSyncTitle,
+          ),
         ),
       ),
       GuideReadEntry(

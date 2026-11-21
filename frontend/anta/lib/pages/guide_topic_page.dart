@@ -7,20 +7,23 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/guide_book.dart';
 import '../models/guide_content.dart';
+import '../services/category_service.dart';
 import '../services/settings_service.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/money_display_config.dart';
 import '../utils/settings_search.dart';
 import '../widgets/calendar_guide_rows.dart';
 import '../widgets/calendar_guide_try_card.dart';
+import '../widgets/guide_book_tries.dart';
 import '../widgets/guide_example_row.dart';
 import '../widgets/guide_try_editor.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
 
-/// One page of the notes or the app book (`docs/guide-hub-roadmap.md` D4):
-/// a heading, the line that says what it is, the page's "Try it" editors
-/// where it has any (D17), and its read and example rows.
+/// One page of the notes, the sync or the app book
+/// (`docs/guide-hub-roadmap.md` D4): a heading, the line that says what it
+/// is, the page's "Try it" editors (D17) or two-phone cards (§11.3) where it
+/// has any, and its read and example rows.
 ///
 /// Pushed from the book's hub without a destination stamp, as the calendar's
 /// pages are: a page is a few seconds' reading, so a relaunch lands on the
@@ -46,6 +49,11 @@ class _GuideTopicPageState extends State<GuideTopicPage> {
   /// of view, and what she typed must survive that.
   late Map<String, GuideEditorDemo> _demos = _demosFor(widget);
 
+  /// The page's cards that are no editor — the sync book's two phones —
+  /// by card slug, owned here for the same reason: a card scrolled away and
+  /// back must not forget what she did on it.
+  late Map<String, GuideCardDemo> _cardDemos = _cardDemosFor(widget);
+
   /// Each card's coach slot candidates by card slug, built once per locale.
   Map<String, List<String>> _candidates = const {};
   Locale? _candidatesLocale;
@@ -56,10 +64,57 @@ class _GuideTopicPageState extends State<GuideTopicPage> {
         ..adoptRenderConfig(money: _moneyConfig, palette: _colorPalette),
   };
 
+  static Map<String, GuideCardDemo> _cardDemosFor(GuideTopicPage page) => {
+    for (final card in page.topic.demoCards) card.slug: guideBookCardDemo(card),
+  };
+
   @override
   void initState() {
     super.initState();
     _loadPreviewConfig();
+    _loadCardNeeds();
+  }
+
+  /// The owner's calendar look and categories for the card demos that ask
+  /// ([GuideCardDemo.needsAppearance], [GuideCardDemo.needsCategories]),
+  /// read once per set of demos, as the calendar's topic page reads them;
+  /// the defaults and the cached categories stand until then.
+  void _loadCardNeeds() {
+    for (final demo in _cardDemos.values) {
+      if (demo.needsAppearance) _loadAppearance(demo);
+    }
+    if (_cardDemos.values.any((demo) => demo.needsCategories)) {
+      _loadCategories(_cardDemos.values.toList());
+    }
+  }
+
+  /// A demo of a topic handed over since its read began is gone: it takes
+  /// nothing.
+  bool _current(GuideCardDemo demo) =>
+      mounted && _cardDemos.values.contains(demo);
+
+  Future<void> _loadAppearance(GuideCardDemo demo) async {
+    try {
+      final settings = await SettingsService.getInstance();
+      final loaded = await settings.getCalendarPageSettings();
+      if (!_current(demo)) return;
+      demo.appearance = loaded.appearance;
+    } catch (e, st) {
+      debugPrint('[GuideTopicPage] Settings load failed: $e\n$st');
+    }
+  }
+
+  Future<void> _loadCategories(List<GuideCardDemo> demos) async {
+    try {
+      final categories = (await CategoryService.getInstance()).categories;
+      for (final demo in demos) {
+        if (demo.needsCategories && _current(demo)) {
+          demo.adoptCategories(categories);
+        }
+      }
+    } catch (e, st) {
+      debugPrint('[GuideTopicPage] Categories load failed: $e\n$st');
+    }
   }
 
   @override
@@ -77,15 +132,17 @@ class _GuideTopicPageState extends State<GuideTopicPage> {
     if (oldWidget.topic == widget.topic && oldWidget.book == widget.book) {
       return;
     }
-    final old = _demos.values.toList();
+    final old = [..._demos.values, ..._cardDemos.values];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       for (final demo in old) {
         demo.dispose();
       }
     });
     _demos = _demosFor(widget);
+    _cardDemos = _cardDemosFor(widget);
     _candidatesLocale = null;
     _prepareDemos();
+    _loadCardNeeds();
   }
 
   /// Seeds each demo before its first frame, so a stage opens on its seed —
@@ -116,12 +173,17 @@ class _GuideTopicPageState extends State<GuideTopicPage> {
     _candidates = {
       for (final MapEntry(key: slug, value: demo) in _demos.entries)
         slug: demo.candidates(l10n),
+      for (final MapEntry(key: slug, value: demo) in _cardDemos.entries)
+        slug: demo.candidates(l10n),
     };
   }
 
   @override
   void dispose() {
     for (final demo in _demos.values) {
+      demo.dispose();
+    }
+    for (final demo in _cardDemos.values) {
       demo.dispose();
     }
     super.dispose();
@@ -228,6 +290,18 @@ class _GuideTopicPageState extends State<GuideTopicPage> {
                   captionIdentifier: SemanticsIds.guideBookTryCaption(
                     book.slug,
                     card.spec.slug,
+                  ),
+                ),
+              for (final card in topic.demoCards)
+                calendarGuideTrySection(
+                  l10n: l10n,
+                  card: card,
+                  demo: _cardDemos[card.slug]!,
+                  candidates: _candidates[card.slug]!,
+                  identifier: SemanticsIds.guideBookTry(book.slug, card.slug),
+                  captionIdentifier: SemanticsIds.guideBookTryCaption(
+                    book.slug,
+                    card.slug,
                   ),
                 ),
               SettingsSectionData(

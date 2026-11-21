@@ -632,10 +632,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       );
       if (!event.occursOnUtcDay(startDay)) continue;
       if (!current.filters.allowsOccurrence(event, startDay)) continue;
+      // The cells' rule, before their dedup: whose note counts for whose
+      // event (`NoteMoneyLedgerService.ledgerForEvent`).
+      final entry = ledger.ledgerForEvent(event);
+      if (entry == null) continue;
       seen ??= <String>{};
       if (!seen.add('${startUtc.day}:$noteId')) continue;
-      final entry = ledger.ledgerFor(noteId);
-      if (entry == null) continue;
       sum += entry.net;
     }
 

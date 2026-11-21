@@ -93,65 +93,126 @@ class FakeShareService implements ShareService {
   int stops = 0;
   int sharedReads = 0;
 
+  /// Every share write in the order it was recorded: `id:on` for an
+  /// event's or a folder's, `categories` for a category write, `undo`,
+  /// `stop`.
+  final List<String> writes = [];
+
+  /// When set, the share writes keep the real service's order — each one
+  /// written once every write asked before it has ended, none written whose
+  /// turn comes after a database switch ([ShareDatabaseSwitched]) — and,
+  /// as the service does, each is refused or not as its turn starts and
+  /// recorded when it writes, after [hold], not when it is asked.
+  /// A fake that records at the call has every write in the order of the
+  /// calls already, and cannot show one write landing before another that
+  /// was asked first.
+  bool inTurn = false;
+
+  Future<void> _turns = Future.value();
+  int _turnsPending = 0;
+
   void _ready() {
     if (_availability is! ShareReady) throw ShareRefused(_availability);
   }
 
-  Future<ShareChange> _answer() async {
-    final answer = nextChange;
-    await _held();
-    return answer;
+  /// One share write, recorded as [what] by [record] and answered with
+  /// [answer] — [nextChange] as it stood at the call: at once, or in its
+  /// turn while [inTurn].
+  Future<T> _write<T>(
+    String what,
+    void Function() record, {
+    required T answer,
+    bool refusable = true,
+  }) async {
+    Future<T> write() async {
+      if (refusable) _ready();
+      if (inTurn) await _held();
+      record();
+      writes.add(what);
+      if (!inTurn) await _held();
+      return answer;
+    }
+
+    if (!inTurn) return write();
+    final asked = ShareService.databaseGeneration;
+    final Future<T> turn;
+    if (_turnsPending == 0) {
+      turn = write();
+    } else {
+      turn = _turns.then((_) {
+        if (ShareService.databaseGeneration != asked) {
+          throw const ShareDatabaseSwitched();
+        }
+        return write();
+      });
+    }
+    _turnsPending++;
+    _turns = turn
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() => _turnsPending--);
+    return turn;
   }
 
   @override
-  Future<ShareChange> setEventShared(String id, bool on) async {
-    _ready();
-    eventShares.add((id, on));
-    return _answer();
-  }
+  Future<ShareChange> setEventShared(String id, bool on) => _write(
+    '$id:$on',
+    () => eventShares.add((id, on)),
+    answer: nextChange,
+  );
 
   @override
-  Future<ShareChange> setCategoryShared(String id, bool on) async {
-    _ready();
-    categorySets.add({if (on) id});
-    return _answer();
-  }
+  Future<ShareChange> setCategoryShared(String id, bool on) => _write(
+    'categories',
+    () => categorySets.add({if (on) id}),
+    answer: nextChange,
+  );
 
   @override
-  Future<ShareChange> setCategoriesShared(Set<String> ids) async {
-    _ready();
-    categorySets.add(ids);
-    return _answer();
-  }
+  Future<ShareChange> setCategoriesShared(Set<String> ids) => _write(
+    'categories',
+    () => categorySets.add(ids),
+    answer: nextChange,
+  );
+
+  /// Every [changeCategoriesShared], in order.
+  final List<({Set<String> shared, Set<String> unshared})> categoryChanges = [];
 
   @override
-  Future<ShareChange> undo(ShareChange change) async {
-    _ready();
-    undone.add(change);
-    return _answer();
-  }
+  Future<ShareChange> changeCategoriesShared({
+    Set<String> shared = const {},
+    Set<String> unshared = const {},
+  }) => _write(
+    'categories',
+    () => categoryChanges.add((shared: shared, unshared: unshared)),
+    answer: nextChange,
+  );
 
   @override
-  Future<ShareChange> setFolderShared(String id, bool on) async {
-    _ready();
-    folderShares.add((id, on));
-    return _answer();
-  }
+  Future<ShareChange> undo(ShareChange change) =>
+      _write('undo', () => undone.add(change), answer: nextChange);
 
   @override
-  Future<int> stopAll() async {
-    stops++;
-    await _held();
-    return 1;
-  }
+  Future<ShareChange> setFolderShared(String id, bool on) => _write(
+    '$id:$on',
+    () => folderShares.add((id, on)),
+    answer: nextChange,
+  );
+
+  @override
+  Future<int> stopAll() =>
+      _write('stop', () => stops++, answer: 1, refusable: false);
 
   /// Every [overview]'s `withCounts`, in order.
   final List<bool> countReads = [];
+
+  /// While set, every [overview] read throws, as a read that failed does.
+  bool overviewFails = false;
 
   @override
   Future<ShareOverview> overview({bool withCounts = false}) async {
     overviews++;
     countReads.add(withCounts);
+    if (overviewFails) throw StateError('the overview was not read');
     return _availability is ShareNotPaired
         ? ShareOverview.empty
         : shareOverview;

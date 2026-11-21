@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
@@ -119,6 +120,85 @@ void main() {
   test('sums the linked note net for the month', () async {
     expect(bloc.monthNetFor(month), 1000);
     expect(bloc.monthNetFor(DateTime.utc(2026, 9, 1)), 0);
+  });
+
+  // Review A11, second leg: my event linked, before the picker listed my
+  // notes alone, to a note that is the partner's.
+  test('an event of mine never counts a partner\'s note', () async {
+    expect(bloc.monthNetFor(month), 1000);
+
+    NoteMoneyLedgerService.seedForTesting({
+      noteId: (balance: 1000, net: 1000, title: 'Ledger', fromPartner: true),
+    });
+
+    expect(bloc.monthNetFor(month), 0);
+  });
+
+  // Review A11, third leg: one partner's note named on one day by an event
+  // of mine and by one of the partner's. The cells' rule decides before
+  // their dedup, so the partner's event counts the note once, whichever of
+  // the two comes first.
+  group('one note named by my event and by the partner\'s', () {
+    late AppDatabase db;
+
+    setUp(() async {
+      db = await AppDatabase.getInstance();
+      addTearDown(() async {
+        await db.sharedRowDao.writing(
+          () => db.customStatement(
+            "UPDATE calendar_events SET owner_id = NULL "
+            "WHERE owner_id = 'maria'",
+          ),
+        );
+        await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+      });
+      await dispatch(
+        CreateCalendarEvent(
+          event: CalendarEvent(
+            id: 'e2',
+            title: 'Shop too',
+            categoryId: 'gym',
+            startDate: startDate,
+            rule: const OneTimeRecurrence(),
+            noteId: noteId,
+          ),
+        ),
+      );
+    });
+
+    /// [partners] made the partner's events, the events read again, and
+    /// the note the partner's; answers the events naming it, in the order
+    /// the bloc walks them, as `id:fromPartner`.
+    Future<List<String>> theirs(String partners) async {
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'maria');
+      await db.sharedRowDao.writing(
+        () => db.customStatement(
+          "UPDATE calendar_events SET owner_id = 'maria' WHERE id = ?",
+          [partners],
+        ),
+      );
+      await (await CalendarEventService.getInstance()).reload();
+      await dispatch(const LoadCalendarEvents());
+      NoteMoneyLedgerService.seedForTesting({
+        noteId: (balance: 1000, net: 1000, title: 'Ledger', fromPartner: true),
+      });
+      return [
+        for (final event in (bloc.state as CalendarPageLoaded).allEvents)
+          if (event.noteId == noteId) '${event.id}:${event.fromPartner}',
+      ];
+    }
+
+    test('mine first: the partner\'s event still counts the note', () async {
+      expect(await theirs('e2'), ['e1:false', 'e2:true']);
+
+      expect(bloc.monthNetFor(month), 1000);
+    });
+
+    test('the partner\'s first: mine adds nothing', () async {
+      expect(await theirs('e1'), ['e1:true', 'e2:false']);
+
+      expect(bloc.monthNetFor(month), 1000);
+    });
   });
 
   test('serves the memoized value while nothing changed', () async {

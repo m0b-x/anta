@@ -2411,6 +2411,34 @@ void main() {
         expect(await _push([_row(uidA, 's1', 'folders', 'f1')]), 200);
       });
 
+      test('a parked row\'s grant taken off alone — a field update that '
+          'removes the share and its wire and stamps the push anew — and '
+          'never by the partner (review A3)', () async {
+        await _seedSpace();
+        await _seedPair('p1');
+        expect(
+          await _push([
+            _row(uidA, 's1', 'notes', 'n1', fields: _share('p1')),
+          ], table: 'notes'),
+          200,
+        );
+        // As `SyncGateway.unshareRows` sends it: the two fields in the mask
+        // and absent from the write, which deletes them.
+        Map<String, Object?> unshare() => {
+          'update': {
+            'name': '$_docRoot/${rowPath('notes', 'n1')}',
+            'fields': {'pushedBy': _s('A')},
+          },
+          'updateMask': {
+            'fieldPaths': ['sharedPair', 'wire', 'pushedBy'],
+          },
+          'updateTransforms': [_serverTime('pushedAt')],
+          'currentDocument': {'exists': true},
+        };
+        expect(await _commit([unshare()], uid: uidB), 403);
+        expect(await _commit([unshare()], uid: uidA), 200);
+      });
+
       test('the pair its notes are shared into on the space, and takes it '
           'out again', () async {
         await _seedSpace();

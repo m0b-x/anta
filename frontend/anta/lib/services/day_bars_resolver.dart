@@ -239,10 +239,13 @@ class MoneyDayBarProvider implements DayBarProvider {
       if (DateTime.utc(startUtc.year, startUtc.month, startUtc.day) != key) {
         continue;
       }
+      // The rule before the dedup: an event of mine that may not count a
+      // partner's note must not take the note's place from the partner's
+      // own event on the same day.
+      final ledger = service.ledgerForEvent(event);
+      if (ledger == null) continue;
       seen ??= <String>{};
       if (!seen.add(noteId)) continue;
-      final ledger = service.ledgerFor(noteId);
-      if (ledger == null) continue;
       sum += ledger.net;
     }
     if (sum == 0) return const [];

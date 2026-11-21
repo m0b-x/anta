@@ -27,6 +27,9 @@ final class CalendarEventAbsencesBinding
   String rowKeyOf(EventAbsenceRow row) => dayRowKey(row.eventId, row.day);
 
   @override
+  String documentKeyOf(String rowKey) => dayDocumentKeyOf(rowKey);
+
+  @override
   Future<SyncEnvelope> encode(
     AppDatabase db,
     EventAbsenceRow row, {

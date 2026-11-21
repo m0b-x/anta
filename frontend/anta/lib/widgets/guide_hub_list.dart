@@ -75,10 +75,16 @@ class GuideHubList extends StatefulWidget {
     required this.listIdentifier,
     this.searchItems,
     this.header = const [],
+    this.leading = const [],
   });
 
   final SettingsQuery query;
   final List<GuideHubSection> sections;
+
+  /// Sections drawn above [sections] while nothing is searched — the sync
+  /// book's "Your setup" (D48). They are state, not text: a query never
+  /// reaches them (D54), and their rows stay out of the glyph rule.
+  final List<SettingsSectionData> leading;
 
   /// The pages a query reaches, in result order; the [sections]' items when
   /// null. The top hub lists three guides but searches every guide's pages.
@@ -138,6 +144,7 @@ class _GuideHubListState extends State<GuideHubList> {
 
   List<SettingsSectionData> _hubSections() {
     return [
+      ...widget.leading,
       for (final section in widget.sections)
         SettingsSectionData(
           icon: section.icon,

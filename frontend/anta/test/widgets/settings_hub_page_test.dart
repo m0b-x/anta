@@ -14,6 +14,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/models/dev_options.dart';
+import 'package:anta/models/guide_book.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
 import 'package:anta/pages/settings_hub_page.dart';
@@ -173,7 +174,7 @@ void main() {
     'permissions',
     'developerOptions',
   ];
-  const howToRows = ['calendarGuide', 'notesGuide', 'appGuide'];
+  const howToRows = ['calendarGuide', 'notesGuide', 'syncGuide', 'appGuide'];
   const allRows = [...calendarRows, ...notesRows, ...appRows, ...howToRows];
 
   testWidgets('every row sits in its section, by id', (tester) async {
@@ -246,6 +247,7 @@ void main() {
       ('permissions', NavDestinationKind.permissions),
       ('calendarGuide', NavDestinationKind.calendarGuide),
       ('notesGuide', NavDestinationKind.notesGuide),
+      ('syncGuide', NavDestinationKind.syncGuide),
       ('appGuide', NavDestinationKind.appGuide),
     ]) {
       testWidgets('$kind is stamped ${stamp.name}', (tester) async {
@@ -390,8 +392,12 @@ void main() {
     });
 
     // The row's title says "Alert", and the section name that held the word
-    // left Calendar settings' keywords with the alerts.
-    testWidgets('"alerts" finds Alert settings only', (tester) async {
+    // left Calendar settings' keywords with the alerts. The sync guide is
+    // found too, by its page on alerts for shared things (D10: a book's page
+    // titles are its keywords).
+    testWidgets('"alerts" finds Alert settings and the sync guide only', (
+      tester,
+    ) async {
       DevOptions.instance.developerModeUnlocked = true;
       await pumpHub(tester);
 
@@ -400,7 +406,9 @@ void main() {
       for (final kind in allRows) {
         expect(
           row(kind),
-          kind == 'alertSettings' ? findsOneWidget : findsNothing,
+          kind == 'alertSettings' || kind == 'syncGuide'
+              ? findsOneWidget
+              : findsNothing,
           reason: kind,
         );
       }
@@ -519,9 +527,15 @@ void main() {
 
     // The Sync section's rows are words the hub row did not carry: only the
     // three section names did (final review U-8). "devices" was already
-    // found, by the row's subtitle.
-    for (final query in const ['merge', 'download', 'stop']) {
-      testWidgets('"$query" finds Sync & sharing only', (tester) async {
+    // found, by the row's subtitle. "stop" finds the sync guide too, by its
+    // "Stop sharing" page (D10).
+    for (final (query, guide) in const [
+      ('merge', false),
+      ('download', false),
+      ('stop', true),
+    ]) {
+      testWidgets('"$query" finds Sync & sharing'
+          '${guide ? ' and the sync guide' : ''} only', (tester) async {
         DevOptions.instance.developerModeUnlocked = true;
         await pumpHub(tester);
 
@@ -530,7 +544,9 @@ void main() {
         for (final kind in allRows) {
           expect(
             row(kind),
-            kind == 'syncSettings' ? findsOneWidget : findsNothing,
+            kind == 'syncSettings' || (guide && kind == 'syncGuide')
+                ? findsOneWidget
+                : findsNothing,
             reason: kind,
           );
         }
@@ -538,6 +554,33 @@ void main() {
         await teardownApp(tester);
       });
     }
+
+    // D10: the book's caption describes its row, and its pages' titles find
+    // it.
+    testWidgets('the sync guide\'s row carries its caption and is found by a '
+        'page title', (tester) async {
+      await pumpHub(tester);
+
+      expect(
+        find.descendant(
+          of: row('syncGuide'),
+          matching: find.text(GuideBook.sync.caption(l10n)),
+        ),
+        findsOneWidget,
+      );
+
+      await search(tester, l10n.syncGuidePagePrivate);
+
+      for (final kind in allRows) {
+        expect(
+          row(kind),
+          kind == 'syncGuide' ? findsOneWidget : findsNothing,
+          reason: kind,
+        );
+      }
+
+      await teardownApp(tester);
+    });
 
     testWidgets('"auto" finds General, by its subtitle', (tester) async {
       await pumpHub(tester);

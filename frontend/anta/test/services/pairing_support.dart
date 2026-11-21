@@ -162,10 +162,30 @@ class FakePairingGateway implements PairingGateway {
     return invites[code];
   }
 
+  /// Every listen on an invite is refused with this while it is set — the
+  /// rules refuse a `get` of one past its end — as [failWatches] refuses a
+  /// pair's.
+  PairingError? failInviteWatches;
+
+  /// The listens on an invite, refused ones included.
+  int watchInviteCalls = 0;
+
   @override
-  Stream<InviteRecord?> watchInvite(String code) => _inviteControllers
-      .putIfAbsent(code, () => StreamController<InviteRecord?>.broadcast())
-      .stream;
+  Stream<InviteRecord?> watchInvite(String code) {
+    watchInviteCalls++;
+    final refusal = failInviteWatches;
+    if (refusal != null) {
+      return Stream<InviteRecord?>.fromFuture(
+        Future<InviteRecord?>.delayed(
+          Duration.zero,
+          () => throw PairingException(refusal),
+        ),
+      );
+    }
+    return _inviteControllers
+        .putIfAbsent(code, () => StreamController<InviteRecord?>.broadcast())
+        .stream;
+  }
 
   /// Stamps a claim onto the invite [code] outright — for a test that needs
   /// a spent invite without the redemption that spends one. The app's only
@@ -269,10 +289,35 @@ class FakePairingGateway implements PairingGateway {
     return pairs[pairId];
   }
 
+  /// Every listen on a pair is refused with this while it is set — a pair
+  /// nobody signed in may read, a link that drops — as Firestore does: one
+  /// error, a turn of the event loop after the listen, and the stream ends.
+  PairingError? failWatches;
+
+  /// The listens on a pair, refused ones included.
+  int watchPairCalls = 0;
+
   @override
-  Stream<PairRecord?> watchPair(String pairId) => _pairControllers
-      .putIfAbsent(pairId, () => StreamController<PairRecord?>.broadcast())
-      .stream;
+  Stream<PairRecord?> watchPair(String pairId) {
+    watchPairCalls++;
+    final refusal = failWatches;
+    if (refusal != null) {
+      return Stream<PairRecord?>.fromFuture(
+        Future<PairRecord?>.delayed(
+          Duration.zero,
+          () => throw PairingException(refusal),
+        ),
+      );
+    }
+    return _pairControllers
+        .putIfAbsent(pairId, () => StreamController<PairRecord?>.broadcast())
+        .stream;
+  }
+
+  /// Drops the listens standing on [pairId] with [error], as a listen the
+  /// server stops answering does.
+  void dropPairListen(String pairId, PairingError error) =>
+      _pairControllers[pairId]?.addError(PairingException(error));
 
   @override
   Future<void> endPair({
@@ -390,8 +435,11 @@ class FakePairingGateway implements PairingGateway {
   }
 
   /// Stands [devices] in for [uid]'s push addresses in [pair].
-  void seedPush(String pairId, String uid, Map<String, PairPushDevice> devices) =>
-      _putPush(pairs[pairId]!, uid, devices);
+  void seedPush(
+    String pairId,
+    String uid,
+    Map<String, PairPushDevice> devices,
+  ) => _putPush(pairs[pairId]!, uid, devices);
 
   void _putPush(
     PairRecord pair,

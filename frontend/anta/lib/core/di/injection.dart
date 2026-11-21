@@ -687,6 +687,7 @@ PairingGateway _registerPush(
   );
   FirebaseAuthService.beforeSignOut = registry.leave;
   PairedAccountCloser.beforeAccountGone = registry.leave;
+  PairedAccountCloser.afterPairEnded = registry.pokesSent;
   SyncBindingService.onUnbound = (uid) => unawaited(registry.leave(uid));
   return PushPairingGateway(pairing, registry: () => registry);
 }
@@ -718,6 +719,7 @@ Future<void> resetDependencies() async {
   SyncBindingService.onUnbound = null;
   FirebaseAuthService.beforeSignOut = null;
   PairedAccountCloser.beforeAccountGone = null;
+  PairedAccountCloser.afterPairEnded = null;
   PairingService.onMarksOfOtherPairsCleared = null;
   ShareService.configure(null);
   unawaited(_pairingWrites?.cancel());

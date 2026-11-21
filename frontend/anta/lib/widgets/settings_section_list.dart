@@ -81,6 +81,12 @@ class SettingsSectionData {
   /// that cannot fold — one without an [id] — may carry it.
   final String? trailing;
 
+  /// A `SemanticsIds` value on the whole section, its header and its group
+  /// together, for a flow or a suite that finds a section rather than one
+  /// of its rows: a section whose rows change with state (the sync guide's
+  /// "Your setup") has no one row that is always there.
+  final String? identifier;
+
   /// Every status [trailing] may show. The slot is as wide as the widest,
   /// capped at `RowMetrics.settingsStatusMaxShare` of the header, and is
   /// reserved whether or not there is a status, so the title wraps the same
@@ -95,6 +101,7 @@ class SettingsSectionData {
     this.id,
     this.trailing,
     this.trailingTemplates = const [],
+    this.identifier,
   }) : assert(
          id == null || trailing == null,
          'a section that can fold shows its count where the status would go',
@@ -164,7 +171,13 @@ class SettingsSectionList extends StatelessWidget {
     this.collapsedSections = const {},
     this.onToggleSection,
     this.listIdentifier,
+    this.shrinkWrap = false,
   });
+
+  /// The list is as tall as its sections and never scrolls or takes the
+  /// route's scroll controller: a page's section drawn inside another
+  /// scroll — the Sharing page's Pairing rows on a sync guide stage.
+  final bool shrinkWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -210,10 +223,15 @@ class SettingsSectionList extends StatelessWidget {
       );
     }
 
+    final primary = shrinkWrap ? false : null;
+    final physics = shrinkWrap ? const NeverScrollableScrollPhysics() : null;
     final Widget list;
     if (cards.isEmpty) {
       list = ListView(
         padding: padding,
+        primary: primary,
+        shrinkWrap: shrinkWrap,
+        physics: physics,
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(
@@ -245,6 +263,9 @@ class SettingsSectionList extends StatelessWidget {
     } else {
       list = ListView(
         padding: padding,
+        primary: primary,
+        shrinkWrap: shrinkWrap,
+        physics: physics,
         children: [
           if (query.isEmpty && header.isNotEmpty) ...[
             ...header,
@@ -395,7 +416,7 @@ class SettingsSectionCard extends StatelessWidget {
             ),
           );
 
-    return Column(
+    final card = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildHeader(context, theme),
@@ -410,6 +431,10 @@ class SettingsSectionCard extends StatelessWidget {
           ),
       ],
     );
+    final identifier = section.identifier;
+    return identifier == null
+        ? card
+        : Semantics(container: true, identifier: identifier, child: card);
   }
 
   /// The browser's section label above the group, on the bottom edge of a
@@ -1076,7 +1101,7 @@ Widget settingsChoiceRow<T extends Object>({
             // button never moves a word to another segment, so a word
             // wider than its third ("Ordner und Notizen" at 200 %) broke
             // mid-word. Stacked, each choice has the row's full width.
-            final horizontal = _choiceWordsFit(
+            final horizontal = settingsChoiceWordsFit(
               context,
               labels.values,
               constraints.maxWidth / labels.length,
@@ -1196,11 +1221,17 @@ const double _wordFitTolerance = 0.5;
 /// line, measured as a segment draws it: the theme's `labelLarge` inside the
 /// text button padding Material scales with the text size, and [withIcon]
 /// beside the icon and its gap.
-bool _choiceWordsFit(
+///
+/// [trailingExtent] is room a segment's label shares with something of its
+/// own that does not scale — the guide's flip keeps a dot slot after each
+/// label — and is taken off before the words are measured. Public so such a
+/// segmented control decides its direction by the kit's rule, never a copy.
+bool settingsChoiceWordsFit(
   BuildContext context,
   Iterable<String> labels,
   double segmentWidth, {
   bool withIcon = false,
+  double trailingExtent = 0,
 }) {
   final style = Theme.of(context).textTheme.labelLarge;
   final textScaler = MediaQuery.textScalerOf(context);
@@ -1227,7 +1258,7 @@ bool _choiceWordsFit(
             (_segmentIconGap2x - _segmentIconGap1x) *
                 (scale.clamp(1.0, 2.0) - 1)
       : 0.0;
-  final room = segmentWidth - padding.horizontal - icon;
+  final room = segmentWidth - padding.horizontal - icon - trailingExtent;
   final painter = TextPainter(
     textDirection: Directionality.of(context),
     textScaler: textScaler,

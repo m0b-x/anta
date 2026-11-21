@@ -12433,13 +12433,16 @@
     }
   },
   "howToUseAntaDesc": "Calendar, notes, backup and settings",
-  "guideHubIntro": "Three short guides. Search here to look through all of them at once.",
+  "guideHubIntro": "Four short guides. Search here to look through all of them at once.",
   "guideHubSectionGuides": "Guides",
   "guideBookCalendarCaption": "The screen, events, alerts, attendance, the overview, a practice calendar",
   "guideBookNotesTitle": "Notes and the editor",
   "guideBookNotesCaption": "Folders, writing, markdown, lists, your own shortcuts, the money ledger, autocomplete, counters",
-  "guideBookAppTitle": "Backup, sync and settings",
-  "guideBookAppCaption": "The main menu, keeping a copy of your notes, syncing between phones, the settings",
+  "guideBookSyncTitle": "Sync and sharing",
+  "guideBookSyncCaption": "Your phones in step, pairing, sharing events, categories and folders, stopping",
+  "syncGuideIntro": "Keep your phones in step, and share what you choose with one person.",
+  "guideBookAppTitle": "Backup and settings",
+  "guideBookAppCaption": "The main menu, keeping a copy of your notes, the settings",
   "notesGuideIntro": "Tap a page. Each example shows what you type and what you get.",
   "appGuideIntro": "Tap a page. Nothing here changes a setting.",
   "guideExampleTyped": "You type",
@@ -13081,10 +13084,13 @@
     }
   },
   "notesGuideSafeBackupTitle": "The way back",
-  "notesGuideSafeBackupBody": "Deleting is final, and this phone holds the only copy until you keep another. The “{guideBookAppTitle}” guide shows how to back up and how to sync.",
+  "notesGuideSafeBackupBody": "Deleting is final, and this phone holds the only copy until you keep another. The “{guideBookAppTitle}” guide shows how to back up, and “{guideBookSyncTitle}” how to sync.",
   "@notesGuideSafeBackupBody": {
     "placeholders": {
       "guideBookAppTitle": {
+        "type": "String"
+      },
+      "guideBookSyncTitle": {
         "type": "String"
       }
     }
@@ -13327,74 +13333,834 @@
       }
     }
   },
-  "appGuidePageSync": "Sync between phones",
-  "appGuidePageSyncCaption": "Sign in once, the same notes on every device",
-  "appGuideSyncLead": "Sync keeps a copy of a database in your account and sends every change to your other devices. It is off until you turn it on.",
-  "appGuideSyncSignInTitle": "Sign in",
-  "appGuideSyncSignInBody": "“{sharingSettings}” in “{settingsHubTitle}”: “{signInWithGoogle}”. Your notes stay on the phone; signing in alone sends nothing.",
-  "@appGuideSyncSignInBody": {
+  "syncGuidePageSync": "Sync between your phones",
+  "syncGuidePageSyncCaption": "Sign in once, the same notes on every phone",
+  "syncGuideSyncLead": "One account, the same notes and calendar on every phone you sign in on. It is off until you turn it on.",
+  "syncGuideSignInTitle": "Sign in once",
+  "syncGuideSignInBody": "“{sharingSettings}” in “{settingsHubTitle}”: “{signInWithGoogle}”. Your notes stay on the phone; signing in alone sends nothing.",
+  "@syncGuideSignInBody": {
+    "description": "Body of the sync guide's row about signing in; the placeholders are the app's own labels",
     "placeholders": {
-      "sharingSettings": {
-        "type": "String"
-      },
-      "settingsHubTitle": {
-        "type": "String"
-      },
-      "signInWithGoogle": {
-        "type": "String"
-      }
+      "sharingSettings": { "type": "String" },
+      "settingsHubTitle": { "type": "String" },
+      "signInWithGoogle": { "type": "String" }
     }
   },
-  "appGuideSyncOnTitle": "Turn it on",
-  "appGuideSyncOnBody": "“{syncThisDatabase}” on the same page starts syncing the database you are using. {syncThisDatabaseDesc}.",
-  "@appGuideSyncOnBody": {
+  "syncGuideOnTitle": "Turn it on per database",
+  "syncGuideOnBody": "“{syncThisDatabase}” on the same page syncs the database you are using; each database has its own switch. {syncThisDatabaseDesc}.",
+  "@syncGuideOnBody": {
+    "description": "Body of the sync guide's row about the per-database switch; syncThisDatabaseDesc is the switch's own description, closed by a full stop",
     "placeholders": {
-      "syncThisDatabase": {
-        "type": "String"
-      },
-      "syncThisDatabaseDesc": {
-        "type": "String"
-      }
+      "syncThisDatabase": { "type": "String" },
+      "syncThisDatabaseDesc": { "type": "String" }
     }
   },
-  "appGuideSyncStatusTitle": "Where it stands",
-  "appGuideSyncStatusBody": "The page says “{syncUpToDate}”, “{syncOffline}” or how many changes are waiting; the main menu's top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “{syncNow}” does not wait.",
-  "@appGuideSyncStatusBody": {
+  "syncGuideStatusTitle": "Read the status line",
+  "syncGuideStatusBody": "The page says “{syncUpToDate}”, “{syncOffline}” or how many changes are waiting; the main menu's top row shows when it last synced. “{syncNow}” does not wait.",
+  "@syncGuideStatusBody": {
+    "description": "Body of the sync guide's row about the Sync & sharing page's status line",
     "placeholders": {
-      "syncUpToDate": {
-        "type": "String"
-      },
-      "syncOffline": {
-        "type": "String"
-      },
-      "syncNow": {
-        "type": "String"
-      }
+      "syncUpToDate": { "type": "String" },
+      "syncOffline": { "type": "String" },
+      "syncNow": { "type": "String" }
     }
   },
-  "appGuideSyncCadenceTitle": "When it syncs",
-  "appGuideSyncCadenceBody": "“{syncAutomatic}” on the same page is on to begin with: changes sync while the app is open and when you leave it. Turn it off and nothing moves until you tap “{syncNow}” — for a metered connection, or when you want to say when.",
-  "@appGuideSyncCadenceBody": {
+  "syncGuideCadenceTitle": "How often",
+  "syncGuideCadenceBody": "“{syncAutomatic}” is on to begin with: a change goes within a few minutes while the app is open, and when you leave it. Turn it off and nothing moves until you tap “{syncNow}”.",
+  "@syncGuideCadenceBody": {
+    "description": "Body of the sync guide's row about when changes are sent; a few minutes is the push's longest wait while the app is open",
     "placeholders": {
-      "syncAutomatic": {
-        "type": "String"
-      },
-      "syncNow": {
-        "type": "String"
-      }
+      "syncAutomatic": { "type": "String" },
+      "syncNow": { "type": "String" }
     }
   },
-  "appGuideSyncOtherTitle": "On the other phone",
-  "appGuideSyncOtherBody": "Sign in with the same account and turn “{syncThisDatabase}” on there too. ANTA lists the spaces in your account; pick yours and it is downloaded into a new database on that phone. After that, only changes travel.",
-  "@appGuideSyncOtherBody": {
+  "syncGuideOtherTitle": "A second phone",
+  "syncGuideOtherBody": "Sign in there with the same account and turn “{syncThisDatabase}” on. Pick your database from the list and it arrives as a database of its own; after that, only changes travel.",
+  "@syncGuideOtherBody": {
+    "description": "Body of the sync guide's row about adding a second phone",
     "placeholders": {
-      "syncThisDatabase": {
-        "type": "String"
-      }
+      "syncThisDatabase": { "type": "String" }
     }
   },
-  "appGuideSyncConflictTitle": "Two phones, one note",
-  "appGuideSyncConflictBody": "If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.",
+  "syncGuidePagePair": "Pair with someone",
+  "syncGuidePagePairCaption": "One other person, linked by a code",
+  "syncGuidePairLead": "Sharing is between you and one other person. Pairing is how the two phones find each other.",
+  "syncGuidePairOneTitle": "One person at a time",
+  "syncGuidePairOneBody": "A pair is two accounts. To pair with someone else, “{unpair}” first.",
+  "@syncGuidePairOneBody": {
+    "description": "Body of the sync guide's row saying a pair is two accounts; unpair is the Sharing page's Unpair label",
+    "placeholders": {
+      "unpair": { "type": "String" }
+    }
+  },
+  "syncGuidePairCodeTitle": "The code",
+  "syncGuidePairCodeBody": "“{pairingSection}” in “{sharingSettings}”: one of you taps “{createCode}”, the other types it under “{enterCode}”. A code works once, for ten minutes; make a new one if it runs out.",
+  "@syncGuidePairCodeBody": {
+    "description": "Body of the sync guide's row about the pairing code; ten minutes is PairingService.inviteLifetime",
+    "placeholders": {
+      "pairingSection": { "type": "String" },
+      "sharingSettings": { "type": "String" },
+      "createCode": { "type": "String" },
+      "enterCode": { "type": "String" }
+    }
+  },
+  "syncGuidePairSyncTitle": "Both of you sync",
+  "syncGuidePairSyncBody": "Each phone needs “{syncThisDatabase}” on before it can share or receive: what you share travels with sync.",
+  "@syncGuidePairSyncBody": {
+    "description": "Body of the sync guide's row saying both phones must sync to share",
+    "placeholders": {
+      "syncThisDatabase": { "type": "String" }
+    }
+  },
+  "syncGuidePairEmptyTitle": "Pairing shares nothing",
+  "syncGuidePairEmptyBody": "A new pair starts empty: the other person sees your name and picture, and nothing else until you share it.",
+  "syncGuidePageOffline": "No signal, and two phones at once",
+  "syncGuidePageOfflineCaption": "Writing offline, and one note changed twice",
+  "syncGuideOfflineLead": "Nothing waits for the network. What you write is saved on the phone first.",
+  "syncGuideOfflineNormalTitle": "Offline is normal",
+  "syncGuideOfflineNormalBody": "Every change is saved on the phone and sent once a connection is back. Meanwhile the page says “{syncOffline}”.",
+  "@syncGuideOfflineNormalBody": {
+    "description": "Body of the sync guide's row about working offline; syncOffline is the status line's offline reading",
+    "placeholders": {
+      "syncOffline": { "type": "String" }
+    }
+  },
+  "syncGuideOfflineConflictTitle": "Two edits of one note",
+  "syncGuideOfflineConflictBody": "If the same note changes on two phones, the later edit stays in the note and the other is filed beside it as a copy, so no text is lost. Delete whichever you do not need.",
+  "syncGuideOfflineCloseTitle": "Closing the app",
+  "syncGuideOfflineCloseBody": "ANTA sends what is waiting when you leave it. Whatever is still waiting goes the next time the app syncs.",
+  "syncGuidePageEvent": "Share one event",
+  "syncGuidePageEventCaption": "One switch in the event's editor",
+  "syncGuideEventLead": "One switch on the event itself.",
+  "syncGuideEventSwitchTitle": "Where the switch is",
+  "syncGuideEventSwitchBody": "In the event's editor: “{shareWith}”. It shows once you are paired.",
+  "@syncGuideEventSwitchBody": {
+    "description": "Body of the sync guide's row about the event's share switch; shareWith is the switch's label with the stand-in partner name",
+    "placeholders": {
+      "shareWith": { "type": "String" }
+    }
+  },
+  "syncGuideEventTheirsTitle": "What they can do",
+  "syncGuideEventTheirsBody": "See it, open it, copy it and add alerts of their own. They never change it.",
+  "syncGuideEventFollowTitle": "It follows your changes",
+  "syncGuideEventFollowBody": "Move or rename it and what they see follows. Delete it and it leaves their phone.",
+  "syncGuideEventCopyTitle": "Their copy is theirs",
+  "syncGuideEventCopyBody": "“{copy}” gives them an event of their own. Your later changes do not reach that copy, and it stays when you stop sharing.",
+  "@syncGuideEventCopyBody": {
+    "description": "Body of the sync guide's row about the partner's copy of a shared event; copy is the read sheet's Copy to my calendar label",
+    "placeholders": {
+      "copy": { "type": "String" }
+    }
+  },
+  "syncGuidePageCategory": "Share a whole category",
+  "syncGuidePageCategoryCaption": "Every event in it, the new ones too",
+  "syncGuideCategoryLead": "Everything in the category, now and later.",
+  "syncGuideCategoryWhereTitle": "Where the switch is",
+  "syncGuideCategoryWhereBody": "“{shareWith}” in a category's editor, or in its ⋮ menu on the “{calendarCategories}” page. “{sharingPage}” › “{categories}” ticks several at once.",
+  "@syncGuideCategoryWhereBody": {
+    "description": "Body of the sync guide's row about where a category is shared; sharingPage is the Sharing page's title, categories its Categories row",
+    "placeholders": {
+      "shareWith": { "type": "String" },
+      "calendarCategories": { "type": "String" },
+      "sharingPage": { "type": "String" },
+      "categories": { "type": "String" }
+    }
+  },
+  "syncGuideCategoryAllTitle": "Everything in it",
+  "syncGuideCategoryAllBody": "Every event of the category is shared, and each one you add to it later.",
+  "syncGuideCategoryOutTitle": "One event out",
+  "syncGuideCategoryOutBody": "An event in a shared category has no switch of its own: it reads “{through}”. Move it to another category and its own switch decides again.",
+  "@syncGuideCategoryOutBody": {
+    "description": "Body of the sync guide's row about taking one event out of a shared category; through is the event switch's reading with an ellipsis for the category's name",
+    "placeholders": {
+      "through": { "type": "String" }
+    }
+  },
+  "syncGuideCategoryTheirsTitle": "On their side",
+  "syncGuideCategoryTheirsBody": "It appears on their “{calendarCategories}” page under your name. They choose whether it shows on their calendar.",
+  "@syncGuideCategoryTheirsBody": {
+    "description": "Body of the sync guide's row about how a shared category reaches the partner",
+    "placeholders": {
+      "calendarCategories": { "type": "String" }
+    }
+  },
+  "syncGuidePageFolder": "Share a folder and its notes",
+  "syncGuidePageFolderCaption": "Everything inside, read-only for them",
+  "syncGuideFolderLead": "A folder shares everything inside it.",
+  "syncGuideFolderWhereTitle": "Where the switch is",
+  "syncGuideFolderWhereBody": "“{shareWith}” in a folder's ⋮ menu, or “{addFolder}” under “{sharingPage}” › “{folders}”.",
+  "@syncGuideFolderWhereBody": {
+    "description": "Body of the sync guide's row about where a folder is shared; the placeholders are the folder menu's entry, the Sharing page's Share a folder row, its title and its Folders row",
+    "placeholders": {
+      "shareWith": { "type": "String" },
+      "addFolder": { "type": "String" },
+      "sharingPage": { "type": "String" },
+      "folders": { "type": "String" }
+    }
+  },
+  "syncGuideFolderInsideTitle": "What goes with it",
+  "syncGuideFolderInsideBody": "Its notes, the folders inside it and whatever you move in later. A note you move out is yours alone again.",
+  "syncGuideFolderReadOnlyTitle": "Read only for them",
+  "syncGuideFolderReadOnlyBody": "They read its notes and can keep one with “{copy}”. They cannot write in your folder.",
+  "@syncGuideFolderReadOnlyBody": {
+    "description": "Body of the sync guide's row about a shared folder being read-only; copy is the Copy to my notes label",
+    "placeholders": {
+      "copy": { "type": "String" }
+    }
+  },
+  "syncGuideFolderNoteTitle": "A single note",
+  "syncGuideFolderNoteBody": "A note is shared by the folder it is in. To share one, put it in a shared folder.",
+  "syncGuidePageLook": "How shared things look",
+  "syncGuidePageLookCaption": "Telling their things from yours",
+  "syncGuideLookLead": "What your partner shares sits among your own. You choose how it is told apart.",
+  "syncGuideLookEventsTitle": "Three looks for events",
+  "syncGuideLookEventsBody": "“{eventLook}” on “{sharingPage}”: “{outlined}”, “{avatar}” or “{plain}”.",
+  "@syncGuideLookEventsBody": {
+    "description": "Body of the sync guide's row about the looks of the partner's events; the placeholders are the Sharing page's row, its title and the three choices",
+    "placeholders": {
+      "eventLook": { "type": "String" },
+      "sharingPage": { "type": "String" },
+      "outlined": { "type": "String" },
+      "avatar": { "type": "String" },
+      "plain": { "type": "String" }
+    }
+  },
+  "syncGuideLookNotesTitle": "Notes too",
+  "syncGuideLookNotesBody": "“{noteLook}” on the same page: “{avatar}” or “{plain}”.",
+  "@syncGuideLookNotesBody": {
+    "description": "Body of the sync guide's row about the looks of the partner's notes and folders",
+    "placeholders": {
+      "noteLook": { "type": "String" },
+      "avatar": { "type": "String" },
+      "plain": { "type": "String" }
+    }
+  },
+  "syncGuideLookMarkBody": "A small sign on your categories, events and folders that your partner can see.",
+  "@syncGuideLookMarkBody": {
+    "description": "Body of the sync guide's row about marking what you share; its title is shareMarkMine"
+  },
+  "syncGuideLookHideTitle": "Hide what you do not need",
+  "syncGuideLookHideBody": "On “{sharingPage}”, under what they share, “{categories}” switches one of theirs off: its events leave your calendar and do not ring. On this phone only; they never see it.",
+  "@syncGuideLookHideBody": {
+    "description": "Body of the sync guide's row about hiding a category the partner shares; categories is the Sharing page's Categories row",
+    "placeholders": {
+      "sharingPage": { "type": "String" },
+      "categories": { "type": "String" }
+    }
+  },
+  "syncGuidePageAlerts": "Alerts on shared things",
+  "syncGuidePageAlertsCaption": "What rings on your phone",
+  "syncGuideAlertsLead": "Their alerts never ring on your phone. Yours ring when you say.",
+  "syncGuideAlertsChoicesTitle": "Three choices",
+  "syncGuideAlertsChoicesBody": "“{shareAlerts}” on “{sharingPage}”: “{off}” silences them all, “{own}” rings only alerts you add, “{category}” lets shared events follow your category alerts too.",
+  "@syncGuideAlertsChoicesBody": {
+    "description": "Body of the sync guide's row about the alerts choice for shared events; the placeholders are the Sharing page's row, its title and the three choices",
+    "placeholders": {
+      "shareAlerts": { "type": "String" },
+      "sharingPage": { "type": "String" },
+      "off": { "type": "String" },
+      "own": { "type": "String" },
+      "category": { "type": "String" }
+    }
+  },
+  "syncGuideAlertsOwnTitle": "Add your own",
+  "syncGuideAlertsOwnBody": "Open a shared event and add an alert from its sheet. It is yours alone: it never rings on their phone.",
+  "syncGuideAlertsFollowTitle": "It follows their changes",
+  "syncGuideAlertsFollowFreshBody": "An alert of yours follows your partner's changes to the event, even while ANTA is closed.",
+  "@syncGuideAlertsFollowFreshBody": {
+    "description": "Body of the sync guide's row about alerts following a shared event, on Android"
+  },
+  "syncGuideAlertsFollowLastReceivedBody": "An alert of yours follows what this phone last received.",
+  "@syncGuideAlertsFollowLastReceivedBody": {
+    "description": "Body of the sync guide's row about alerts following a shared event, where the app cannot check while it is closed"
+  },
+  "syncGuideAlertsFromTitle": "Who it is from",
+  "syncGuideAlertsFromBody": "The alert names your partner. You can snooze it, not skip it.",
+  "syncGuidePageStop": "Stop sharing",
+  "syncGuidePageStopCaption": "One thing, everything, or the pair",
+  "syncGuideStopLead": "Every way out, from one thing to everything.",
+  "syncGuideStopOneTitle": "One thing",
+  "syncGuideStopOneBody": "Switch it off where you switched it on.",
+  "syncGuideStopAllTitle": "All of it",
+  "syncGuideStopAllBody": "“{stopAll}” on “{sharingPage}” takes everything back and keeps you paired.",
+  "@syncGuideStopAllBody": {
+    "description": "Body of the sync guide's row about stopping every share",
+    "placeholders": {
+      "stopAll": { "type": "String" },
+      "sharingPage": { "type": "String" }
+    }
+  },
+  "syncGuideStopUnpairBody": "On “{sharingPage}”, it ends sharing both ways: each phone drops what the other shared. Your own things stay yours.",
+  "@syncGuideStopUnpairBody": {
+    "description": "Body of the sync guide's row about unpairing; its title is unpair",
+    "placeholders": {
+      "sharingPage": { "type": "String" }
+    }
+  },
+  "syncGuideStopWhenTitle": "When it takes effect",
+  "syncGuideStopWhenBody": "Your phone sends the change when it next syncs, and it leaves your partner's phone when theirs does. Offline, the change waits like any other.",
+  "syncGuideStopSyncTitle": "Stop syncing, or leave",
+  "syncGuideStopSyncBody": "“{syncStop}” keeps your own things on this phone; what your partner shares leaves it. Your partner keeps what you share as it is now, so stop sharing first. “{deleteCloud}” and “{deleteAccount}” on “{sharingSettings}” say what they remove.",
+  "@syncGuideStopSyncBody": {
+    "description": "Body of the sync guide's row about stopping sync or deleting the cloud copy or the account; the placeholders are the Sync & sharing page's own labels",
+    "placeholders": {
+      "syncStop": { "type": "String" },
+      "deleteCloud": { "type": "String" },
+      "deleteAccount": { "type": "String" },
+      "sharingSettings": { "type": "String" }
+    }
+  },
+  "syncGuidePagePrivate": "What stays private",
+  "syncGuidePagePrivateCaption": "What is never shared, and where it is kept",
+  "syncGuidePrivateLead": "Only what you switch on is shared. The rest never leaves your account.",
+  "syncGuidePrivateNeverTitle": "Never shared",
+  "syncGuidePrivateNeverBody": "Your counters, alerts, attendance marks, templates and settings, and every category, event and folder you did not switch on.",
+  "syncGuidePrivateReadOnlyTitle": "They cannot change anything",
+  "syncGuidePrivateReadOnlyBody": "Sharing is read-only both ways, so a list cannot be ticked off by both of you.",
+  "syncGuidePrivateBackupsTitle": "Not in your backups",
+  "syncGuidePrivateBackupsBody": "Your backups and calendar exports leave out what your partner shares, and a notes export that includes something of theirs is refused. Reports, goals and attendance count only your own events.",
+  "syncGuidePrivateDataBody": "A database you sync keeps a copy in Google's cloud. It is encrypted there, but not end-to-end: the people who run ANTA's cloud service can read it. “{dataNotice}” on “{sharingSettings}” says where it is kept and how to remove it.",
+  "@syncGuidePrivateDataBody": {
+    "description": "Body of the sync guide's row about where synced data is stored; its title is dataNoticeTitle",
+    "placeholders": {
+      "dataNotice": { "type": "String" },
+      "sharingSettings": { "type": "String" }
+    }
+  },
+  "syncGuideDemoPartner": "Sam",
+  "@syncGuideDemoPartner": {
+    "description": "The partner's name on the sync guide's two-phone stages (D45); the same name in every language"
+  },
+  "syncGuideDemoYou": "you",
+  "@syncGuideDemoYou": {
+    "description": "How Sam's phone on a sync guide stage names the reader, as the word that follows 'From' in shareFromPartner and shareMarkPartnerLabel ('From you'); lower case, in the case that preposition takes"
+  },
+  "syncGuidePhoneYours": "Your phone",
+  "@syncGuidePhoneYours": {
+    "description": "Sync guide stage: the flip's segment for the reader's own phone on a sharing card"
+  },
+  "syncGuidePhoneTheirs": "{name}'s phone",
+  "@syncGuidePhoneTheirs": {
+    "description": "Sync guide stage: the flip's segment for the partner's phone on a sharing card; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuidePhoneThis": "This phone",
+  "@syncGuidePhoneThis": {
+    "description": "Sync guide stage: the flip's segment for the phone in the reader's hand on a sync card"
+  },
+  "syncGuidePhoneOther": "Your other phone",
+  "@syncGuidePhoneOther": {
+    "description": "Sync guide stage: the flip's segment for the reader's second phone on a sync card"
+  },
+  "syncGuidePhoneChanged": "{phone}, changed",
+  "@syncGuidePhoneChanged": {
+    "description": "Screen-reader label of a flip segment whose phone changed since the reader last looked; phone is the segment's label",
+    "placeholders": {
+      "phone": { "type": "String" }
+    }
+  },
+  "syncGuidePhoneSyncing": "{phone}, syncing",
+  "@syncGuidePhoneSyncing": {
+    "description": "Screen-reader label of a flip segment whose phone a change is still on its way to; phone is the segment's label",
+    "placeholders": {
+      "phone": { "type": "String" }
+    }
+  },
+  "syncGuidePhoneBar": "{phone} · {area}",
+  "@syncGuidePhoneBar": {
+    "description": "Title in the bar of a sync guide stage's phone, seen and spoken: whose phone it is, then the page it shows; phone is the flip's label (syncGuidePhoneYours or syncGuidePhoneTheirs), area the page's own title (Calendar, Notes)",
+    "placeholders": {
+      "phone": { "type": "String" },
+      "area": { "type": "String" }
+    }
+  },
+  "syncGuideEmptyFromYou": "Nothing from you yet",
+  "@syncGuideEmptyFromYou": {
+    "description": "Centred line on Sam's phone on a sync guide stage while the reader shares nothing with Sam"
+  },
+  "syncGuideTryEvent": "Try it: share an event",
+  "@syncGuideTryEvent": {
+    "description": "Title of the sync guide's Try it card on the event page"
+  },
+  "syncGuideCoachEventShare": "Turn on “{shareWith}”.",
+  "@syncGuideCoachEventShare": {
+    "description": "Coach line of the sync guide's event card; shareWith is shareWithPartner with Sam's name",
+    "placeholders": {
+      "shareWith": { "type": "String" }
+    }
+  },
+  "syncGuideCoachEventLook": "Open {name}'s phone.",
+  "@syncGuideCoachEventLook": {
+    "description": "Coach line of the sync guide's event card: look at the partner's phone with the flip; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideCoachEventOpen": "An outlined picture means it's from you. Tap the event there.",
+  "@syncGuideCoachEventOpen": {
+    "description": "Coach line of the sync guide's event card, shown while the partner's phone shows the shared event with its outlined avatar: names that mark, then asks to open the event"
+  },
+  "syncGuideCoachEventUnshare": "Come back to your phone and turn “{shareWith}” off.",
+  "@syncGuideCoachEventUnshare": {
+    "description": "Coach line of the sync guide's event card; shareWith is shareWithPartner with Sam's name",
+    "placeholders": {
+      "shareWith": { "type": "String" }
+    }
+  },
+  "syncGuideReportEventCopy": "The copy is {name}'s own event. Yours is still yours.",
+  "@syncGuideReportEventCopy": {
+    "description": "Coach report after Copy to my calendar on the partner's phone in the sync guide's event card; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideSharedEventCaption": "{name} can't change it. Only you can.",
+  "@syncGuideSharedEventCaption": {
+    "description": "Caption of the partner's read sheet when the sync guide's stage opens it on Sam's phone, said from Sam's side: the reader shared the event; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideTryCategory": "Try it: share a category",
+  "@syncGuideTryCategory": {
+    "description": "Title of the sync guide's Try it card on the category page"
+  },
+  "syncGuideCoachCategoryShare": "Open ⋮ on {category} and choose “{shareWith}”.",
+  "@syncGuideCoachCategoryShare": {
+    "description": "Coach line of the sync guide's category card; category is the demo category's name, shareWith is shareWithPartner with Sam's name",
+    "placeholders": {
+      "category": { "type": "String" },
+      "shareWith": { "type": "String" }
+    }
+  },
+  "syncGuideCoachCategoryAdd": "An outlined picture means it's from you. Come back to your phone and tap “{add}”.",
+  "@syncGuideCoachCategoryAdd": {
+    "description": "Coach line of the sync guide's category card, shown while the partner's phone shows the category's events with their outlined avatars: names that mark, then asks to add an event; add is syncGuideAddEventTo",
+    "placeholders": {
+      "add": { "type": "String" }
+    }
+  },
+  "syncGuideCoachCategoryFollow": "Open {name}'s phone again.",
+  "@syncGuideCoachCategoryFollow": {
+    "description": "Coach line of the sync guide's category card: look at the partner's phone once more, where the added event arrived; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideAddEventTo": "Add an event to {category}",
+  "@syncGuideAddEventTo": {
+    "description": "Action row on the reader's phone in the sync guide's category card: adds a demo event to the shared category; category is its name",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "syncGuideTryFolder": "Try it: share a folder",
+  "@syncGuideTryFolder": {
+    "description": "Title of the sync guide's Try it card on the folder page"
+  },
+  "syncGuideCoachFolderShare": "Open ⋮ on {folder} and choose “{shareWith}”.",
+  "@syncGuideCoachFolderShare": {
+    "description": "Coach line of the sync guide's folder card; folder is syncGuideDemoFolderTrips, shareWith is shareWithPartner with Sam's name",
+    "placeholders": {
+      "folder": { "type": "String" },
+      "shareWith": { "type": "String" }
+    }
+  },
+  "syncGuideCoachFolderOpen": "Tap {folder} there.",
+  "@syncGuideCoachFolderOpen": {
+    "description": "Coach line of the sync guide's folder card: open the shared folder on the partner's phone; folder is syncGuideDemoFolderTrips",
+    "placeholders": {
+      "folder": { "type": "String" }
+    }
+  },
+  "syncGuideCoachFolderCopy": "Tap a note there and choose “{copy}”.",
+  "@syncGuideCoachFolderCopy": {
+    "description": "Coach line of the sync guide's folder card; copy is sharedNoteCopy",
+    "placeholders": {
+      "copy": { "type": "String" }
+    }
+  },
+  "syncGuideDemoFolderTrips": "Trips",
+  "@syncGuideDemoFolderTrips": {
+    "description": "Demo folder of the reader's on the sync guide's folder and stop cards"
+  },
+  "syncGuideDemoFolderRecipes": "Recipes",
+  "@syncGuideDemoFolderRecipes": {
+    "description": "Second demo folder of the reader's on the sync guide's folder card"
+  },
+  "syncGuideDemoFolderIdeas": "Ideas",
+  "@syncGuideDemoFolderIdeas": {
+    "description": "Sam's own demo folder on the sync guide's folder card, where a copied note goes"
+  },
+  "syncGuideDemoNoteLisbon": "Lisbon in May",
+  "@syncGuideDemoNoteLisbon": {
+    "description": "Demo note title in the Trips folder of the sync guide's folder card"
+  },
+  "syncGuideDemoNotePacking": "Packing list",
+  "@syncGuideDemoNotePacking": {
+    "description": "Demo note title in the Trips folder of the sync guide's folder card"
+  },
+  "syncGuideDemoNotePancakes": "Pancakes",
+  "@syncGuideDemoNotePancakes": {
+    "description": "Demo note title in the Recipes folder of the sync guide's folder card"
+  },
+  "syncGuideSharedNoteCaption": "{name} can't change it. Only you can.",
+  "@syncGuideSharedNoteCaption": {
+    "description": "Line at the top of a shared note's sheet on Sam's phone in the sync guide's folder card, said from Sam's side: the reader shared the note; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideReportFolderCopy": "The copy is in {name}'s “{folder}”. Yours is unchanged.",
+  "@syncGuideReportFolderCopy": {
+    "description": "Coach report after Copy to my notes on the partner's phone in the sync guide's folder card; name is syncGuideDemoPartner, folder is syncGuideDemoFolderIdeas",
+    "placeholders": {
+      "name": { "type": "String" },
+      "folder": { "type": "String" }
+    }
+  },
+  "syncGuideTryStop": "Try it: take it back",
+  "@syncGuideTryStop": {
+    "description": "Title of the sync guide's Try it card on the stop page"
+  },
+  "syncGuideCoachStopOne": "Tap ✕ on {event}.",
+  "@syncGuideCoachStopOne": {
+    "description": "Coach line of the sync guide's stop card: the ✕ that ends one share, on the row of the shared list; event is the demo event's title",
+    "placeholders": {
+      "event": { "type": "String" }
+    }
+  },
+  "syncGuideCoachStopAll": "Come back to your phone and tap “{stopAll}”.",
+  "@syncGuideCoachStopAll": {
+    "description": "Coach line of the sync guide's stop card; stopAll is shareStopAll",
+    "placeholders": {
+      "stopAll": { "type": "String" }
+    }
+  },
+  "syncGuideCoachStopUnpair": "Now tap “{unpair}”.",
+  "@syncGuideCoachStopUnpair": {
+    "description": "Coach line of the sync guide's stop card; unpair is unpair",
+    "placeholders": {
+      "unpair": { "type": "String" }
+    }
+  },
+  "syncGuideReportStopUnpair": "Not paired any more. What {name} shared is gone from your phone too; your own things stay yours.",
+  "@syncGuideReportStopUnpair": {
+    "description": "Coach report after Unpair in the sync guide's stop card; name is syncGuideDemoPartner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideTryStopNotShared": "No longer shared",
+  "@syncGuideTryStopNotShared": {
+    "description": "Caption of a row on the reader's phone in the sync guide's stop card once its share is taken back; the row stays in place with its ✕ off"
+  },
+  "syncGuideTryStopFromYou": "An outlined picture marks an event from you.",
+  "@syncGuideTryStopFromYou": {
+    "description": "Second sentence of the coach line that opens the partner's phone in the sync guide's stop card: says what the outlined event picture on that phone means"
+  },
+  "syncGuideTryStopCategoryPicker": "In the app, you untick a category under “{categories}”.",
+  "@syncGuideTryStopCategoryPicker": {
+    "description": "Report said on the sync guide's stop card when the category row's ✕ is tapped: on the real Sharing page a category has no ✕ and is taken back in its picker; categories is shareRowCategories",
+    "placeholders": {
+      "categories": { "type": "String" }
+    }
+  },
+  "syncGuideCoachChooseNext": "Now choose “{choice}”.",
+  "@syncGuideCoachChooseNext": {
+    "description": "Coach line of the sync guide's look and alerts cards: the next choice on the same Sharing page row; choice is the app's label for it (shareLookPlain, shareAlertsOwn, shareAlertsCategory)",
+    "placeholders": {
+      "choice": { "type": "String" }
+    }
+  },
+  "syncGuideTryLook": "Try it: choose the look",
+  "@syncGuideTryLook": {
+    "description": "Title of the sync guide's Try it card on the look page"
+  },
+  "syncGuideCoachLookAvatar": "Set “{setting}” to “{look}”.",
+  "@syncGuideCoachLookAvatar": {
+    "description": "Coach line of the sync guide's look card; setting is shareEventLook, look is shareLookAvatar",
+    "placeholders": {
+      "setting": { "type": "String" },
+      "look": { "type": "String" }
+    }
+  },
+  "syncGuideCoachLookMark": "Turn on “{mark}”.",
+  "@syncGuideCoachLookMark": {
+    "description": "Coach line of the sync guide's look card; mark is shareMarkMine",
+    "placeholders": {
+      "mark": { "type": "String" }
+    }
+  },
+  "syncGuideTryAlerts": "Try it: choose what rings",
+  "@syncGuideTryAlerts": {
+    "description": "Title of the sync guide's Try it card on the alerts page"
+  },
+  "syncGuideCoachAlertsOff": "Tap “{alerts}” and choose “{off}”.",
+  "@syncGuideCoachAlertsOff": {
+    "description": "Coach line of the sync guide's alerts card: open the Sharing page's alerts row and pick Off; alerts is shareAlerts, off is shareAlertsOff",
+    "placeholders": {
+      "alerts": { "type": "String" },
+      "off": { "type": "String" }
+    }
+  },
+  "syncGuideDemoCategoryTravel": "Travel",
+  "@syncGuideDemoCategoryTravel": {
+    "description": "The reader's own demo category in the sync guide's alerts card, which carries an alarm; the partner's flight is in it"
+  },
+  "syncGuideRingsNothing": "Nothing rings.",
+  "@syncGuideRingsNothing": {
+    "description": "Line under the partner's event in the sync guide's alerts card while Alerts for shared events is Off"
+  },
+  "syncGuideRingsOwn": "Your alert rings.",
+  "@syncGuideRingsOwn": {
+    "description": "Line under the partner's event in the sync guide's alerts card while only the reader's own alerts arm: the alert she added to that event. Says the umbrella word for an alert, never the reminder tier's word"
+  },
+  "syncGuideRingsBoth": "Your alert and {category}'s alarm ring.",
+  "@syncGuideRingsBoth": {
+    "description": "Line under the partner's event in the sync guide's alerts card while category alerts arm too: her own alert, and the alarm her category carries; category is syncGuideDemoCategoryTravel",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "syncGuideTryAlertsFlightCaption": "{from} · Your alert: {own} · {category}'s alarm: {alarm}",
+  "@syncGuideTryAlertsFlightCaption": {
+    "description": "Caption under the partner's flight in the sync guide's alerts card: whose event it is (shareFromPartner), the alert the reader added to it and the alarm her category carries, each timing from the app's alert formatter (\"30 min before\"); category is syncGuideDemoCategoryTravel. Says the umbrella word for an alert, never the reminder tier's word",
+    "placeholders": {
+      "from": { "type": "String" },
+      "own": { "type": "String" },
+      "category": { "type": "String" },
+      "alarm": { "type": "String" }
+    }
+  },
+  "syncGuideEmptyNotes": "No notes yet",
+  "@syncGuideEmptyNotes": {
+    "description": "The one centred line on the reader's other phone in a sync guide card while no note has reached it yet"
+  },
+  "syncGuideTrySync": "Try it: watch it sync",
+  "@syncGuideTrySync": {
+    "description": "Title of the sync guide's Try it card on the page about syncing between the reader's own phones"
+  },
+  "syncGuideCoachSyncOn": "Tap “{sync}”.",
+  "@syncGuideCoachSyncOn": {
+    "description": "Coach line of the sync guide's sync card: turn on sync for the database; sync is syncThisDatabase, a row that is tapped, not a switch",
+    "placeholders": {
+      "sync": { "type": "String" }
+    }
+  },
+  "syncGuideCoachSyncWrite": "Add a note with “{newNote}”.",
+  "@syncGuideCoachSyncWrite": {
+    "description": "Coach line of the sync guide's offline card: make a note on this phone; newNote is the newNote label of the row on the stage",
+    "placeholders": {
+      "newNote": { "type": "String" }
+    }
+  },
+  "syncGuideCoachSyncLook": "Open your other phone.",
+  "@syncGuideCoachSyncLook": {
+    "description": "Coach line of the sync guide's sync and offline cards: flip the stage to the reader's other phone (syncGuidePhoneOther)"
+  },
+  "syncGuideCoachSyncEdit": "Tick its first line there, then come back.",
+  "@syncGuideCoachSyncEdit": {
+    "description": "Coach line of the sync guide's sync card: tick the new note's first task line on the other phone, and see the tick arrive back on this one"
+  },
+  "syncGuideReportSyncNow": "Nothing to send: both phones already match.",
+  "@syncGuideReportSyncNow": {
+    "description": "Coach report of the sync guide's sync card after Sync now while nothing waits"
+  },
+  "syncGuideDemoNoteGroceries": "Groceries",
+  "@syncGuideDemoNoteGroceries": {
+    "description": "Title of the note the reader makes with New note in the sync guide's sync and offline cards; a short task list"
+  },
+  "syncGuideDemoTaskMilk": "Milk",
+  "@syncGuideDemoTaskMilk": {
+    "description": "The first task line of the Groceries demo note in the sync guide's sync card"
+  },
+  "syncGuideCoachSyncWriteStatus": "When the status says “{upToDate}”, tap “{newNote}”.",
+  "@syncGuideCoachSyncWriteStatus": {
+    "description": "Coach line of the sync guide's sync card right after sync is turned on: watch the status row, which counts the changes it sends, until it says upToDate, then make a note; upToDate is syncUpToDate, newNote is the newNote label of the row on the stage",
+    "placeholders": {
+      "upToDate": { "type": "String" },
+      "newNote": { "type": "String" }
+    }
+  },
+  "syncGuideTryOffline": "Try it: write without a signal",
+  "@syncGuideTryOffline": {
+    "description": "Title of the sync guide's first Try it card on the offline page"
+  },
+  "syncGuideAirplaneMode": "Airplane mode",
+  "@syncGuideAirplaneMode": {
+    "description": "Tooltip of the airplane-mode toggle in the bar of a phone on the sync guide's stage — the phone's own setting, not the app's"
+  },
+  "syncGuideCoachOfflineOff": "Turn on airplane mode: tap the plane in the bar.",
+  "@syncGuideCoachOfflineOff": {
+    "description": "Coach line of the sync guide's offline card: take this phone offline with the plane glyph in the bar of the phone on the stage, which has no visible label"
+  },
+  "syncGuideCoachOfflineOn": "Come back and tap the plane to end airplane mode.",
+  "@syncGuideCoachOfflineOn": {
+    "description": "Coach line of the sync guide's offline card: back on this phone, end airplane mode with the plane glyph in its bar so the waiting note is sent"
+  },
+  "syncGuideTryConflict": "Try it: the same note on both phones",
+  "@syncGuideTryConflict": {
+    "description": "Title of the sync guide's second Try it card on the offline page: one note edited on two offline phones"
+  },
+  "syncGuideAddLine": "Add a line",
+  "@syncGuideAddLine": {
+    "description": "Action row on the sync guide's conflict card that adds a line to the Packing list note"
+  },
+  "syncGuideCoachConflictHere": "Add a line on this phone.",
+  "@syncGuideCoachConflictHere": {
+    "description": "Coach line of the sync guide's conflict card: edit the note on this phone while it is offline"
+  },
+  "syncGuideCoachConflictThere": "Open your other phone and add a line there.",
+  "@syncGuideCoachConflictThere": {
+    "description": "Coach line of the sync guide's conflict card: edit the same note on the other phone, also offline"
+  },
+  "syncGuideCoachConflictOnline": "Turn airplane mode off: tap the plane on both phones.",
+  "@syncGuideCoachConflictOnline": {
+    "description": "Coach line of the sync guide's conflict card: bring both phones back online with the plane glyph in each phone's bar, which has no visible label"
+  },
+  "syncGuideReportConflict": "No text was lost: your other phone’s later line is in the note, this phone’s in the copy beside it. Delete whichever you do not need.",
+  "@syncGuideReportConflict": {
+    "description": "Coach report of the sync guide's conflict card once both phones synced, when the line added on the other phone was the later edit: it stays in the note, this phone's line is filed as a conflict copy"
+  },
+  "syncGuideDemoLinePassport": "Passport",
+  "@syncGuideDemoLinePassport": {
+    "description": "The Packing list demo note's one line on the sync guide's conflict card"
+  },
+  "syncGuideDemoLineSunscreen": "Sunscreen",
+  "@syncGuideDemoLineSunscreen": {
+    "description": "The line the reader adds to the Packing list on this phone in the sync guide's conflict card"
+  },
+  "syncGuideDemoLineUmbrella": "Umbrella",
+  "@syncGuideDemoLineUmbrella": {
+    "description": "The line the reader adds to the Packing list on the other phone in the sync guide's conflict card"
+  },
+  "syncGuideReportConflictHere": "No text was lost: this phone’s later line is in the note, your other phone’s in the copy beside it. Delete whichever you do not need.",
+  "@syncGuideReportConflictHere": {
+    "description": "Coach report of the sync guide's conflict card once both phones synced, when the line added on this phone was the later edit: it stays in the note, the other phone's line is filed as a conflict copy"
+  },
+  "syncGuideTryPair": "Try it: a code, typed once",
+  "@syncGuideTryPair": {
+    "description": "Title of the sync guide's Try it card on the pair page: a code made on one phone and entered on the partner's"
+  },
+  "syncGuideReportPairSharing": "In the app, this opens “{page}”.",
+  "@syncGuideReportPairSharing": {
+    "description": "Coach report when the paired row is tapped on the sync guide's pair card: the stage navigates nowhere; page is sharingWithTitle, the Sharing page's title",
+    "placeholders": {
+      "page": { "type": "String" }
+    }
+  },
+  "syncGuideCoachPairInvite": "Tap “{create}”.",
+  "@syncGuideCoachPairInvite": {
+    "description": "Coach line of the sync guide's pair card: make a code on your phone; create is pairingGenerateCode",
+    "placeholders": {
+      "create": { "type": "String" }
+    }
+  },
+  "syncGuideCoachPairRedeem": "Enter the code there and tap “{connect}”.",
+  "@syncGuideCoachPairRedeem": {
+    "description": "Coach line of the sync guide's pair card: on the partner's phone, enter the code and connect; connect is pairingConnect",
+    "placeholders": {
+      "connect": { "type": "String" }
+    }
+  },
+  "syncGuideCoachPairBack": "Come back to your phone.",
+  "@syncGuideCoachPairBack": {
+    "description": "Coach line of the sync guide's pair card: return to your own phone, which now reads paired"
+  },
+  "syncGuidePairFill": "Fill in the code",
+  "@syncGuidePairFill": {
+    "description": "Chip under the code field on the partner's phone in the sync guide's pair card: types the code your phone shows, so nobody has to type eight characters to practise"
+  },
+  "syncGuideReportPairCopy": "On your own phone, this copies the code so you can send it to {name}.",
+  "@syncGuideReportPairCopy": {
+    "description": "Coach report when Copy is tapped on the sync guide's pair card: the stage copies nothing; name is the demo partner",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "syncGuideHowPairingWorks": "How pairing works",
+  "@syncGuideHowPairingWorks": {
+    "description": "Tooltip of the help button in the pairing sheet's header: opens the sync guide's page on pairing"
+  },
+  "syncGuideSetupTitle": "Your setup",
+  "@syncGuideSetupTitle": {
+    "description": "Section header at the top of the sync guide's hub: four rows saying what is set up on this phone right now, each opening the screen where the step is taken"
+  },
+  "syncGuideSetupAccountDone": "Signed in as {name}",
+  "@syncGuideSetupAccountDone": {
+    "description": "Setup row in the sync guide's hub when an account is signed in; name is the account's name or email address",
+    "placeholders": {
+      "name": { "type": "String", "example": "Ana" }
+    }
+  },
+  "syncGuideSetupAccountDoneUnnamed": "Signed in",
+  "@syncGuideSetupAccountDoneUnnamed": {
+    "description": "Setup row in the sync guide's hub when an account with neither a name nor an email address is signed in"
+  },
+  "syncGuideSetupAccountTodo": "Sign in",
+  "@syncGuideSetupAccountTodo": {
+    "description": "Setup row in the sync guide's hub when nobody is signed in; the row opens Sync & sharing"
+  },
+  "syncGuideSetupAccountFirst": "Sign in first",
+  "@syncGuideSetupAccountFirst": {
+    "description": "Caption under a setup row in the sync guide's hub whose step needs an account and nobody is signed in"
+  },
+  "syncGuideSetupSyncDone": "This database syncs",
+  "@syncGuideSetupSyncDone": {
+    "description": "Setup row in the sync guide's hub when the open database syncs with the signed-in account; keep it short"
+  },
+  "syncGuideSetupSyncTodo": "Turn on “{label}”",
+  "@syncGuideSetupSyncTodo": {
+    "description": "Setup row in the sync guide's hub when the open database does not sync; label is the Sync section's own row, Sync this database",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "syncGuideSetupSyncFirst": "Turn on sync first",
+  "@syncGuideSetupSyncFirst": {
+    "description": "Caption under the sharing setup row in the sync guide's hub while the open database does not sync"
+  },
+  "syncGuideSetupPairDone": "Paired with {name}",
+  "@syncGuideSetupPairDone": {
+    "description": "Setup row in the sync guide's hub when the signed-in account is paired; name is the partner's",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "syncGuideSetupPairTodo": "Pair with someone",
+  "@syncGuideSetupPairTodo": {
+    "description": "Setup row in the sync guide's hub when the signed-in account is not paired"
+  },
+  "syncGuideSetupPairFirst": "Pair first",
+  "@syncGuideSetupPairFirst": {
+    "description": "Caption under the sharing setup row in the sync guide's hub while the account is not paired"
+  },
+  "syncGuideSetupShareDone": "{count, plural, one{You share 1 thing} other{You share {count} things}}",
+  "@syncGuideSetupShareDone": {
+    "description": "Setup row in the sync guide's hub: how many categories, events and folders this person shares with the partner",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "syncGuideSetupShareTodo": "Share something",
+  "@syncGuideSetupShareTodo": {
+    "description": "Setup row in the sync guide's hub when this person shares nothing: the next step, an imperative like 'Sign in' and 'Pair with someone'"
+  },
+  "syncGuideSetupOpensSharing": "Opens Sharing",
+  "@syncGuideSetupOpensSharing": {
+    "description": "Screen-reader hint on the sharing setup row in the sync guide's hub while paired: its tap opens the Sharing page"
+  },
+  "syncGuideHowSyncWorks": "How sync and sharing work",
+  "@syncGuideHowSyncWorks": {
+    "description": "Tooltip of the help button in the bar of Sync & sharing and of the Sharing page: opens the guide's book on sync and sharing"
+  },
+  "syncGuideSetupSyncPausedFirst": "Sync is paused",
+  "@syncGuideSetupSyncPausedFirst": {
+    "description": "Caption under the sharing setup row in the sync guide's hub while the open database is bound to another account, so its sync is paused"
+  },
   "moneyNoTarget": "no target",
   "@moneyNoTarget": {
     "description": "The bare $! chip's text in the preview when no $! target stands above it, shown in place of an amount"
@@ -13832,36 +14598,6 @@
       }
     }
   },
-  "appGuideSyncStopTitle": "Stopping",
-  "appGuideSyncStopBody": "“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.",
-  "@appGuideSyncStopBody": {
-    "placeholders": {
-      "syncStop": {
-        "type": "String"
-      },
-      "signOut": {
-        "type": "String"
-      }
-    }
-  },
-  "appGuideSyncDeleteTitle": "Deleting the cloud copy",
-  "appGuideSyncDeleteBody": "“{delete}” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.",
-  "@appGuideSyncDeleteBody": {
-    "placeholders": {
-      "delete": {
-        "type": "String"
-      }
-    }
-  },
-  "appGuideSyncDeleteAccountTitle": "Deleting your account",
-  "appGuideSyncDeleteAccountBody": "“{deleteAccount}” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.",
-  "@appGuideSyncDeleteAccountBody": {
-    "placeholders": {
-      "deleteAccount": {
-        "type": "String"
-      }
-    }
-  },
   "dataNoticeSection": "Privacy",
   "@dataNoticeSection": {
     "description": "Header of the Sync & sharing page's section that says where data is stored"
@@ -13918,83 +14654,6 @@
       }
     }
   },
-  "appGuideSyncDataBody": "A database you sync keeps a copy in Google's cloud. It is encrypted there, but not end-to-end: the people who run ANTA's cloud service can read it. “{dataNotice}” on the same page says where it is kept and how to remove it.",
-  "@appGuideSyncDataBody": {
-    "description": "Body of the app guide's row about where synced data is stored; its title is dataNoticeTitle",
-    "placeholders": {
-      "dataNotice": {
-        "type": "String"
-      }
-    }
-  },
-  "appGuidePageSharing": "Sharing with your partner",
-  "appGuidePageSharingCaption": "A category or an event, read-only on their phone",
-  "appGuideSharingLead": "Pair with one person and choose what they see. Nothing is shared until you switch it on; your partner reads and never changes it; switch it off and it leaves their phone.",
-  "appGuideSharingPairTitle": "Pair first",
-  "appGuideSharingPairBody": "“{pairingSection}” in “{sharingSettings}” links you with one person through a code. Pairing alone shares nothing. Both phones need “{syncThisDatabase}” on — what you share travels with sync.",
-  "@appGuideSharingPairBody": {
-    "description": "Body of the app guide's row about pairing before sharing; the placeholders are the app's own labels",
-    "placeholders": {
-      "pairingSection": { "type": "String" },
-      "sharingSettings": { "type": "String" },
-      "syncThisDatabase": { "type": "String" }
-    }
-  },
-  "appGuideSharingCategoryTitle": "Share a category",
-  "appGuideSharingCategoryBody": "In a category's editor, “{shareWith}” shares every event in it, and every event you add to it later. The ⋮ menu on the “{calendarCategories}” page does the same; “{sharingPage}”, behind the pairing row, ticks several at once.",
-  "@appGuideSharingCategoryBody": {
-    "description": "Body of the app guide's row about sharing a category; shareWith is the switch's label with the stand-in partner name, sharingPage the Sharing page's title",
-    "placeholders": {
-      "shareWith": { "type": "String" },
-      "calendarCategories": { "type": "String" },
-      "sharingPage": { "type": "String" }
-    }
-  },
-  "appGuideSharingEventTitle": "Share one event",
-  "appGuideSharingEventBody": "The same switch, “{shareWith}”, in an event's editor shares that event alone. An event in a shared category is shared already; its switch says so.",
-  "@appGuideSharingEventBody": {
-    "description": "Body of the app guide's row about sharing one event",
-    "placeholders": {
-      "shareWith": { "type": "String" }
-    }
-  },
-  "appGuideSharingReadOnlyTitle": "Read-only for them",
-  "appGuideSharingReadOnlyBody": "Your partner sees what you share and cannot change it, so a list cannot be ticked off by both of you. “{copy}” gives them an event of their own; your later changes do not reach that copy, and it stays when you stop sharing.",
-  "@appGuideSharingReadOnlyBody": {
-    "description": "Body of the app guide's row saying a share is read-only and that a copy stays; copy is the read sheet's Copy to my calendar label",
-    "placeholders": {
-      "copy": { "type": "String" }
-    }
-  },
-  "appGuideSharingTheirsTitle": "What your partner shares",
-  "appGuideSharingTheirsBody": "Their events open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how their events are told apart from yours. Reports, goals and attendance count only your own events.",
-  "@appGuideSharingTheirsBody": {
-    "description": "Body of the app guide's row about what the partner shares with this person",
-    "placeholders": {
-      "sharingPage": { "type": "String" }
-    }
-  },
-  "appGuideSharingAlertsTitle": "Alerts",
-  "appGuideSharingAlertsBody": "Your partner's alerts never ring on your phone, nor yours on theirs. Add an alert of your own to a shared event from its sheet. “{shareAlerts}” on the same page can silence them all (“{alertsOff}”) or let shared events follow your own category alerts (“{alertsCategory}”).",
-  "@appGuideSharingAlertsBody": {
-    "description": "Body of the app guide's row about alerts on shared events; the placeholders are the Sharing page's own labels",
-    "placeholders": {
-      "shareAlerts": { "type": "String" },
-      "alertsOff": { "type": "String" },
-      "alertsCategory": { "type": "String" }
-    }
-  },
-  "appGuideSharingStopTitle": "Stopping",
-  "appGuideSharingStopBody": "Switch a share off and it leaves your partner's phone the next time it syncs. “{stopAll}” takes everything back and keeps you paired; “{unpair}” ends sharing both ways.",
-  "@appGuideSharingStopBody": {
-    "description": "Body of the app guide's row about stopping a share, everything, or the pair",
-    "placeholders": {
-      "stopAll": { "type": "String" },
-      "unpair": { "type": "String" }
-    }
-  },
-  "appGuideSharingPrivateTitle": "What is never shared",
-  "appGuideSharingPrivateBody": "Your counters, alerts, attendance marks, templates and settings stay on your side whatever you share.",
   "sharePartnerFallback": "your partner",
   "@sharePartnerFallback": {
     "description": "Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it"
@@ -14105,19 +14764,6 @@
   "shareNoteLook": "Notes shared with you",
   "@shareNoteLook": {
     "description": "Sharing page choice row: how the partner's notes and folders are drawn (Avatar / Like mine)"
-  },
-  "appGuideSharingFolderTitle": "Share a folder",
-  "@appGuideSharingFolderTitle": {
-    "description": "Title of the app guide's row about sharing a folder"
-  },
-  "appGuideSharingFolderBody": "“{shareWith}” in a folder's ⋮ menu shares it; “{addFolder}” on “{sharingPage}” does the same. Your partner reads its notes and cannot change them; a note you add later is shared too.",
-  "@appGuideSharingFolderBody": {
-    "description": "Body of the app guide's row about sharing a folder; the placeholders are the folder menu's share entry, the Sharing page's 'Share a folder' row and the Sharing page's title",
-    "placeholders": {
-      "shareWith": { "type": "String" },
-      "addFolder": { "type": "String" },
-      "sharingPage": { "type": "String" }
-    }
   },
   "shareNone": "None",
   "@shareNone": {
@@ -14562,14 +15208,6 @@
     "placeholders": {
       "name": { "type": "String", "example": "Maria" }
     }
-  },
-  "appGuideSharingAlertsFresh": "An alert of yours follows your partner's changes to the event, even while ANTA is closed.",
-  "@appGuideSharingAlertsFresh": {
-    "description": "Sentence closing the app guide's row about alerts on shared events, on Android"
-  },
-  "appGuideSharingAlertsLastReceived": "An alert of yours follows what this phone last received.",
-  "@appGuideSharingAlertsLastReceived": {
-    "description": "Sentence closing the app guide's row about alerts on shared events, where the app cannot check while it is closed"
   },
   "shareNewFromPartner": "{name} shares {what} with you",
   "@shareNewFromPartner": {

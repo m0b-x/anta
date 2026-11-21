@@ -653,6 +653,116 @@ void main() {
 
         await teardownApp(tester);
       });
+
+      // The help loop: Sync & sharing → Sharing → "How this works" → the
+      // sync guide, whose setup rows open Sync & sharing again.
+      testWidgets('the sync guide\'s setup row over a Sync & sharing page goes '
+          'back to it, closing what is above, and stacks no second one', (
+        tester,
+      ) async {
+        await openFromHub(
+          tester,
+          _row(SemanticsIds.settingsHubRow('syncSettings')),
+        );
+        unawaited(
+          AppNavigator.navigatorKey.currentState!.push(
+            MaterialPageRoute<void>(
+              settings: const RouteSettings(
+                name: AppNavigator.sharingRouteName,
+              ),
+              builder: (_) => const Scaffold(body: Text('sharing')),
+            ),
+          ),
+        );
+        await settle(tester);
+        unawaited(
+          AppNavigator.toGuideBook(
+            tester.element(find.text('sharing')),
+            GuideBook.sync,
+          ),
+        );
+        await settle(tester);
+        expect(find.byType(GuideBookPage), findsOneWidget);
+        observer.clear();
+
+        await tapRow(tester, SemanticsIds.guideSyncSetupRow('sync'));
+
+        expect(observer.pageRoutes, isEmpty);
+        expect(
+          find.byType(SyncSettingsPage, skipOffstage: false),
+          findsOneWidget,
+        );
+        expect(find.byType(SyncSettingsPage), findsOneWidget);
+        expect(find.byType(GuideBookPage, skipOffstage: false), findsNothing);
+        expect(find.text('sharing', skipOffstage: false), findsNothing);
+        expect(find.byType(SettingsHubPage, skipOffstage: false), findsOne);
+
+        await teardownApp(tester);
+      });
+
+      // The guide opened from the drawer over a page that is no guide's:
+      // going back would close that page with everything else above.
+      testWidgets('the sync guide\'s setup row over a page that is not the '
+          'guide\'s closes nothing and pushes a new Sync & sharing page', (
+        tester,
+      ) async {
+        await openFromHub(
+          tester,
+          _row(SemanticsIds.settingsHubRow('syncSettings')),
+        );
+        unawaited(
+          AppNavigator.toSettings(
+            tester.element(find.byType(SyncSettingsPage)),
+          ),
+        );
+        await settle(tester);
+        unawaited(
+          AppNavigator.toGuideBook(
+            tester.element(find.byType(SettingsPage)),
+            GuideBook.sync,
+          ),
+        );
+        await settle(tester);
+        expect(find.byType(GuideBookPage), findsOneWidget);
+        observer.clear();
+
+        await tapRow(tester, SemanticsIds.guideSyncSetupRow('sync'));
+
+        expect(
+          observer.pageRoutes.single.settings.arguments,
+          const NavDestination(NavDestinationKind.syncSettings),
+        );
+        expect(find.byType(SyncSettingsPage), findsOneWidget);
+        expect(
+          find.byType(SyncSettingsPage, skipOffstage: false),
+          findsNWidgets(2),
+        );
+        expect(find.byType(GuideBookPage, skipOffstage: false), findsOne);
+        expect(find.byType(SettingsPage, skipOffstage: false), findsOne);
+        expect(find.byType(SettingsHubPage, skipOffstage: false), findsOne);
+
+        await teardownApp(tester);
+      });
+
+      testWidgets('the sync guide\'s setup row with no Sync & sharing page '
+          'in the stack pushes one over the guide, stamped', (tester) async {
+        await openFromHub(
+          tester,
+          _row(SemanticsIds.settingsHubRow('syncGuide')),
+        );
+        observer.clear();
+
+        await tapRow(tester, SemanticsIds.guideSyncSetupRow('sync'));
+
+        expect(
+          observer.pageRoutes.single.settings.arguments,
+          const NavDestination(NavDestinationKind.syncSettings),
+        );
+        expect(find.byType(SyncSettingsPage), findsOneWidget);
+        expect(find.byType(GuideBookPage, skipOffstage: false), findsOneWidget);
+
+        await teardownApp(tester);
+      });
     });
 
     // §4.3's two deep links, at the navigator level: a stand-in opener with
@@ -1035,11 +1145,12 @@ void main() {
       await teardownApp(tester);
     });
 
-    // Both kinds rebuild the same page type; only its book tells them apart.
-    testWidgets('a restored notesGuide opens the notes book and appGuide the '
-        'app book', (tester) async {
+    // The kinds rebuild the same page type; only its book tells them apart.
+    testWidgets('a restored notesGuide opens the notes book, syncGuide the '
+        'sync book and appGuide the app book', (tester) async {
       const books = {
         NavDestinationKind.notesGuide: GuideBook.notes,
+        NavDestinationKind.syncGuide: GuideBook.sync,
         NavDestinationKind.appGuide: GuideBook.app,
       };
       await saveStack(tester, [
@@ -1658,7 +1769,13 @@ final _hubRows = <_Row>[
     stamp: const NavDestination(NavDestinationKind.notesGuide),
   ),
   _Row(
-    name: 'Backup, sync and settings',
+    name: 'Sync and sharing',
+    rowId: SemanticsIds.settingsHubRow('syncGuide'),
+    pageType: GuideBookPage,
+    stamp: const NavDestination(NavDestinationKind.syncGuide),
+  ),
+  _Row(
+    name: 'Backup and settings',
     rowId: SemanticsIds.settingsHubRow('appGuide'),
     pageType: GuideBookPage,
     stamp: const NavDestination(NavDestinationKind.appGuide),
@@ -1695,6 +1812,7 @@ const _restorable = <NavDestinationKind, Type>{
   NavDestinationKind.guideHub: GuideHubPage,
   NavDestinationKind.notesGuide: GuideBookPage,
   NavDestinationKind.appGuide: GuideBookPage,
+  NavDestinationKind.syncGuide: GuideBookPage,
 };
 
 class _RecordingObserver extends NavigatorObserver {

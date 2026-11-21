@@ -284,6 +284,8 @@ void main() {
     testWidgets('a ✕ refused after the sheet was dismissed says why on the '
         'app\'s messenger', (tester) async {
       await openMine(tester);
+      // The second ✕ is refused or not in its turn, as the service does.
+      service.inTurn = true;
       final hold = service.hold = Completer<void>();
       await tester.tap(unshare('lisbon'));
       await settle(tester);
@@ -323,6 +325,12 @@ void main() {
       await openMine(tester);
       await tester.tap(unshare('lisbon'));
       await settle(tester);
+      // As the service reads once the ✕ is written: the reload after the
+      // failed Undo is a newer read, and decides.
+      service.shareOverview = const ShareOverview(
+        folders: [trips],
+        folderCount: 1,
+      );
       final hold = service.hold = Completer<void>();
 
       await tester.tap(find.text('Undo'));
@@ -397,6 +405,96 @@ void main() {
       await settle(tester);
       expect(service.undone.single.sharedFolders, [work]);
     });
+
+    // Review A9: the row a ✕ hid stayed out of the list once the folder was
+    // shared again, and a failed ✕ brought back the rows of the ones queued.
+    testWidgets('a folder un-shared and then picked again through "Share a '
+        'folder" is listed again', (tester) async {
+      await openMine(tester);
+      await tester.tap(unshare('lisbon'));
+      await settle(tester);
+      expect(find.text('Lisbon'), findsNothing);
+      picked = 'lisbon';
+      service.nextChange = const ShareChange(
+        sharedFolders: [ShareFolderRef(id: 'lisbon', name: 'Lisbon')],
+      );
+
+      await tester.tap(add());
+      await settle(tester);
+
+      expect(service.folderShares, [('lisbon', false), ('lisbon', true)]);
+      expect(find.text('Lisbon'), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 250)));
+
+    testWidgets('a row its ✕ hid is listed again once a later state lists '
+        'the folder shared again', (tester) async {
+      await openMine(tester);
+      final listed = service.shareOverview;
+      service.shareOverview = const ShareOverview(
+        folders: [trips],
+        folderCount: 1,
+      );
+
+      await tester.tap(unshare('lisbon'));
+      await settle(tester);
+      expect(find.text('Lisbon'), findsNothing);
+
+      // Shared again elsewhere — the browser's menu, another phone.
+      service
+        ..shareOverview = listed
+        ..emit(service.availability);
+      await settle(tester);
+
+      expect(find.text('Lisbon'), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 250)));
+
+    // Review A9, second leg: the ✕ written while the reload's read failed,
+    // so the state that said so still lists the row.
+    testWidgets('a row whose ✕ was written stays out while the state still '
+        'lists it from the last read, and is listed again by a newer read '
+        'that lists it', (tester) async {
+      await openMine(tester);
+      service.overviewFails = true;
+
+      await tester.tap(unshare('lisbon'));
+      await settle(tester);
+      expect(service.folderShares, [('lisbon', false)]);
+      expect(find.text('Lisbon'), findsNothing);
+
+      // Shared again elsewhere before any read said it had gone.
+      service
+        ..overviewFails = false
+        // A reading of its own, as every read of the service is.
+        ..shareOverview = ShareOverview(
+          folders: const [lisbon, trips],
+          folderCount: 2,
+          partnerFolders: const [recipes],
+        )
+        ..emit(service.availability);
+      await settle(tester);
+
+      expect(find.text('Lisbon'), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 250)));
+
+    testWidgets(
+      'of two ✕, the first failing brings back only its own row',
+      (tester) async {
+        await openMine(tester);
+        final hold = service.hold = Completer<void>();
+
+        await tester.tap(unshare('lisbon'));
+        await settle(tester);
+        await tester.tap(unshare('trips'));
+        await settle(tester);
+        hold.completeError(StateError('disk'));
+        await settle(tester);
+
+        expect(service.folderShares, [('lisbon', false), ('trips', false)]);
+        expect(find.text('Lisbon'), findsOneWidget);
+        expect(find.text('Trips'), findsNothing);
+      },
+      timeout: const Timeout(Duration(seconds: 250)),
+    );
 
     testWidgets('a pick over a folder shared on its own says the inner one is '
         'now shared through it', (tester) async {

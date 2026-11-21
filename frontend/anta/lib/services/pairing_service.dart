@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants/pairing_limits.dart';
 import '../constants/settings_keys.dart';
 import '../database/database_lifecycle.dart';
 import '../models/app_user.dart';
@@ -97,6 +98,9 @@ class PairingService {
   /// (`ShareService.setAlerts`).
   late final Future<void> Function() _reconcileAlerts;
 
+  /// Schedules a listen again after an error ([_reportStreamError]).
+  late final Timer Function(Duration, void Function()) _timer;
+
   static Future<void> _alertPass() =>
       AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged);
 
@@ -117,8 +121,40 @@ class PairingService {
   StreamSubscription<InviteRecord?>? _inviteSub;
   StreamSubscription<PairRecord?>? _pairSub;
 
+  /// The listen again an error asked for, and how many errors in a row
+  /// asked one since a listener last heard a snapshot.
+  Timer? _relisten;
+  int _relistenErrors = 0;
+
+  /// Moved by every detach, so a listen again that awaited something finds
+  /// out whether the listeners were rebound or dropped meanwhile.
+  int _listenEpoch = 0;
+
+  /// The signed-in account, followed for the life of the service: signed
+  /// out or another account, nothing can answer this database's listens;
+  /// the stored pairing's account back, they are bound again without
+  /// waiting for the Sharing page — otherwise a sign-out and a sign-in
+  /// leave the phone deaf to the partner unpairing until it is opened —
+  /// and the server is asked what became of the pairing meanwhile
+  /// ([_lookOnReturn]).
+  StreamSubscription<AppUser?>? _authSub;
+  String? _seenUid;
+
+  /// The reconcile the account's return runs, while it runs: one at a time.
+  Future<void>? _returnLook;
+
   PairingSettings _cached = PairingSettings.empty;
   PairProfile? _partner;
+
+  /// The writes of the stored pairing, one at a time: each starts once the
+  /// one before it is on disk and in [_cached]. Two in flight at once let
+  /// the one built from the older cache land last — a run-out code's drop
+  /// undoing the fresh code or the pair written meanwhile.
+  Future<void> _turns = Future<void>.value();
+
+  /// Moved by [_stop]: a turn asked before it and not yet begun writes
+  /// nothing, for the database may be another by its time.
+  int _turnEpoch = 0;
 
   /// Whether the pair listener attached now has shown its pair active: only
   /// then does a snapshot with no document mean the pair was removed.
@@ -152,9 +188,16 @@ class PairingService {
     required PairingGateway gateway,
     required SettingsService settings,
     Future<void> Function()? reconcileAlerts,
+    Timer Function(Duration, void Function())? timer,
   }) async {
     if (_instance != null) return _instance!;
-    return _create(auth, gateway, settings, reconcileAlerts: reconcileAlerts);
+    return _create(
+      auth,
+      gateway,
+      settings,
+      reconcileAlerts: reconcileAlerts,
+      timer: timer,
+    );
   }
 
   static Future<PairingService> _create(
@@ -162,13 +205,19 @@ class PairingService {
     PairingGateway gateway,
     SettingsService settings, {
     Future<void> Function()? reconcileAlerts,
+    Timer Function(Duration, void Function())? timer,
   }) async {
     final service = PairingService._();
     service._auth = auth;
     service._gateway = gateway;
     service._settings = settings;
     service._reconcileAlerts = reconcileAlerts ?? _alertPass;
+    service._timer = timer ?? Timer.new;
     service._cached = await settings.getPairingSettings();
+    // The account as it stands now: the replay of it a new listener of
+    // Firebase's stream hears is no change.
+    service._seenUid = auth.currentUser?.uid;
+    service._authSub = auth.authStateChanges.listen(service._onAuthChanged);
     _instance = service;
     DatabaseLifecycle.registerResetHandler(reset);
     return service;
@@ -178,9 +227,54 @@ class PairingService {
   /// database. Pairing is per-database, so the listeners bound to the previous
   /// database's pair must go with it.
   static void reset() {
-    _instance?._detachListeners();
+    _instance?._stop();
     _instance = null;
     _pending = null;
+  }
+
+  void _stop() {
+    _turnEpoch++;
+    _authSub?.cancel();
+    _authSub = null;
+    _detachListeners();
+  }
+
+  void _onAuthChanged(AppUser? user) {
+    final uid = user?.uid;
+    if (uid == _seenUid) return;
+    _seenUid = uid;
+    if (uid == null || uid != _cached.accountUid) {
+      _detachListeners();
+      return;
+    }
+    // A pairing holding neither a pair nor a code has nothing to ask
+    // about: an account that never paired pays no call at a sign-in.
+    final holds = _cached.pairId != null || _cached.pendingCode != null;
+    if (!holds || _returnLook != null) {
+      _attachListeners();
+      return;
+    }
+    _returnLook = _lookOnReturn().whenComplete(() => _returnLook = null);
+  }
+
+  /// The server asked once the stored pairing's account is back: a pair
+  /// the partner's account deletion removed while it was away answers a
+  /// fresh listener with no document, which a listener that never saw the
+  /// pair live takes for one not written yet — the phone would read
+  /// "paired" until the Sharing page was opened. Never awaited by the
+  /// sign-in, and a failure is swallowed: offline is ordinary, and the
+  /// listeners are bound all the same.
+  Future<void> _lookOnReturn() async {
+    final epoch = _listenEpoch;
+    try {
+      await reconcile();
+      if (!_statusController.isClosed) _statusController.add(status);
+    } catch (e, st) {
+      debugPrint('[PairingService] no look at the account\'s return: $e\n$st');
+    }
+    // Bound by the reconcile, or dropped by a sign-out or a reset meanwhile;
+    // otherwise bound here, once.
+    if (epoch == _listenEpoch) _attachListeners();
   }
 
   /// Pushes a new status whenever a listener fires — a redeemed invite, a
@@ -235,6 +329,9 @@ class PairingService {
   /// the singleton bound to this database and every write goes through
   /// [_write], so re-reading could only lose a change a listener just made.
   Future<PairingStatus> load() async {
+    // A page opened after a long outage starts its waits over, not at the
+    // ceiling.
+    _relistenErrors = 0;
     // `finally`, because a reconcile that throws offline must still leave the
     // listeners bound. Otherwise one page open on a train leaves the device
     // permanently deaf to the partner unpairing.
@@ -319,7 +416,10 @@ class PairingService {
     final code = _cached.pendingCode;
     if (code == null) return status;
     await _gateway.deleteInvite(code);
-    await _write(_cached.clearPendingInvite());
+    // The code this was asked for: one made or a pair adopted since stays.
+    await _rewrite(
+      (held) => held.pendingCode == code ? held.clearPendingInvite() : null,
+    );
     _attachListeners();
     return status;
   }
@@ -453,8 +553,19 @@ class PairingService {
   /// The read that forgot [pairId] asks once, and nothing of that pair can
   /// leave again: its record ([PairingSettings.endedPairId]) and the name
   /// kept for it past the ended notice's dismissal go with the answer.
-  Future<PairEnding> endingOf(String? pairId) =>
-      _ending(pairId, _cached, auth: _auth, gateway: _gateway, clear: _write);
+  Future<PairEnding> endingOf(String? pairId) => _ending(
+    pairId,
+    _cached,
+    auth: _auth,
+    gateway: _gateway,
+    // Cleared from the pairing as its turn finds it: a pair adopted or a
+    // code made since holds no record of the ended one to clear.
+    clear: (_) => _rewrite(
+      (held) => held.pairId == null && held.endedPairId == pairId
+          ? _withoutEnding(held)
+          : null,
+    ),
+  );
 
   /// [endingOf] with no service built, for the check that runs with the app
   /// closed (`docs/cloud-shared-freshness.md` §6): one read of the stored
@@ -530,7 +641,7 @@ class PairingService {
   Future<PairingStatus> forget() async {
     _detachListeners();
     _partner = null;
-    await _write(PairingSettings(accountUid: _cached.accountUid));
+    await _rewrite((held) => PairingSettings(accountUid: held.accountUid));
     _statusController.add(status);
     return status;
   }
@@ -538,14 +649,16 @@ class PairingService {
   Future<PairingStatus> dismissEndedNotice() async {
     // The notice only exists in an unpaired state, so acknowledging it leaves
     // the account the settings belong to — and the ended pair with the name,
-    // which a leave of what it shared is still told in (D35).
-    final ended = _cached.endedPairId;
-    await _write(
-      PairingSettings(
-        accountUid: _cached.accountUid,
-        partnerName: ended == null ? null : _cached.partnerName,
-        endedPairId: ended,
-      ),
+    // which a leave of what it shared is still told in (D35). A pair adopted
+    // before its turn has no notice left to dismiss.
+    await _rewrite(
+      (held) => held.pairId != null
+          ? null
+          : PairingSettings(
+              accountUid: held.accountUid,
+              partnerName: held.endedPairId == null ? null : held.partnerName,
+              endedPairId: held.endedPairId,
+            ),
     );
     return status;
   }
@@ -578,7 +691,7 @@ class PairingService {
   }
 
   Future<void> dispose() async {
-    _detachListeners();
+    _stop();
     await _statusController.close();
     await _errorController.close();
     await _writtenController.close();
@@ -600,11 +713,21 @@ class PairingService {
     (_) => codeAlphabet[_random.nextInt(codeAlphabet.length)],
   ).join();
 
+  /// Whether the stored invite has run out: the rules refuse a listen on it.
+  bool get _pendingInviteExpired => _inviteExpiredIn(_cached);
+
+  static bool _inviteExpiredIn(PairingSettings settings) {
+    final expiresAt = settings.pendingExpiresAt;
+    return expiresAt != null && !expiresAt.isAfter(DateTime.now().toUtc());
+  }
+
+  /// Looks again in its turn: a code made or a pair adopted by a write
+  /// queued ahead of it is no run-out code, and stays.
   Future<void> _dropExpiredInvite() async {
-    final expiresAt = _cached.pendingExpiresAt;
-    if (expiresAt == null) return;
-    if (expiresAt.isAfter(DateTime.now().toUtc())) return;
-    await _write(_cached.clearPendingInvite());
+    if (!_pendingInviteExpired) return;
+    await _rewrite(
+      (held) => _inviteExpiredIn(held) ? held.clearPendingInvite() : null,
+    );
   }
 
   /// The stored pair is no longer active. While its document stands it is
@@ -633,15 +756,19 @@ class PairingService {
 
     final endedByPartner =
         gone || (ended?.endedBy != null && ended!.endedBy != uid);
-    await _write(
-      PairingSettings(
-        accountUid: uid,
-        partnerName: _cached.partnerName,
-        endedNoticePending: endedByPartner,
-        endedPairId: endedByPartner ? pairId : null,
-      ),
+    // Another pair stored while the tombstone was read is not this one's to
+    // clear.
+    final cleared = await _rewrite(
+      (held) => held.pairId != pairId
+          ? null
+          : PairingSettings(
+              accountUid: uid,
+              partnerName: held.partnerName,
+              endedNoticePending: endedByPartner,
+              endedPairId: endedByPartner ? pairId : null,
+            ),
     );
-    _partner = null;
+    if (cleared) _partner = null;
     _attachListeners();
   }
 
@@ -649,37 +776,50 @@ class PairingService {
     final partner = pair.partnerProfileOf(user.uid);
     _partner = partner;
 
-    // Stored with the pair below, in one write: none of its rows can
-    // arrive under the choice made for another.
-    final startAlertsAt = await _startAlertsChoiceOver(pair.pairId);
+    // Everything read of the cache below is read in the write's own turn:
+    // read before it, a write queued ahead could change what it stands on.
+    String? spentCode;
+    final written =
+        await _inTurn(() async {
+          // Stored with the pair below, in one write: none of its rows can
+          // arrive under the choice made for another.
+          final startAlertsAt = await _startAlertsChoiceOver(pair.pairId);
 
-    // Read before the write below replaces the cache wholesale — otherwise
-    // the consumed invite is never deleted. Nothing else removes it: no TTL
-    // policy stands on `invites.expiresAt` (a TTL delete needs billing, and
-    // the project stays on the free plan — `cloud-sync-phase-01-pairing.md`).
-    final spentCode = _cached.pendingCode;
+          // Read before the write below replaces the cache wholesale —
+          // otherwise the consumed invite is never deleted. Nothing else
+          // removes it: no TTL policy stands on `invites.expiresAt` (a TTL
+          // delete needs billing, and the project stays on the free plan —
+          // `cloud-sync-phase-01-pairing.md`).
+          spentCode = _cached.pendingCode;
 
-    // A mark of another pair is never a share ("we un-pair and pair again —
-    // nothing is carried over"): whenever the pair stored becomes another,
-    // the marks every other pair left go in the write that stores it. Not
-    // at an unpair, and not while the pair is merely lost locally — the
-    // shared reader clears when the server says there is no pair, and this
-    // same pair found again keeps its own: only other pairs' are cleared.
-    final marksCleared = await _write(
-      PairingSettings(
-        pairId: pair.pairId,
-        accountUid: user.uid,
-        partnerUid: pair.partnerUidOf(user.uid),
-        // The cached name is this pair's only while the cache holds this
-        // pair: one kept for a pair that ended (D35) is another person's.
-        partnerName:
-            partner?.displayName ??
-            (_cached.pairId == pair.pairId ? _cached.partnerName : null),
-      ),
-      startAlertsAt: startAlertsAt,
-      clearMarksOfOtherPairs: _cached.pairId != pair.pairId,
-    );
-    if (marksCleared > 0) {
+          // A mark of another pair is never a share ("we un-pair and pair
+          // again — nothing is carried over"): whenever the pair stored
+          // becomes another, the marks every other pair left go in the
+          // write that stores it. Not at an unpair, and not while the pair
+          // is merely lost locally — the shared reader clears when the
+          // server says there is no pair, and this same pair found again
+          // keeps its own: only other pairs' are cleared. Nor on a database
+          // bound to another account's space: those marks are that
+          // account's, and the write keeps them (D39's amendment) — with
+          // its alert choice and its last pair.
+          return _store(
+            PairingSettings(
+              pairId: pair.pairId,
+              accountUid: user.uid,
+              partnerUid: pair.partnerUidOf(user.uid),
+              // The cached name is this pair's only while the cache holds
+              // this pair: one kept for a pair that ended (D35) is another
+              // person's.
+              partnerName:
+                  partner?.displayName ??
+                  (_cached.pairId == pair.pairId ? _cached.partnerName : null),
+            ),
+            startAlertsAt: startAlertsAt,
+            clearMarksOfOtherPairs: _cached.pairId != pair.pairId,
+          );
+        }) ??
+        _nothingWritten;
+    if (written.marksCleared > 0) {
       try {
         await onMarksOfOtherPairsCleared?.call();
       } catch (e, st) {
@@ -691,8 +831,9 @@ class PairingService {
     // The pass a change of this choice by hand is followed by: what
     // "Category alerts too" armed on rows still stored — another account's
     // sign-in and a swapped pair remove none here — goes now, not at the
-    // next pass something else asks for.
-    if (startAlertsAt != null) {
+    // next pass something else asks for. None where the write kept the
+    // choice: a database bound to another account's space.
+    if (written.alertsReset) {
       try {
         await _reconcileAlerts();
       } catch (e, st) {
@@ -714,9 +855,9 @@ class PairingService {
       }
     }
 
-    if (spentCode != null) {
+    if (spentCode case final code?) {
       try {
-        await _gateway.deleteInvite(spentCode);
+        await _gateway.deleteInvite(code);
       } on PairingException {
         // It stays, as a document nobody can redeem: the rules refuse a
         // claimed or a run-out code.
@@ -769,6 +910,8 @@ class PairingService {
 
   /// Rebinds the listeners to whatever the cache now points at. Callers that
   /// changed the status publish it themselves — this only moves subscriptions.
+  /// An invite past its end is not listened to: the rules refuse it, and a
+  /// refusal would only ask for another listen.
   void _attachListeners() {
     _detachListeners();
     _pairSeenLive = false;
@@ -781,7 +924,7 @@ class PairingService {
     }
 
     final code = _cached.pendingCode;
-    if (code != null && isAvailable) {
+    if (code != null && !_pendingInviteExpired && isAvailable) {
       _inviteSub = _gateway
           .watchInvite(code)
           .listen(_onInviteChanged, onError: _reportStreamError);
@@ -794,15 +937,54 @@ class PairingService {
   ///
   /// A Firestore snapshot stream *terminates* on error, so rebinding is not
   /// optional — without it one transient permission error leaves the device
-  /// permanently deaf.
+  /// permanently deaf. Never at once, though: a listen the server refuses —
+  /// the pair after a sign-out, an invite past its end — would be listen,
+  /// refused, listen for the life of the process, each turn one more
+  /// error. So it waits, [PairingLimits.relistenFirst] doubling with each
+  /// error in a row up to [PairingLimits.relistenCeiling], and starts over
+  /// once a listener hears a snapshot or a [load] runs. With nobody signed
+  /// in, or another account than the stored pairing's, nothing listens
+  /// again: no listen can be answered, and the account's return
+  /// ([_onAuthChanged]) or the next [load] attaches what it holds.
   void _reportStreamError(Object error) {
     _errorController.add(
       error is PairingException ? error.error : PairingError.offline,
     );
+    final uid = _auth.currentUser?.uid;
+    if (uid == null || uid != _cached.accountUid) {
+      _detachListeners();
+      return;
+    }
+    if (_relisten != null) return;
+    final doubled = PairingLimits.relistenFirst * (1 << _relistenErrors);
+    final wait = doubled < PairingLimits.relistenCeiling
+        ? doubled
+        : PairingLimits.relistenCeiling;
+    if (wait < PairingLimits.relistenCeiling) _relistenErrors++;
+    _relisten = _timer(wait, () {
+      _relisten = null;
+      unawaited(_listenAgain());
+    });
+  }
+
+  /// An invite that ran out meanwhile is dropped first: only a reconcile
+  /// drops one otherwise, and a page left closed runs none.
+  Future<void> _listenAgain() async {
+    final epoch = _listenEpoch;
+    try {
+      await _dropExpiredInvite();
+    } catch (e, st) {
+      debugPrint('[PairingService] run-out invite not dropped: $e\n$st');
+    }
+    // Rebound by a load, or dropped by a sign-out or a reset, meanwhile.
+    if (epoch != _listenEpoch) return;
     _attachListeners();
   }
 
   void _detachListeners() {
+    _listenEpoch++;
+    _relisten?.cancel();
+    _relisten = null;
     _inviteSub?.cancel();
     _inviteSub = null;
     _pairSub?.cancel();
@@ -810,6 +992,7 @@ class PairingService {
   }
 
   Future<void> _onInviteChanged(InviteRecord? invite) async {
+    _relistenErrors = 0;
     if (invite == null || !invite.isRedeemed) return;
     if (_cached.pairId != null) return;
     final user = _auth.currentUser;
@@ -840,6 +1023,7 @@ class PairingService {
   }
 
   Future<void> _onPairChanged(PairRecord? pair) async {
+    _relistenErrors = 0;
     final user = _auth.currentUser;
     if (pair == null) {
       // A document this listener showed live and now cannot read: removed —
@@ -889,7 +1073,15 @@ class PairingService {
     _partner = partner;
     if (partner.displayName != null &&
         partner.displayName != _cached.partnerName) {
-      await _write(_cached.copyWith(partnerName: partner.displayName));
+      // Onto the pairing as its turn finds it, and only while it is still
+      // this pair's.
+      await _rewrite(
+        (held) =>
+            held.pairId != pair.pairId ||
+                held.partnerName == partner.displayName
+            ? null
+            : held.copyWith(partnerName: partner.displayName),
+      );
     }
     _statusController.add(status);
   }
@@ -905,17 +1097,51 @@ class PairingService {
   /// shares.
   static Stream<PairingStatus> get writes => _writes.stream;
 
+  static const ({int marksCleared, bool alertsReset}) _nothingWritten = (
+    marksCleared: 0,
+    alertsReset: false,
+  );
+
+  /// Runs [step] in the next turn of [_turns]; null, with nothing run, when
+  /// the service was stopped between the asking and the turn. A step must
+  /// not ask for a turn itself.
+  Future<T?> _inTurn<T>(Future<T> Function() step) {
+    final epoch = _turnEpoch;
+    final turn = _turns.then<T?>((_) => epoch != _turnEpoch ? null : step());
+    _turns = turn.then<void>((_) {}, onError: (Object _) {});
+    return turn;
+  }
+
+  /// Stores [next] in its turn — a value that does not depend on what the
+  /// cache holds by then.
+  Future<void> _write(PairingSettings next) => _inTurn(() => _store(next));
+
+  /// Stores what [change] makes of the pairing as its turn finds it, or
+  /// nothing when it answers null — what it was asked to change is no
+  /// longer there. Answers whether anything was stored.
+  Future<bool> _rewrite(
+    PairingSettings? Function(PairingSettings held) change,
+  ) async =>
+      await _inTurn(() async {
+        final next = change(_cached);
+        if (next == null) return false;
+        await _store(next);
+        return true;
+      }) ??
+      false;
+
   /// Persists first, then swaps the cache — a failed write must not leave
-  /// memory claiming a pairing that disk does not have.
+  /// memory claiming a pairing that disk does not have. Only ever inside a
+  /// turn ([_inTurn]).
   ///
-  /// Answers how many marks of other pairs the write cleared
-  /// ([SettingsService.setPairingSettings]).
-  Future<int> _write(
+  /// Answers how many marks of other pairs the write cleared and whether it
+  /// stored [startAlertsAt] ([SettingsService.setPairingSettings]).
+  Future<({int marksCleared, bool alertsReset})> _store(
     PairingSettings next, {
     ShareAlerts? startAlertsAt,
     bool clearMarksOfOtherPairs = false,
   }) async {
-    final cleared = await _settings.setPairingSettings(
+    final written = await _settings.setPairingSettings(
       next,
       startAlertsAt: startAlertsAt,
       clearMarksOfOtherPairs: clearMarksOfOtherPairs,
@@ -924,7 +1150,7 @@ class PairingService {
     _cached = next;
     if (!_writtenController.isClosed) _writtenController.add(status);
     if (pairChanged) _writes.add(status);
-    return cleared;
+    return written;
   }
 
   PairingStatus _statusFrom(PairingSettings settings) => PairingStatus(

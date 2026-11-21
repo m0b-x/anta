@@ -22,15 +22,17 @@ import '../utils/share_copy.dart';
 import '../utils/sync_moment_format.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/category_picker_sheet.dart';
-import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/share_alerts_at_stake.dart';
 import '../widgets/share_events_sheets.dart';
-import '../widgets/share_list_frame.dart' show undoSharePastBloc;
+import '../widgets/share_list_frame.dart'
+    show shareFailurePastSurface, undoSharePastBloc;
 import '../widgets/share_folders_sheets.dart';
+import '../widgets/share_settings_sections.dart';
 import '../widgets/shared_categories_sheet.dart';
+import '../widgets/sync_settings_sections.dart' show syncGuideHelpButton;
 import '../widgets/unified_app_bars.dart';
 
 /// How a list of names reads in a row's description and a snackbar.
@@ -224,7 +226,8 @@ class _SharingViewState extends State<_SharingView> {
   bool _leaving = false;
 
   /// While the counts are read and the tick sheet is up, so a second tap
-  /// opens no second sheet.
+  /// opens no second sheet — and on until the act its Done asked for has
+  /// answered, so no sheet opens on ticks read before that act landed.
   bool _picking = false;
 
   /// While the Single events sheet is up, so a second tap opens no second
@@ -282,12 +285,18 @@ class _SharingViewState extends State<_SharingView> {
                 outcome.sequence != _outcomeOf(previous)?.sequence &&
                 outcome.asker == null;
           },
-          listener: (context, state) => _sayOutcome(
-            context,
-            l10n,
-            _outcomeOf(state)!,
-            _partnerName(l10n, state as ShareLoaded),
-          ),
+          listener: (context, state) {
+            final outcome = _outcomeOf(state)!;
+            // The tick sheet's act has answered, its state with it: the
+            // sheet may open again on ticks that include it.
+            if (outcome.act == ShareAct.categoriesSet) _picking = false;
+            _sayOutcome(
+              context,
+              l10n,
+              outcome,
+              _partnerName(l10n, state as ShareLoaded),
+            );
+          },
         ),
         // Only the pairing bloc ends the visit: sharing also says "not
         // paired" for a pair another account made, which the page stays
@@ -317,6 +326,12 @@ class _SharingViewState extends State<_SharingView> {
             appBar: SettingsAppBar(
               title: l10n.sharingWithTitle(name),
               identifier: SemanticsIds.sharingPage,
+              actions: [
+                syncGuideHelpButton(
+                  context,
+                  identifier: SemanticsIds.sharingPageHow,
+                ),
+              ],
             ),
             body: SafeArea(
               top: false,
@@ -771,111 +786,33 @@ class _SharingViewState extends State<_SharingView> {
     AppLocalizations l10n,
     ShareLoaded? loaded,
   ) {
-    final look = loaded?.look ?? const ShareLook();
     // Inert until the first read, as the alerts entry is: a tap would
     // write from the shipped value, not from what is stored. Undimmed, so
     // nothing changes when the read lands but what it says.
-    Widget untilLoaded(Widget row) =>
-        IgnorePointer(ignoring: loaded == null, child: row);
-    return SettingsSectionData(
-      icon: Icons.visibility_rounded,
-      title: l10n.shareLookSection,
-      entries: [
-        SettingsEntry(
-          title: l10n.shareEventLook,
-          identifier: SemanticsIds.sharingLookEvents,
-          builder: (context, title, description) => untilLoaded(
-            settingsChoiceRow<ShareEventLook>(
-              title: title,
-              description: description,
-              value: look.eventLook,
-              labels: {
-                ShareEventLook.outlined: l10n.shareLookOutlined,
-                ShareEventLook.avatar: l10n.shareLookAvatar,
-                ShareEventLook.plain: l10n.shareLookPlain,
-              },
-              identifiers: {
-                for (final value in ShareEventLook.values)
-                  value: SemanticsIds.sharingLookEventsChoice(value.name),
-              },
-              onChanged: (value) =>
-                  context.read<ShareBloc>().add(ShareEventLookSet(value)),
-            ),
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.shareNoteLook,
-          identifier: SemanticsIds.sharingLookNotes,
-          builder: (context, title, description) => untilLoaded(
-            settingsChoiceRow<ShareNoteLook>(
-              title: title,
-              description: description,
-              value: look.noteLook,
-              labels: {
-                ShareNoteLook.avatar: l10n.shareLookAvatar,
-                ShareNoteLook.plain: l10n.shareLookPlain,
-              },
-              identifiers: {
-                for (final value in ShareNoteLook.values)
-                  value: SemanticsIds.sharingLookNotesChoice(value.name),
-              },
-              onChanged: (value) =>
-                  context.read<ShareBloc>().add(ShareNoteLookSet(value)),
-            ),
-          ),
-        ),
-        SettingsEntry(
-          title: l10n.shareMarkMine,
-          description: l10n.shareMarkMineDesc,
-          identifier: SemanticsIds.sharingMarkMine,
-          builder: (context, title, description) => untilLoaded(
-            SwitchListTile(
-              value: look.markMine,
-              title: title,
-              subtitle: description,
-              onChanged: (value) =>
-                  context.read<ShareBloc>().add(ShareMarkMineSet(value)),
-            ),
-          ),
-        ),
-      ],
+    return shareLookSection(
+      l10n,
+      look: loaded?.look ?? const ShareLook(),
+      inert: loaded == null,
+      onEventLook: (value) =>
+          context.read<ShareBloc>().add(ShareEventLookSet(value)),
+      onNoteLook: (value) =>
+          context.read<ShareBloc>().add(ShareNoteLookSet(value)),
+      onMarkMine: (value) =>
+          context.read<ShareBloc>().add(ShareMarkMineSet(value)),
     );
   }
 
-  /// What may ring for a partner's event (§6.8): an entry that opens a
-  /// menu rather than a page, so it has no chevron (decision v). Its value
-  /// is blank and its tap inert until the first read says what is stored.
+  /// What may ring for a partner's event (§6.8). Its value is blank and its
+  /// tap inert until the first read says what is stored.
   SettingsSectionData _alertsSection(
     BuildContext context,
     AppLocalizations l10n,
     ShareLoaded? loaded,
   ) {
-    final alerts = loaded?.alerts;
-    final colorScheme = Theme.of(context).colorScheme;
-    return SettingsSectionData(
-      icon: Icons.notifications_rounded,
-      title: l10n.shareAlertsSection,
-      entries: [
-        SettingsEntry(
-          title: l10n.shareAlerts,
-          description: alerts == null ? '' : _alertsLabel(l10n, alerts),
-          identifier: SemanticsIds.sharingAlerts,
-          // A `Builder` so the menu hangs from the row's own box.
-          builder: (context, title, description) => Builder(
-            builder: (rowContext) => ListTile(
-              leading: Icon(
-                Icons.notifications_rounded,
-                color: colorScheme.primary,
-              ),
-              title: title,
-              subtitle: description,
-              onTap: alerts == null
-                  ? null
-                  : () => _pickAlerts(rowContext, l10n, alerts),
-            ),
-          ),
-        ),
-      ],
+    return shareAlertsSection(
+      l10n,
+      alerts: loaded?.alerts,
+      onPick: (anchor, current) => _pickAlerts(anchor, l10n, current),
     );
   }
 
@@ -887,41 +824,11 @@ class _SharingViewState extends State<_SharingView> {
     FocusManager.instance.primaryFocus?.unfocus();
     final bloc = context.read<ShareBloc>();
     final next = await _opened(
-      () => showFormMenu<ShareAlerts>(
-        anchor,
-        items: [
-          for (final value in ShareAlerts.values)
-            FormMenuItem(
-              value: value,
-              label: _alertsLabel(l10n, value),
-              caption: switch (value) {
-                ShareAlerts.off => l10n.shareAlertsOffDesc,
-                ShareAlerts.own => l10n.shareAlertsOwnDesc,
-                ShareAlerts.category => l10n.shareAlertsCategoryDesc,
-              },
-              identifier: switch (value) {
-                ShareAlerts.off => SemanticsIds.sharingAlertsOff,
-                ShareAlerts.own => SemanticsIds.sharingAlertsOwn,
-                ShareAlerts.category => SemanticsIds.sharingAlertsCategory,
-              },
-            ),
-        ],
-        selected: current,
-        // Floor and cap at once: a caption of two lines reads as one choice
-        // at this width, and the menu never narrows with the language.
-        menuWidth: FormMetrics.menuMaxWidth,
-      ),
+      () => showShareAlertsMenu(anchor, l10n, current),
     );
     if (next == null || next == current || !_stillHere(bloc)) return;
     bloc.add(ShareAlertsSet(next));
   }
-
-  static String _alertsLabel(AppLocalizations l10n, ShareAlerts value) =>
-      switch (value) {
-        ShareAlerts.off => l10n.shareAlertsOff,
-        ShareAlerts.own => l10n.shareAlertsOwn,
-        ShareAlerts.category => l10n.shareAlertsCategory,
-      };
 
   SettingsSectionData _pairingSection(
     BuildContext context,
@@ -973,8 +880,10 @@ class _SharingViewState extends State<_SharingView> {
   }
 
   /// The tick sheet (§6.3) over this person's categories, each with its
-  /// event count from the overview; Done sends the whole ticked set, and an
-  /// unchanged one sends nothing.
+  /// event count from the overview; Done sends what the person changed
+  /// against the ticks it opened with, and an unchanged set sends nothing.
+  /// [_picking] then holds until that act has answered: reopened before its
+  /// state arrived, the sheet would tick what the Done had just un-ticked.
   Future<void> _pickCategories(
     AppLocalizations l10n,
     ShareOverview overview,
@@ -982,8 +891,15 @@ class _SharingViewState extends State<_SharingView> {
   ) async {
     if (_picking) return;
     _picking = true;
+    var asked = false;
     try {
       final bloc = context.read<ShareBloc>();
+      // The app's own, which outlives this page: where the act says it
+      // failed when the page left before it started.
+      final failedPastBloc = shareFailurePastSurface(
+        ScaffoldMessenger.maybeOf(context),
+        l10n,
+      );
       final selected = {
         for (final category in overview.categories) category.id,
       };
@@ -1002,9 +918,16 @@ class _SharingViewState extends State<_SharingView> {
       );
       if (!_stillHere(bloc)) return;
       if (picked == null || setEquals(picked, selected)) return;
-      bloc.add(ShareCategoriesSet(picked));
+      asked = true;
+      bloc.add(
+        ShareCategoriesSet(
+          shared: picked.difference(selected),
+          unshared: selected.difference(picked),
+          failedPastBloc: failedPastBloc,
+        ),
+      );
     } finally {
-      _picking = false;
+      if (!asked) _picking = false;
     }
   }
 
@@ -1016,6 +939,10 @@ class _SharingViewState extends State<_SharingView> {
   /// The one share act that asks first (D6): it has no Undo.
   Future<void> _stopAll(AppLocalizations l10n, String name) async {
     final bloc = context.read<ShareBloc>();
+    final failedPastBloc = shareFailurePastSurface(
+      ScaffoldMessenger.maybeOf(context),
+      l10n,
+    );
     final confirmed = await _opened(
       () => AppDialogs.confirm(
         context,
@@ -1025,7 +952,8 @@ class _SharingViewState extends State<_SharingView> {
         icon: Icons.group_off_rounded,
       ),
     );
-    if (confirmed && _stillHere(bloc)) bloc.add(const ShareStopAllRequested());
+    if (!confirmed || !_stillHere(bloc)) return;
+    bloc.add(ShareStopAllRequested(failedPastBloc: failedPastBloc));
   }
 
   /// Moved here from the Pairing row, its dialog saying what a new pair
@@ -1148,18 +1076,24 @@ class _SharingViewState extends State<_SharingView> {
         // category ids are the same in every database, so one tapped after
         // a switch would share in a database that never saw the act.
         if (ShareService.databaseGeneration != generation) return;
-        Future<void> pastBloc(ShareChange change) => undoSharePastBloc(
-          change,
-          shareService: resolve,
-          messenger: messenger,
-          l10n: l10n,
-        );
         if (!bloc.isClosed) {
-          bloc.add(ShareUndoRequested(change, pastBloc: pastBloc));
+          bloc.add(
+            ShareUndoRequested(
+              change,
+              failedPastBloc: shareFailurePastSurface(messenger, l10n),
+            ),
+          );
           return;
         }
         // The page has left and its bloc with it.
-        unawaited(pastBloc(change));
+        unawaited(
+          undoSharePastBloc(
+            change,
+            shareService: resolve,
+            messenger: messenger,
+            l10n: l10n,
+          ),
+        );
       },
     );
   }

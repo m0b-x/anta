@@ -67,8 +67,21 @@ class _Pusher {
   /// The active pair is the one this phone's own pairing record names
   /// (`SharePartnerSource.localPairId`, review C4) — written at the moment
   /// of pairing, where the shared read's key would lag by a read; an entry
-  /// owed to any other is dropped unsent. With none stored, what is owed is
-  /// sent as it was owed: the relay refuses a pair the caller is not in.
+  /// owed to any other is dropped unsent. With none stored — a second
+  /// database on the phone, whose pairing rows were never written, or one
+  /// whose pair ended — the shared read's last answer decides (review A13):
+  /// the pair it holds ([SyncDao.keySharedPair]) is poked and any other
+  /// dropped. With none held after it once had a partner
+  /// ([SyncDao.keySharedEverHeld]) its last answer was an ended pair, which
+  /// still holds the caller and which the relay serves for a day, so nothing
+  /// is sent — and nothing dropped either: a new pair's poke owed meanwhile
+  /// cannot be told from the ended one's until a pairing is stored or the
+  /// reader holds a pair, and a run that only drains reads no pair at all.
+  /// The entries stay, one per pair, so nothing grows; the first drain that
+  /// can judge them sends or drops them, and an entry owed to a pair that
+  /// ended for good goes with the next pair's first such drain, or with an
+  /// unbind. A database whose reader never met a partner sends what it owes
+  /// as owed.
   Future<void> pokeAfterDrain() async {
     try {
       final relay = GetIt.I.isRegistered<PushRelay>()
@@ -83,17 +96,31 @@ class _Pusher {
       if (await _stillSending()) return;
       final uid = _e._currentUser()?.uid;
       final partners = _e._partners;
-      final (owed, active) = await db.transaction(() async {
+      final (owed, active, held) = await db.transaction(() async {
         final owed = await db.syncDao.valuesByPrefix(prefix);
         final active = uid == null || partners == null
             ? null
             : await partners.localPairId(uid);
+        final read = active != null
+            ? const <String, String>{}
+            : await db.syncDao.valuesOf(const [
+                SyncDao.keySharedPair,
+                SyncDao.keySharedEverHeld,
+              ]);
+        final held = read[SyncDao.keySharedPair];
+        // Nobody can judge them yet: kept, unsent.
+        if (active == null &&
+            held == null &&
+            read.containsKey(SyncDao.keySharedEverHeld)) {
+          return (const <(String, String)>[], null, null);
+        }
         await db.syncDao.deleteByPrefix(prefix);
-        return (owed, active);
+        return (owed, active, held);
       });
       for (final (key, value) in owed) {
         final pair = key.substring(prefix.length);
         if (active != null && pair != active) continue;
+        if (active == null && held != null && pair != held) continue;
         relay.poke(pair, urgent: value == SyncDao.sharePokeUrgent);
       }
     } catch (e, st) {
@@ -213,9 +240,7 @@ class _Pusher {
       await db.transaction(() async {
         for (final park in restored) {
           if (holds.contains(park.key)) continue;
-          await db.syncDao.deleteValue(
-            SyncDao.keyPushParked(park.key.$1, park.key.$2),
-          );
+          await _deletePark(park.key);
         }
       });
     }
@@ -240,6 +265,15 @@ class _Pusher {
     _restored = true;
   }
 
+  /// The keys of this session's parks, the stored ones and those being
+  /// tried again, for the pull's look at a document that names a pair again
+  /// (`_Puller._forgetCleared`).
+  Iterable<(String, String)> get parkedKeys => {
+    ...parked.keys,
+    ..._stored.keys,
+    ..._retried.keys,
+  };
+
   /// Whether a park holds [key]'s entry at [hlc] back: this session's at
   /// that very stamp, or a stored one at or above it.
   bool _holds((String, String) key, String hlc) {
@@ -259,8 +293,8 @@ class _Pusher {
     if (stored.isNotEmpty) {
       final db = _e._db;
       await db.transaction(() async {
-        for (final (table, rowKey) in stored) {
-          await db.syncDao.deleteValue(SyncDao.keyPushParked(table, rowKey));
+        for (final key in stored) {
+          await _deletePark(key);
         }
       });
     }
@@ -269,6 +303,18 @@ class _Pusher {
       _stored.remove(key);
       _reasons.remove(key);
       _retried.remove(key);
+    }
+  }
+
+  /// Deletes the stored park of [key], and with it on a shareable table the
+  /// record that its grant was taken off ([_unshareHeld]): the row's next
+  /// push writes its document whole, and a later park is a new one.
+  Future<void> _deletePark((String, String) key) async {
+    final (table, rowKey) = key;
+    final dao = _e._db.syncDao;
+    await dao.deleteValue(SyncDao.keyPushParked(table, rowKey));
+    if (sharedTables.contains(table)) {
+      await dao.deleteValue(SyncDao.keyShareCleared(table, rowKey));
     }
   }
 
@@ -395,6 +441,7 @@ class _Pusher {
       cutPartAt = cut ? _e._now() : null;
       await _push(bound, part, tally, drain);
     }
+    await _unshareHeld(bound);
     // The backlog that strained the link is through; the pull's sizes are
     // kept (`_Puller.resetSizes`).
     if (await _e._db.syncOutboxDao.count() == 0) resetSizes();
@@ -1163,6 +1210,126 @@ class _Pusher {
       }
     }
     return regranted;
+  }
+
+  /// After a drain's own pushes: takes the grant off the stored document of
+  /// each row of a shareable table whose newest write a park holds back — a
+  /// refusal, a refused chunk, an encode fault ([_holds]) or its own pulled
+  /// version ([_Puller.holdsBack]) — while the grant derived now is private
+  /// (review A3). The write that ended the share queued the row again at
+  /// the stamp it carries, which the parked entry absorbs and [_regranted]
+  /// never sees, so the earlier version's document would go on naming the
+  /// pair for as long as the park stands. Never the other way: a parked row
+  /// whose grant began stays private in the space until its park lifts.
+  ///
+  /// Whoever pushed the stored document and whenever — a pulled version
+  /// held back, another device's share not merged here yet: private is the
+  /// side every doubt errs on (`docs/cloud-sharing-foundations.md` §3). No
+  /// stamp says when a row became private here — a note's move is a write
+  /// of the note, a category's delete changes no mark, a category decides
+  /// itself — and a share wrongly ended is said again by the row's next
+  /// push, where one wrongly kept goes on being read.
+  ///
+  /// Each document is addressed as the push names it
+  /// ([SyncTableBinding.documentKeyOf]); the record stays keyed as the park
+  /// is. Once per park ([SyncDao.keyShareCleared]), until the document may
+  /// name a pair again: a held row found shared here lets its record go, as
+  /// a pull does that meets the document naming a pair. A drain with no park
+  /// on a shareable table reads nothing, and a database never in a pair
+  /// ([SyncDao.everPaired]) sends nothing. Best effort, as the parks' retry
+  /// is: a failure is logged and a later drain tries again, never failing
+  /// or pausing the run, and its calls are not the run's — one must not end
+  /// a back-off. A halt still ends the run.
+  Future<void> _unshareHeld(SyncBinding bound) async {
+    final byTable = <String, List<String>>{};
+    for (final (table, rowKey) in {...parkedKeys, ..._e._puller.parkedKeys}) {
+      if (sharedTables.contains(table)) {
+        byTable.putIfAbsent(table, () => []).add(rowKey);
+      }
+    }
+    if (byTable.isEmpty) return;
+    final db = _e._db;
+    try {
+      if (!await db.syncDao.everPaired()) return;
+      for (final MapEntry(key: table, value: keys) in byTable.entries) {
+        final binding = _e._bindingFor(table);
+        if (binding == null) continue;
+        final held = [
+          for (final entry in (await db.syncOutboxDao.pendingKeys(
+            table,
+            keys,
+          )).values)
+            if (_holds((table, entry.rowKey), entry.hlc) ||
+                _e._puller.holdsBack((table, entry.rowKey), entry.hlc))
+              entry,
+        ];
+        if (held.isEmpty) continue;
+        final rows = await binding.loadByKeys(db, [
+          for (final entry in held) entry.rowKey,
+        ]);
+        final shared = await binding.sharedPairs(db, rows);
+        final present = {for (final row in rows) binding.rowKeyOf(row)};
+        // The stamp each private row is held back at: what its record says.
+        final private = {
+          for (final entry in held)
+            if (present.contains(entry.rowKey) && shared[entry.rowKey] == null)
+              entry.rowKey: entry.hlc,
+        };
+        final stored = await db.syncDao.valuesOf([
+          for (final key in present) SyncDao.keyShareCleared(table, key),
+        ]);
+        // Shared here now: the next un-share has to clear again, at this
+        // held stamp too.
+        final regranted = [
+          for (final key in present)
+            if (!private.containsKey(key) &&
+                stored.containsKey(SyncDao.keyShareCleared(table, key)))
+              key,
+        ];
+        if (regranted.isNotEmpty) {
+          await db.transaction(() async {
+            for (final key in regranted) {
+              await db.syncDao.deleteValue(SyncDao.keyShareCleared(table, key));
+            }
+          });
+        }
+        final due = [
+          for (final MapEntry(:key, :value) in private.entries)
+            if (stored[SyncDao.keyShareCleared(table, key)] != value) key,
+        ];
+        final most = _e._gateway.maxBatch;
+        for (var from = 0; from < due.length; from += most) {
+          final part = due.sublist(
+            from,
+            from + most < due.length ? from + most : due.length,
+          );
+          await _e._checkHalt(bound);
+          // Two keys of one day — a row at a local midnight and one at the
+          // UTC midnight — name one document.
+          await _e._gateway.unshareRows(_e._spaceOf(bound), table, [
+            ...{for (final key in part) binding.documentKeyOf(key)},
+          ], pushedBy: _e._deviceId);
+          // Again after the call, as a push does: a halt raised while it was
+          // in flight ends the run before anything is recorded, and the next
+          // drain asks again — a second clearing changes nothing.
+          await _e._checkHalt(bound);
+          await db.transaction(() async {
+            for (final key in part) {
+              await db.syncDao.setValue(
+                SyncDao.keyShareCleared(table, key),
+                private[key]!,
+              );
+            }
+          });
+        }
+      }
+    } on _Halted {
+      rethrow;
+    } on SyncGatewayException catch (error) {
+      debugPrint('[SyncEngine] no grant taken off a parked row: $error');
+    } catch (error, stack) {
+      _warn('taking the grant off a parked row failed: $error\n$stack');
+    }
   }
 
   /// Logs by kind, as the pull's does (S3b review L16, A2 review R54): an

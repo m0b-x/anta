@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/push_constants.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/pair_record.dart';
 import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/push/push_pairing_gateway.dart';
 import 'package:anta/services/push/push_registry.dart';
+import 'package:anta/services/push/push_relay.dart';
+import 'package:anta/services/sync/account_closer.dart';
 import 'package:anta/utils/pairing_error.dart';
 
 import '../../support/fake_push.dart';
@@ -33,6 +39,31 @@ class _ToldWhenGivingUp extends FakePushAddressSource {
   Future<void> giveUp() {
     _told();
     return super.giveUp();
+  }
+}
+
+/// A relay whose flush never answers — a poke held up for its whole
+/// deadline, and past it.
+class _NeverFlushes extends FakePushRelay {
+  @override
+  Future<void> flush() {
+    flushedAt.add(pokes.length);
+    return Completer<void>().future;
+  }
+}
+
+/// A relay that notes, at each flush, how many removals [removals] counts
+/// by then.
+class _FlushSeesRemovals extends FakePushRelay {
+  _FlushSeesRemovals(this.removals);
+
+  final int Function() removals;
+  final List<int> removalsAtFlush = [];
+
+  @override
+  Future<void> flush() {
+    removalsAtFlush.add(removals());
+    return super.flush();
   }
 }
 
@@ -260,6 +291,78 @@ void main() {
     final next = pair();
     await hear();
     expect(entryOf(next.pairId)?.id, 'fid-2');
+  });
+
+  test('what an end asked the relay for is sent before an account\'s '
+      'deletion goes on to remove the pair (A12): the end\'s step runs, '
+      'then the relay is flushed', () async {
+    final p = pair();
+    await hear();
+    await gateway.endPair(pairId: p.pairId, endedBy: uid);
+
+    await registry.pokesSent();
+
+    expect(relay.pokes, [(pair: p.pairId, urgent: true)]);
+    expect(
+      relay.flushedAt,
+      [1, 1],
+      reason: 'the end flushes its own poke, and the wait flushes again',
+    );
+    expect(entryOf(p.pairId), isNull);
+  });
+
+  test('an account\'s deletion, through the real pieces: the "pair ended" '
+      'poke held for its minute is POSTed before the entry leaves the '
+      'pair and before the pair is removed (A12)', () async {
+    var now = DateTime(2026, 11, 13, 12);
+    final log = <String>[];
+    final http = HttpPushRelay(
+      prefs: SharedPreferences.getInstance(),
+      readConfig: () async => 'https://relay.test',
+      idToken: () async => 'token',
+      signedIn: () => uid,
+      clock: () => now,
+      post: (url, {required bearer, required body, required deadline}) async {
+        final removals = pairs.pushWrites.where((w) => w.startsWith('remove '));
+        log.add(
+          'post ${(jsonDecode(body) as Map)['pair']} '
+          'removals ${removals.length} deleted ${pairs.deletedPairs.length}',
+        );
+        return (status: 204, retryAfter: null);
+      },
+    );
+    addTearDown(http.dispose);
+    final real = PushRegistry(
+      gateway: pairs,
+      addresses: addresses,
+      relay: http,
+      shares: (_) async => true,
+      storedPair: () async => null,
+      deviceId: () async => device,
+      signedIn: () => uid,
+      prefs: SharedPreferences.getInstance(),
+      clock: () => phone,
+    );
+    addTearDown(real.dispose);
+    PairedAccountCloser.afterPairEnded = real.pokesSent;
+    addTearDown(() => PairedAccountCloser.afterPairEnded = null);
+    final p = pair();
+    await real.heardPairs(uid, await pairs.findActivePairs(uid));
+    expect(entryOf(p.pairId), isNotNull);
+    http.poke(p.pairId, urgent: false);
+    await pumpEventQueue();
+    log.clear();
+    now = now.add(const Duration(seconds: 10));
+    final auth = FakeAuthService(user: const AppUser(uid: uid));
+    addTearDown(auth.dispose);
+
+    await PairedAccountCloser(
+      auth: auth,
+      pairing: PushPairingGateway(pairs, registry: () => real),
+    ).close(uid, stillWanted: () => true);
+
+    expect(log, ['post ${p.pairId} removals 0 deleted 0']);
+    expect(pairs.deletedPairs, [p.pairId]);
   });
 
   test('an end before anything was heard in this process: the address an '
@@ -507,6 +610,53 @@ void main() {
 
     expect(relay.flushedAt, isNotEmpty);
     expect(relay.flushedAt.last, 1, reason: 'after the end poked');
+  });
+
+  group('an Unpair, then a sign-out on a slow relay: the end waits for its '
+      'poke only so long that its removal still runs inside the leave\'s '
+      'deadline, signed in', () {
+    test('a relay whose flush never answers: the entry leaves and the '
+        'address is given up before the leave goes on', () async {
+      await registry.dispose();
+
+      // Built in the fake zone, the preferences too: a future made outside
+      // it would run its callbacks where the fake clock never reaches.
+      fakeAsync((async) {
+        SharedPreferences.setMockInitialValues({});
+        relay = _NeverFlushes()..configured = Uri.parse('https://relay.test');
+        registry = build();
+        final p = pair();
+        unawaited(hear());
+        async.flushMicrotasks();
+        expect(entryOf(p.pairId), isNotNull);
+
+        unawaited(registry.endedByMe(p.pairId, uid));
+        unawaited(registry.leave(uid));
+        async.elapse(kPushLeaveDeadline - const Duration(milliseconds: 1));
+
+        expect(relay.pokes, [(pair: p.pairId, urgent: true)]);
+        expect(entryOf(p.pairId), isNull);
+        expect(addresses.giveUps, 1);
+      });
+    });
+
+    test('a relay that answers at once: the poke is flushed before the '
+        'entry is removed', () async {
+      await registry.dispose();
+      final seeing = _FlushSeesRemovals(
+        () => pairs.pushWrites.where((w) => w.startsWith('remove ')).length,
+      )..configured = Uri.parse('https://relay.test');
+      relay = seeing;
+      registry = build();
+      final p = pair();
+      await hear();
+
+      await registry.endedByMe(p.pairId, uid);
+
+      expect(relay.pokes, [(pair: p.pairId, urgent: true)]);
+      expect(seeing.removalsAtFlush.first, 0);
+      expect(entryOf(p.pairId), isNull);
+    });
   });
 
   test('an install that holds no address still sends what waits at a '

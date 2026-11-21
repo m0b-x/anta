@@ -94,8 +94,23 @@ class MySharedFoldersSheet extends StatefulWidget {
 class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
   /// Rows whose ✕ was tapped and that the overview still lists: hidden at
   /// once, so the row leaves under the finger rather than when the reload
-  /// lands, and shown again by an Undo that was written or a ✕ that failed.
+  /// lands, and shown again by its own ✕ that failed, an Undo that was
+  /// written, or the folder shared again — this sheet's pick, or a newer
+  /// read that lists it once its ✕ was written ([_unlisting]).
   final Set<String> _leaving = {};
+
+  /// The folders whose ✕ the bloc was asked for, oldest first, each
+  /// answered by the next un-share outcome of this sheet's.
+  final List<String> _unsharing = [];
+
+  /// Rows whose ✕ was written while the state that said so still listed
+  /// them — a reload that failed carries the last read — each with that
+  /// read's number ([ShareLoaded.read]): kept hidden while a state carries
+  /// the same read, let go at the first newer one. Listed by it, the folder
+  /// was shared again since; a row hidden until some state stopped listing
+  /// it would stay hidden for the sheet's life once it was shared again
+  /// before that.
+  final Map<String, int> _unlisting = {};
 
   /// The Undos the bloc was asked for, oldest first: the folder an un-share
   /// Undo brings back, null for a share's, which brings nothing back. The
@@ -168,8 +183,18 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     if (!mounted || bloc.isClosed) return;
     final l10n = AppLocalizations.of(context)!;
     setState(() => _leaving.add(folder.id));
+    _unsharing.add(folder.id);
     _pending++;
-    bloc.add(ShareFolderUnshared(folder.id, asker: this));
+    bloc.add(
+      ShareFolderUnshared(
+        folder.id,
+        asker: this,
+        failedPastBloc: shareFailurePastSurface(
+          ScaffoldMessenger.maybeOf(context),
+          l10n,
+        ),
+      ),
+    );
     // Said at the tap, as the events sheet says it: the reload that drops
     // the row may land after the finger has moved on.
     final change = ShareChange(
@@ -197,13 +222,22 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     if (picked == null || picked.isEmpty || !mounted || bloc.isClosed) return;
     _sharing.add(picked);
     _pending++;
-    bloc.add(ShareFolderShared(picked, asker: this));
+    bloc.add(
+      ShareFolderShared(
+        picked,
+        asker: this,
+        failedPastBloc: shareFailurePastSurface(
+          ScaffoldMessenger.maybeOf(context),
+          l10n,
+        ),
+      ),
+    );
   }
 
   /// The bar with Undo for [change], over the sheet. Its Undo may be tapped
   /// after this sheet and the page that owns the bloc are gone, so it reads
   /// nothing of the sheet's but [mounted]: while the bloc is open the undo
-  /// goes through it, queued behind the act, and [restores] — the row a ✕
+  /// goes through it, written after the act, and [restores] — the row a ✕
   /// hid — comes back on its outcome; once it is closed the undo writes
   /// through [undoSharePastBloc]. Tapped under another database it writes
   /// nothing, as the events sheet's.
@@ -227,12 +261,6 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
       overSheet: true,
       onAction: () {
         if (ShareService.databaseGeneration != generation) return;
-        Future<void> pastBloc(ShareChange change) => undoSharePastBloc(
-          change,
-          shareService: shareService,
-          messenger: messenger,
-          l10n: l10n,
-        );
         if (!bloc.isClosed) {
           // Tapped once the sheet has gone, the Undo is no one's: the page
           // says how it ended.
@@ -242,22 +270,41 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
             _pending++;
           }
           bloc.add(
-            ShareUndoRequested(change, pastBloc: pastBloc, asker: asker),
+            ShareUndoRequested(
+              change,
+              asker: asker,
+              failedPastBloc: shareFailurePastSurface(messenger, l10n),
+            ),
           );
           return;
         }
-        unawaited(pastBloc(change));
+        unawaited(
+          undoSharePastBloc(
+            change,
+            shareService: shareService,
+            messenger: messenger,
+            l10n: l10n,
+          ),
+        );
       },
     );
   }
 
-  /// A ✕ that failed brings its row back and says why; one that worked
-  /// needs nothing — the overview stops listing the folder. A pick says
-  /// what it did — shared, shared over a folder inside it, or already
-  /// shared — or why it did nothing. An Undo's row comes back once its undo
-  /// was written, and an Undo that was not is said over the sheet.
+  /// A ✕ that failed brings its own row back and says why — the rows of
+  /// the ✕s still queued stay out; one that worked lets its row go at the
+  /// first read newer than its own, so a share of it again lists it.
+  /// A pick says what it did — shared, shared over a folder inside it, or
+  /// already shared — or why it did nothing, and brings back the row a ✕
+  /// of it hid. An Undo's row comes back once its undo was written, and an
+  /// Undo that was not is said over the sheet.
   void _onState(BuildContext context, ShareState state) {
     if (state is! ShareLoaded) return;
+    final listed = {for (final folder in state.overview.folders) folder.id};
+    _unlisting.removeWhere((id, read) {
+      if (read == state.read) return false;
+      _leaving.remove(id);
+      return true;
+    });
     final outcome = state.outcome;
     if (outcome == null || outcome.sequence == _seenOutcome) return;
     _seenOutcome = outcome.sequence;
@@ -268,12 +315,25 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
     final failure = outcome.failure;
     switch (outcome.act) {
       case ShareAct.folderUnshared:
-        if (failure == null || _leaving.isEmpty) return;
-        setState(_leaving.clear);
+        if (_unsharing.isEmpty) return;
+        final id = _unsharing.removeAt(0);
+        if (failure == null) {
+          if (listed.contains(id)) {
+            _unlisting[id] = state.read;
+          } else {
+            _leaving.remove(id);
+          }
+          return;
+        }
+        setState(() => _leaving.remove(id));
       case ShareAct.folderShared:
         if (_sharing.isEmpty) return;
         final picked = _sharing.removeAt(0);
         if (failure == null) {
+          _unlisting.remove(picked);
+          if (_leaving.contains(picked)) {
+            setState(() => _leaving.remove(picked));
+          }
           unawaited(_sayShared(outcome.change, picked));
           return;
         }
@@ -281,7 +341,10 @@ class _MySharedFoldersSheetState extends State<MySharedFoldersSheet> {
         if (_undoing.isEmpty) return;
         final id = _undoing.removeAt(0);
         if (failure == null) {
-          if (id != null) setState(() => _leaving.remove(id));
+          if (id != null) {
+            _unlisting.remove(id);
+            setState(() => _leaving.remove(id));
+          }
           return;
         }
       case ShareAct.categoriesSet || ShareAct.eventUnshared || ShareAct.stopAll:

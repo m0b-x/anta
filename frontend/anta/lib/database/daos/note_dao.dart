@@ -1395,7 +1395,12 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     );
   }
 
-  Future<int> searchNotesCount(String query, {String? folderId}) async {
+  /// [notOwnedBy] as [getNoteCount] takes it.
+  Future<int> searchNotesCount(
+    String query, {
+    String? folderId,
+    String? notOwnedBy,
+  }) async {
     final searchQuery = '%${query.toLowerCase()}%';
     final countExp = notes.id.count();
     final q = selectOnly(notes)..addColumns([countExp]);
@@ -1407,13 +1412,18 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     if (folderId != null) {
       q.where(notes.folderId.equals(folderId));
     }
+    if (notOwnedBy != null) {
+      q.where(notes.ownerId.isNotValue(notOwnedBy));
+    }
     final result = await q.getSingle();
     return result.read(countExp) ?? 0;
   }
 
+  /// [notOwnedBy] as [getNoteCount] takes it.
   Future<List<Note>> searchNotesPaginated(
     String query, {
     String? folderId,
+    String? notOwnedBy,
     required int limit,
     required int offset,
   }) {
@@ -1427,6 +1437,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     );
     if (folderId != null) {
       q.where((n) => n.folderId.equals(folderId));
+    }
+    if (notOwnedBy != null) {
+      q.where((n) => n.ownerId.isNotValue(notOwnedBy));
     }
     q.orderBy([
       (n) => OrderingTerm.desc(n.updatedAt),

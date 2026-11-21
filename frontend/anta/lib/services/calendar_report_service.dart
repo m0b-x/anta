@@ -475,14 +475,18 @@ class CalendarReportService {
   }
 
   /// Each scoped event's linked note's net, for the notes whose ledger is
-  /// cached (P): read, never recomputed; no ledger service, no money.
+  /// cached (P): read, never recomputed; no ledger service, no money. A
+  /// partner's note is left out — a partner's rows never reach a report,
+  /// whatever old link an event of mine carries to one: the scope holds my
+  /// events alone, and the ledger's rule counts a partner's note for the
+  /// partner's events only (`NoteMoneyLedgerService.ledgerForEvent`).
   static Map<String, int> _money(_Scoped scoped) {
     final ledger = NoteMoneyLedgerService.instanceOrNull;
     if (ledger == null) return const {};
     return {
       for (final event in scoped.byId.values)
-        if (event.noteId case final noteId?)
-          event.id: ?ledger.ledgerFor(noteId)?.net,
+        if (ledger.ledgerForEvent(event) case final entry?)
+          event.id: entry.net,
     };
   }
 

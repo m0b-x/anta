@@ -102,9 +102,16 @@ class PushRegistry {
 
   /// This device ended [pairId] as [uid], and the pair's document says so:
   /// the partner's phone is told at once, and this device's address dies
-  /// with the pair.
+  /// with the pair. The poke goes out before anything else of the end —
+  /// one held for its minute included: an account's deletion removes the
+  /// pair right after ([pokesSent]), and the relay refuses a pair that is
+  /// gone; the entry's removal and the address's end must not use up the
+  /// time it waits. Waited for [kPushEndedPokeWait] at most: a leave
+  /// queued behind this end goes on at its own deadline, and the removal
+  /// must run before then, while the account can still write it.
   Future<void> endedByMe(String pairId, String uid) => _queue('end', () async {
     _relay.poke(pairId, urgent: true);
+    await _relay.flush().timeout(kPushEndedPokeWait, onTimeout: () {});
     if (!await _addresses.holds()) return;
     final current = _current;
     await _remove(pairId, uid);
@@ -113,6 +120,14 @@ class PushRegistry {
     await _addresses.giveUp();
     _forget();
   });
+
+  /// Done once every step asked of this before it has run — an end's
+  /// urgent poke and its entry's removal ([endedByMe]) among them — and the
+  /// relay has sent what they asked, those already under way included. An
+  /// account's deletion waits on it between a pair's end and its removal:
+  /// the relay refuses a poke for a pair that is gone. Unbounded; the
+  /// caller bounds it.
+  Future<void> pokesSent() => _queue('sent', _relay.flush);
 
   /// Sign-out, or sync stopped for the open database: the entry goes while
   /// [uid] can still write it, and the address with it. The whole of it —

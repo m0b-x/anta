@@ -6,6 +6,7 @@ import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -38,13 +39,18 @@ void main() {
 
   final startDate = DateTime.utc(2026, 8, 10);
 
-  CalendarEvent linkedEvent(String id, String noteId) => CalendarEvent(
+  CalendarEvent linkedEvent(
+    String id,
+    String noteId, {
+    bool fromPartner = false,
+  }) => CalendarEvent(
     id: id,
     title: 'Shop',
     categoryId: 'gym',
     startDate: startDate,
     rule: const OneTimeRecurrence(),
     noteId: noteId,
+    fromPartner: fromPartner,
   );
 
   Future<String> createNote(String content) async {
@@ -111,6 +117,75 @@ void main() {
     await ledger.refresh([linkedEvent('e-deleted', deleted)]);
 
     expect(ledger.ledgerFor(deleted), isNull);
+  });
+
+  // Review A11: the day bars keep a partner's event's own money; the entry
+  // says whose the note is, so a report can leave it out.
+  test('a partner\'s event linked to the partner\'s note keeps its ledger '
+      'entry, flagged as the partner\'s', () async {
+    final theirs = await createNote(r'$+ 100.00 their dinner');
+    final mine = await createNote(r'$+ 25.00 my lunch');
+    final db = await AppDatabase.getInstance();
+    // Handed to the partner as the shared reader stores it: the owner on
+    // the row, then the key that names whose shared rows these are.
+    await db.customStatement(
+      "UPDATE notes SET owner_id = 'maria' WHERE id = ?",
+      [theirs],
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'maria');
+    ShareCensus.of(db).forget();
+    addTearDown(() async {
+      await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+      ShareCensus.of(db).forget();
+    });
+
+    await ledger.refresh([
+      linkedEvent('e-theirs', theirs, fromPartner: true),
+      linkedEvent('e-mine', mine),
+    ]);
+
+    expect(ledger.ledgerFor(theirs)!.net, 10000);
+    expect(ledger.ledgerFor(theirs)!.fromPartner, isTrue);
+    expect(ledger.ledgerFor(mine)!.net, 2500);
+    expect(ledger.ledgerFor(mine)!.fromPartner, isFalse);
+
+    // Second leg: a partner's note counts for the partner's event alone.
+    expect(ledger.ledgerForEvent(linkedEvent('e-old-link', theirs)), isNull);
+    expect(
+      ledger
+          .ledgerForEvent(linkedEvent('e-theirs', theirs, fromPartner: true))!
+          .net,
+      10000,
+    );
+    expect(ledger.ledgerForEvent(linkedEvent('e-mine', mine))!.net, 2500);
+  });
+
+  test('a note refolded after a change says whose it is as the census reads '
+      'it then', () async {
+    final note = await createNote(r'$+ 100.00 dinner');
+    await ledger.refresh([linkedEvent('e-note', note)]);
+    expect(ledger.ledgerFor(note)!.fromPartner, isFalse);
+
+    // Saved while mine, then — inside the refold's wait — read as the
+    // partner's, as the shared reader would store it: the refold reads
+    // the census, not the flag the refresh left.
+    await repository.updateNote(id: note, content: r'$+ 40.00 lunch');
+    final db = await AppDatabase.getInstance();
+    await db.customStatement(
+      "UPDATE notes SET owner_id = 'maria' WHERE id = ?",
+      [note],
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'maria');
+    ShareCensus.of(db).forget();
+    addTearDown(() async {
+      await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+      ShareCensus.of(db).forget();
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 1300));
+    await pumpEventQueue();
+
+    expect(ledger.ledgerFor(note)!.net, 4000);
+    expect(ledger.ledgerFor(note)!.fromPartner, isTrue);
   });
 
   test('one unreadable note does not take the others down with it', () async {

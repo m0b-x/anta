@@ -1339,6 +1339,9 @@ class _SyncingSource implements ShareSyncSource {
   Future<bool> syncing() async => true;
 
   @override
+  Future<bool> boundToAnotherAccount() async => false;
+
+  @override
   Future<bool> offline() async => false;
 
   @override

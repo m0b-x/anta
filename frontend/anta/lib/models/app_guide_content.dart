@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
-import '../services/shared_refresh/shared_refresh_scheduler.dart';
-import '../utils/share_copy.dart';
 import 'calendar_guide_content.dart';
 import 'guide_content.dart';
 
-/// The "Backup, sync and settings" book's pages, in reading order (§3.3 of
-/// `docs/guide-hub-roadmap.md`).
+/// The "Backup and settings" book's pages, in reading order (§3.3 of
+/// `docs/guide-hub-roadmap.md`; sync and sharing left for a book of their
+/// own in §11).
 ///
 /// Every label a row names is the app's own string passed through a
 /// placeholder, as the calendar guide does, so the book cannot drift from
@@ -15,9 +14,7 @@ import 'guide_content.dart';
 enum AppGuideTopic implements GuideTopic {
   menu('menu', Icons.menu_rounded),
   settings('settings', Icons.tune_rounded),
-  backup('backup', Icons.backup_rounded),
-  sync('sync', Icons.sync_rounded),
-  sharing('sharing', Icons.group_rounded);
+  backup('backup', Icons.backup_rounded);
 
   @override
   final String slug;
@@ -31,8 +28,6 @@ enum AppGuideTopic implements GuideTopic {
     menu => l10n.appGuidePageMenu,
     settings => l10n.appGuidePageSettings,
     backup => l10n.appGuidePageBackup,
-    sync => l10n.appGuidePageSync,
-    sharing => l10n.appGuidePageSharing,
   };
 
   @override
@@ -40,8 +35,6 @@ enum AppGuideTopic implements GuideTopic {
     menu => l10n.appGuidePageMenuCaption,
     settings => l10n.appGuidePageSettingsCaption,
     backup => l10n.appGuidePageBackupCaption,
-    sync => l10n.appGuidePageSyncCaption,
-    sharing => l10n.appGuidePageSharingCaption,
   };
 
   @override
@@ -49,8 +42,6 @@ enum AppGuideTopic implements GuideTopic {
     menu => l10n.appGuideMenuLead,
     settings => l10n.appGuideSettingsLead(l10n.settingsHubTitle),
     backup => l10n.appGuideBackupLead,
-    sync => l10n.appGuideSyncLead,
-    sharing => l10n.appGuideSharingLead,
   };
 
   @override
@@ -58,10 +49,13 @@ enum AppGuideTopic implements GuideTopic {
     for (final row in _rows(l10n)) GuideReadEntry(row),
   ];
 
-  /// None: backup, sync and settings act on her real data, which no sandbox
+  /// None: backup and settings act on her real data, which no sandbox
   /// stands in for.
   @override
   List<GuideEditorCard> get editorCards => const [];
+
+  @override
+  List<GuideCardSpec> get demoCards => const [];
 
   List<CalendarGuideRow> _rows(AppLocalizations l10n) => switch (this) {
     menu => [
@@ -194,166 +188,5 @@ enum AppGuideTopic implements GuideTopic {
         l10n.appGuideBackupFirstRunBody(l10n.restoreFromBackup),
       ),
     ],
-    sync => [
-      CalendarGuideRow(
-        'sync-signin',
-        Icons.login_rounded,
-        l10n.appGuideSyncSignInTitle,
-        l10n.appGuideSyncSignInBody(
-          l10n.sharingSettings,
-          l10n.settingsHubTitle,
-          l10n.signInWithGoogle,
-        ),
-      ),
-      CalendarGuideRow(
-        'sync-on',
-        Icons.cloud_upload_rounded,
-        l10n.appGuideSyncOnTitle,
-        l10n.appGuideSyncOnBody(
-          l10n.syncThisDatabase,
-          l10n.syncThisDatabaseDesc,
-        ),
-      ),
-      CalendarGuideRow(
-        'sync-status',
-        Icons.cloud_done_rounded,
-        l10n.appGuideSyncStatusTitle,
-        l10n.appGuideSyncStatusBody(
-          l10n.syncUpToDate,
-          l10n.syncOffline,
-          l10n.syncNow,
-        ),
-      ),
-      CalendarGuideRow(
-        'sync-cadence',
-        Icons.autorenew_rounded,
-        l10n.appGuideSyncCadenceTitle,
-        l10n.appGuideSyncCadenceBody(l10n.syncAutomatic, l10n.syncNow),
-      ),
-      CalendarGuideRow(
-        'sync-other',
-        Icons.devices_rounded,
-        l10n.appGuideSyncOtherTitle,
-        l10n.appGuideSyncOtherBody(l10n.syncThisDatabase),
-      ),
-      CalendarGuideRow(
-        'sync-conflict',
-        Icons.call_split_rounded,
-        l10n.appGuideSyncConflictTitle,
-        l10n.appGuideSyncConflictBody,
-      ),
-      CalendarGuideRow(
-        'sync-stop',
-        Icons.logout_rounded,
-        l10n.appGuideSyncStopTitle,
-        l10n.appGuideSyncStopBody(l10n.syncStop, l10n.signOut),
-      ),
-      CalendarGuideRow(
-        'sync-delete',
-        Icons.delete_forever_outlined,
-        l10n.appGuideSyncDeleteTitle,
-        l10n.appGuideSyncDeleteBody(l10n.syncDeleteCloud),
-      ),
-      CalendarGuideRow(
-        'sync-delete-account',
-        Icons.person_remove_outlined,
-        l10n.appGuideSyncDeleteAccountTitle,
-        l10n.appGuideSyncDeleteAccountBody(l10n.syncDeleteAccount),
-      ),
-      // Named as the row it points at, so the two are one thing to find.
-      CalendarGuideRow(
-        'sync-data',
-        Icons.privacy_tip_outlined,
-        l10n.dataNoticeTitle,
-        l10n.appGuideSyncDataBody(l10n.dataNoticeTitle),
-      ),
-    ],
-    sharing => _sharingRows(l10n),
   };
-
-  /// The guide names no partner, so a label that carries one takes the
-  /// stand-in the sharing screens show before a name is known.
-  static List<CalendarGuideRow> _sharingRows(AppLocalizations l10n) {
-    final partner = ShareCopy.partnerName(l10n, null);
-    final shareWith = l10n.shareWithPartner(partner);
-    final sharingPage = l10n.sharingWithTitle(partner);
-    final alerts = l10n.appGuideSharingAlertsBody(
-      l10n.shareAlerts,
-      l10n.shareAlertsOff,
-      l10n.shareAlertsCategory,
-    );
-    // The alerts row closes on what is true on the device the guide is read
-    // on, as the read sheet's caption does.
-    final alertsFollow = SharedRefreshAvailability.isSupported
-        ? l10n.appGuideSharingAlertsFresh
-        : l10n.appGuideSharingAlertsLastReceived;
-    return [
-      CalendarGuideRow(
-        'sharing-pair',
-        Icons.link_rounded,
-        l10n.appGuideSharingPairTitle,
-        l10n.appGuideSharingPairBody(
-          l10n.pairingSection,
-          l10n.sharingSettings,
-          l10n.syncThisDatabase,
-        ),
-      ),
-      CalendarGuideRow(
-        'sharing-category',
-        Icons.category_rounded,
-        l10n.appGuideSharingCategoryTitle,
-        l10n.appGuideSharingCategoryBody(
-          shareWith,
-          l10n.calendarCategories,
-          sharingPage,
-        ),
-      ),
-      CalendarGuideRow(
-        'sharing-event',
-        Icons.event_rounded,
-        l10n.appGuideSharingEventTitle,
-        l10n.appGuideSharingEventBody(shareWith),
-      ),
-      CalendarGuideRow(
-        'sharing-folder',
-        Icons.folder_rounded,
-        l10n.appGuideSharingFolderTitle,
-        l10n.appGuideSharingFolderBody(
-          shareWith,
-          l10n.shareAddFolder,
-          sharingPage,
-        ),
-      ),
-      CalendarGuideRow(
-        'sharing-readonly',
-        Icons.lock_outline_rounded,
-        l10n.appGuideSharingReadOnlyTitle,
-        l10n.appGuideSharingReadOnlyBody(l10n.sharedEventCopy),
-      ),
-      CalendarGuideRow(
-        'sharing-theirs',
-        Icons.move_to_inbox_rounded,
-        l10n.appGuideSharingTheirsTitle,
-        l10n.appGuideSharingTheirsBody(sharingPage),
-      ),
-      CalendarGuideRow(
-        'sharing-alerts',
-        Icons.notifications_rounded,
-        l10n.appGuideSharingAlertsTitle,
-        '$alerts $alertsFollow',
-      ),
-      CalendarGuideRow(
-        'sharing-stop',
-        Icons.group_off_rounded,
-        l10n.appGuideSharingStopTitle,
-        l10n.appGuideSharingStopBody(l10n.shareStopAll, l10n.unpair),
-      ),
-      CalendarGuideRow(
-        'sharing-private',
-        Icons.shield_outlined,
-        l10n.appGuideSharingPrivateTitle,
-        l10n.appGuideSharingPrivateBody,
-      ),
-    ];
-  }
 }

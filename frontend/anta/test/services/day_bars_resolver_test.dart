@@ -9,6 +9,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/day_bar.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/day_bars_resolver.dart';
+import 'package:anta/services/note_money_ledger_service.dart';
 import 'package:anta/utils/event_agenda.dart';
 
 /// Guards the two properties the day-bar stripes share with the day panel.
@@ -432,6 +433,53 @@ void main() {
           .toList(growable: false);
 
       expect(bars.single.key, 'event:fasting:greatLent');
+    });
+  });
+
+  // Review A11, second leg: an event of mine linked, before the picker
+  // listed my notes alone, to a partner's note.
+  group('MoneyDayBarProvider and a partner\'s note', () {
+    CalendarEvent linked(String id, String noteId, {bool fromPartner = false}) =>
+        CalendarEvent(
+          id: id,
+          title: id,
+          categoryId: 'gym',
+          startDate: day,
+          rule: const OneTimeRecurrence(),
+          noteId: noteId,
+          fromPartner: fromPartner,
+        );
+
+    setUp(
+      () => NoteMoneyLedgerService.seedForTesting({
+        'theirs': (balance: 800, net: 800, title: 'Theirs', fromPartner: true),
+        'mine': (balance: -500, net: -500, title: 'Mine', fromPartner: false),
+      }),
+    );
+    tearDown(NoteMoneyLedgerService.reset);
+
+    Iterable<DayBar> barsOf(List<CalendarEvent> events) =>
+        MoneyDayBarProvider(AppLocalizationsEn()).barsFor(day, events);
+
+    test('an event of mine never counts a partner\'s note', () {
+      expect(barsOf([linked('e1', 'theirs')]), isEmpty);
+      expect(
+        barsOf([linked('e1', 'theirs'), linked('e2', 'mine')]).single.color,
+        CalendarColors.moneyNegative,
+        reason: 'my own note\'s money alone',
+      );
+    });
+
+    test('the partner\'s own event keeps its money, whichever event of the '
+        'day names the note first', () {
+      expect(barsOf([linked('p1', 'theirs', fromPartner: true)]), hasLength(1));
+      expect(
+        barsOf([
+          linked('e1', 'theirs'),
+          linked('p1', 'theirs', fromPartner: true),
+        ]),
+        hasLength(1),
+      );
     });
   });
 }

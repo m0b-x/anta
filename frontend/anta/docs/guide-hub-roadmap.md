@@ -30,6 +30,8 @@ card and the "Your own shortcuts" page — is BUILT and UNCOMMITTED.**
 - §8 Must not change
 - §9 Phase 2 — the "Try it" editors and the four fixes (2026-11-09)
 - §10 Phase 3 — the bar on the stage and "Your own shortcuts" (2026-11-11)
+- §11 Phase 4 — "Sync and sharing", a guide of its own with two phones on
+  the stage (2026-11-21)
 
 ## 0. How to run this
 
@@ -1385,3 +1387,949 @@ hairlines, eight of the markdown card's ten buttons in view on a Pixel 9
 Pro with the fade at the right edge, the `markdownStart` field between
 bar and editor, the dumbbell, calendar and star drawn as glyphs. Not
 verifiable in the driver build, as in Phase 2: the real keyboard's lift.
+
+---
+
+## 11. Phase 4 — "Sync and sharing", a guide of its own (2026-11-21)
+
+**Status: BUILT 2026-11-21, UNCOMMITTED pending the owner — the book,
+its ten pages and ten "Try it" cards, "Your setup" and the help buttons;
+three closing reviews and a second round, their findings answered or
+left by name (§11.8); the whole suite 19,038 passed, 17 skipped, none
+failed; the settings and share device passes green, the sync pass not
+run (§11.8, "The device passes").** The owner asked (2026-11-21), after
+the correctness review of sharing (`cloud-share-surfaces-roadmap.md` §17),
+to "revamp the documentation pages with live widgets that show how to
+share your data, or how data looks to the other person … really intuitive
+and actually teaches the user how to sync or share data", and answered
+four questions in a dialog the same day: a guide of its own, all ten
+stages, the live "Your setup" checklist and the "How this works" links;
+no mock first.
+
+### 11.1 Why
+
+Sync and sharing are two pages of read rows in the app book (nineteen
+rows), under a comment that says no sandbox can stand in for real data.
+That was true of backup; it is not true of sharing, whose whole lesson is
+what happens on the *other* phone — the one thing a person with one phone
+cannot see. The calendar and notes guides teach by doing; this is the one
+area where the app asks for trust (what does she see? is it gone when I
+switch it off?) and only tells.
+
+### 11.2 Decisions D39–D56
+
+| # | Decision | Why |
+| --- | --- | --- |
+| D39 | **A fourth guide, "Sync and sharing"** (`GuideBook.sync`, slug `sync`, `Icons.cloud_sync_rounded`), listed between the notes guide and the app's. The app guide keeps `menu`, `settings`, `backup` and is renamed "Backup and settings". | The owner's answer. Ten pages do not fit inside another book's "How do I…". |
+| D40 | **Ten stages on nine pages, one page of rows** (§11.4). | The owner's answer ("all ten stages"). One question per page; the offline page holds two cards because the second only makes sense after the first. |
+| D41 | **Nothing on a stage touches her account, the cloud or her data.** The second phone and the partner live in the page's memory and die with it. | The calendar guide's rule (its D40), and the reason a stage may be tried by someone not signed in. |
+| D42 | **The stage is two phones, one shown at a time**, flipped by a two-segment control at its top; a dot on the other segment says it changed since she last looked. | 360 dp at text scale 2.0 cannot hold two phones side by side, and the flip is itself the lesson: go and look. |
+| D43 | **The controls are the app's own widgets**, fed demo data. Where the real surface is bound to a bloc (the pairing sheet's code view and field, the Sync section's rows and status line) its body is extracted into a public, pure widget that both the surface and the stage draw. Nothing is redrawn for the guide. | The guide cannot drift from the screens (D5, D14). |
+| D44 | **A step is done when the world shows it** (D18), never on a tap — except "open the other phone", which is the flip. | Every road to the result counts alike. |
+| D45 | **The partner is "Sam"** in all three languages; on Sam's phone she is "you", through strings of their own. | A name reads better than "your partner" on a control; "From {name}" cannot take a pronoun in German or Romanian. |
+| D46 | **The sync stages show two of her own phones** ("This phone" / "Your other phone"); the sharing stages show hers and Sam's. | Sync and sharing are different promises; the labels keep them apart. |
+| D47 | **A change reaches the other phone after one short "Syncing…" beat** (`GuideMetrics.syncBeat`). | Instant would teach that sync is instant; a real wait would bore. The rows say how long it really takes. |
+| D48 | **"Your setup"**: a card at the top of the guide's hub, read from her real state — signed in, this database syncing, paired, sharing — each row opening the real screen. In-memory answers only: no network call, and nothing built for an account that never paired. | The owner's answer. The step from reading to doing is one tap. |
+| D49 | **"How this works" links** on the real surfaces — Sync & sharing, the Sharing page, the pairing sheet — each opening the guide. *As built (§11.8, "The answers"): a help button in the two pages' bars, opening the book, and in the sheet's header, opening the `pair` page; rows in the page's body were built first and withdrawn.* | The owner's answer. Help is found where the question arises. |
+| D50 | **Keys** `syncGuide*` (`syncGuidePage<Topic>` / `…Caption`, `syncGuide<Topic>Lead`, `syncGuide<Row>Title` / `…Body`, `syncGuideTry<Card>`, `syncGuideCoach<Card><Step>`, `syncGuideReport<Name>`, `syncGuideSetup*`); `guideBookSyncTitle` / `…Caption`, `syncGuideIntro`. The `appGuideSync*`, `appGuideSharing*` and `appGuidePageSync|Sharing*` keys are retired with their pages. `guideBookAppTitle` and its caption change their words. | D6. |
+| D51 | **Ids** by D8's shape under the book slug `sync`: `guide-sync`, `guide-sync-page-<slug>`, `guide-sync-topic-<slug>`, `guide-sync-<row>`, `guide-sync-try-<card>` with `…-caption`; on a stage `guide-sync-try-<card>-phone-here` / `-phone-there` (the two segments) and `…-stage`. `guide-sync-setup` and `guide-sync-setup-<row>` for D48. `NavDestinationKind.syncGuide` appended; `settings-hub-row-syncGuide` in Settings › How to. | D8–D10; names are persisted, append only. |
+| D52 | **No mock.** The owner declined one; the designer's spec for the stage frame, the phone, the setup card and the help rows is taken on his delegation, its defaults lettered in §11.8, and he sees device renders at the end. | His answer in the dialog. |
+| D53 | **The rows say what the code does**, as read in the review of 2026-11-21 — that un-sharing takes effect when the phone next syncs, that a change arrives within minutes and at once on "Sync now", that the partner never edits. | A guide that promises more than the app does costs more trust than none. |
+| D54 | **The hub's search reaches the new pages and their rows** like any book's (D2); the setup card is not searched. | It is state, not text. |
+| D55 | **A stage has one fixed height per card**, the taller phone's; a phone that needs more scrolls inside a `GuideStageSlot`. | Nothing moves under the finger when she flips. |
+| D56 | **Real sheets open in the stage's sandbox**: the partner's read sheet (`SharedEventSheet`, already pure) with callbacks into the demo; no alert editor, no note editor, no navigation away from the page. | A stage that leaves the page loses its coach. |
+
+### 11.3 The stage
+
+One widget, `GuideTwoPhones` (`lib/widgets/guide_two_phones.dart`), under
+every card's coach line:
+
+```
+ Turn on "Share with Sam".                      ‹  ›
+ ┌──────────────────────┬───────────────────────────┐
+ │  Your phone          │  Sam's phone        •     │   the flip (D42)
+ └──────────────────────┴───────────────────────────┘
+ ┌──────────────────────────────────────────────────┐
+ │  Calendar · Thu 26 Nov                           │   the phone: a title
+ │  ● Dentist                         09:00         │   strip, then the
+ │  ● Team run                        18:30         │   app's own rows
+ │ ──────────────────────────────────────────────── │
+ │  Share with Sam                         ( ●)     │   the app's own
+ │  Sam sees it, read-only                          │   control (D43)
+ └──────────────────────────────────────────────────┘
+```
+
+The demo's world is one plain object, `GuideShareWorld`
+(`lib/models/guide_share_world.dart`), owned by the page's `State` as
+`GuideDemoCalendar` is: her categories, events, folders and notes; which
+of them are shared; what Sam shares; the looks; the alert choice; whether
+the two are paired; and for the sync cards two phones' notes, each phone's
+"online", and what waits. What Sam's phone shows is derived from it, never
+stored twice. It is pure Dart and has its own suite; every step's check
+reads it.
+
+A book's page takes its cards from `GuideTopic.demoCards` (new, beside
+`editorCards`): each a `GuideCardSpec` and a factory for its
+`GuideCardDemo`. `GuideTopicPage` owns the demos as the calendar's topic
+page owns its own, and draws each through `calendarGuideTrySection`.
+
+### 11.4 The pages, the cards, the rows
+
+Labels in *italics* are the app's own strings, filled in through
+placeholders (D5). Coach lines are one clause each (D49 of the calendar
+record). "→" is what the stage shows once the step is done.
+
+**Hub.** Intro: "Keep your phones in step, and share what you choose with
+one person." Your setup (D48), then Start here — `sync`, `pair`; How do
+I… — `offline`, `event`, `category`, `folder`, `look`, `alerts`, `stop`,
+`private`.
+
+**Your setup** (four rows, each a state and a way there):
+
+| Row | Done | Not yet | Opens |
+| --- | --- | --- | --- |
+| `account` | Signed in as {name} | Sign in | *Sync & sharing* |
+| `sync` | This database syncs | Turn on *Sync this database* | *Sync & sharing* |
+| `pair` | Paired with {name} | Pair with someone | *Sync & sharing* |
+| `share` | You share {n} things | Nothing shared yet | the Sharing page |
+
+A row whose earlier row is not done says what comes first ("Sign in
+first") and still opens the screen. On a platform without sync the card is
+one line, the app's own *syncThisDatabaseUnavailable*.
+
+**`sync` — Sync between your phones** · `Icons.sync_rounded` · lead: "One
+account, the same notes and calendar on every phone you sign in on."
+
+Card `sync` ("Try it: watch it sync"; phones: This phone / Your other
+phone). This phone shows the Sync section's own rows — *Sync this
+database*, the status line, *Sync now* — over a short list of notes with
+a "New note" row.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `on` | Turn on *Sync this database*. | the status line passes through Syncing… to *Up to date* |
+| `write` | Add a note with New note. | the note here; Syncing… then *Up to date*; a dot on the other phone |
+| `look` | Open your other phone. | the note is there |
+| `edit` | Tick its first line there, then come back. | the tick is here too |
+
+Reports: *Sync now* while nothing waits — "Nothing to send: both phones
+already match."
+
+Rows: **Sign in once** (Settings › *Sync & sharing* › *Sign in with
+Google*; nothing leaves the phone before that). **Turn it on per
+database** (*Sync this database*; each database is switched on by
+itself). **Read the status line** (*Up to date*, *Offline — will retry*;
+*Sync now* asks at once). **How often** (*Sync automatically* keeps the
+phones in step by itself; off, a change goes when you tap *Sync now*).
+**A second phone** (sign in there with the same account, pick the
+database to download; it arrives as a database of its own).
+
+**`offline` — No signal, and two phones at once** ·
+`Icons.cloud_off_rounded` · lead: "Nothing waits for the network. What
+you write is saved on the phone first."
+
+Card `offline` ("Try it: write without a signal"). This phone carries an
+"Airplane mode" switch of the stage's own above the status line.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `off` | Turn on Airplane mode. | *Offline — will retry* |
+| `write` | Add a note. | the note here, marked as waiting |
+| `look` | Open your other phone. | nothing new there |
+| `on` | Come back and turn Airplane mode off. | Syncing… then *Up to date*; the dot |
+
+Card `conflict` ("Try it: the same note on both phones"). Both phones
+start offline with one note, "Packing list", and an "Add a line" row.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `here` | Add a line on this phone. | the line here |
+| `there` | Open your other phone and add a line there. | another line there |
+| `online` | Turn Airplane mode off. | one note keeps the later edit; the other edit is kept beside it as "*Packing list (conflict copy, …)*", on both phones |
+
+Rows: **Offline is normal** (every change is saved on the phone and sent
+when a connection is back). **Two edits of one note** (the later one
+stays in the note; the other is filed beside it as a copy, so no text is
+lost — delete whichever you do not need). **Closing the app** (changes
+still waiting are sent the next time the app syncs).
+
+**`pair` — Pair with someone** · `Icons.link_rounded` · lead: "Sharing is
+between you and one other person. Pairing is how the two phones find
+each other."
+
+Card `pair` ("Try it: a code, typed once"; phones: Your phone / Sam's
+phone). Your phone shows the *Pairing* section's entry and, once asked,
+the pairing sheet's own code view; Sam's shows its own code field, with a
+"Fill it in" chip of the stage's own so nobody has to type eight letters
+to practise.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `invite` | Create a code. | eight characters and how long they are good for |
+| `look` | Open Sam's phone. | the field, empty |
+| `redeem` | Enter the code there. | "Paired with you" |
+| `back` | Come back to your phone. | "Paired with Sam", and a *Sharing with Sam* row |
+
+Rows: **One person at a time** (a pair is two accounts; to pair with
+someone else, unpair first). **The code** (good for ten minutes, used
+once; make a new one if it runs out). **Both of you sync** (each phone
+needs *Sync this database* on before it can share or receive).
+**Pairing shares nothing** (a new pair starts empty: nothing is visible
+to the other until you switch it on).
+
+**`event` — Share one event** · `Icons.event_rounded` · lead: "One switch
+on the event itself."
+
+Card `event` ("Try it: share an event"). Your phone: a day with two
+events; the selected one's own share row under it.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `share` | Turn on *Share with Sam*. | "*Sam sees it, read-only*"; the dot |
+| `look` | Open Sam's phone. | the event in Sam's day, marked as from you |
+| `open` | Tap it there. | the read sheet: no editing, *Copy to my calendar* |
+| `unshare` | Come back and turn the switch off. | gone from Sam's phone |
+
+Reports: *Copy to my calendar* on Sam's phone — "The copy is Sam's own
+event. Yours is still yours."
+
+Rows: **Where the switch is** (in the event's editor: *Share with
+{name}*). **What they can do** (see it, open it, copy it, add alerts of
+their own; never change it). **It follows your changes** (move or rename
+it and theirs follows; delete it and it leaves). **A copy is private**
+(a duplicate of a shared event is not shared).
+
+**`category` — Share a whole category** · `Icons.category_rounded` ·
+lead: "Everything in the category, now and later."
+
+Card `category` ("Try it: share a category"). Your phone: three
+categories drawn as the Categories page draws them, each with its ⋮, and
+an "Add an event to Training" row.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `share` | Open ⋮ on Training and choose *Share with Sam*. | the share sign on Training; the dot |
+| `look` | Open Sam's phone. | Training's events, from you |
+| `add` | Come back and add an event to Training. | the new event here |
+| `follow` | Open Sam's phone again. | it is there, with no other switch |
+
+Rows: **Two ways in** (⋮ on the *Categories* page, or the *Sharing with
+{name}* page › *Categories*). **Everything in it** (every event of the
+category, and each one you add later). **One event out** (move it to
+another category; an event in a shared category has no switch of its
+own — it reads "*On for everything in {category}*"). **Their copy of the
+category** (it appears among their categories as yours; they choose
+whether it shows).
+
+**`folder` — Share a folder and its notes** · `Icons.folder_rounded` ·
+lead: "A folder shares everything inside it."
+
+Card `folder` ("Try it: share a folder"). Your phone: two folders in the
+browser's own rows, each with its menu.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `share` | Open the menu of Trips and choose *Share with Sam*. | the share mark on Trips; the dot |
+| `look` | Open Sam's phone. | Trips at the top of Sam's notes, from you |
+| `open` | Open it there. | the line "From you · Read only" over its notes |
+| `copy` | Tap *Copy to my notes* on a note. | a copy among Sam's own notes; yours unchanged |
+
+Rows: **Where the switch is** (the folder's ⋮ › *Share with {name}*, or
+the *Sharing with {name}* page › *Folders* › *Share a folder*). **What
+goes with it** (its notes and the folders inside it, and whatever you
+move in later; a note you move out becomes private again). **Read only
+for them** (they read and copy; they cannot write in your folder). **A
+single note** (a note is shared by the folder it is in — put it in a
+shared folder).
+
+**`look` — How shared things look** · `Icons.visibility_rounded` · lead:
+"What Sam shares sits among your own. You choose how it is told apart."
+
+Card `look` ("Try it: choose the look"). Your phone only: a day holding
+your events and two of Sam's, over the Sharing page's own three rows —
+*Events shared with you*, *Notes shared with you*, *Mark what you
+share*.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `avatar` | Set *Events shared with you* to *Avatar*. | Sam's events carry Sam's picture |
+| `plain` | Now choose *Like mine*. | they look like yours |
+| `mark` | Turn on *Mark what you share*. | your shared event carries its sign |
+
+Rows: **Three looks for events** (*Outlined*, *Avatar*, *Like mine*).
+**Notes too** (*Avatar* or *Like mine*). **Mark what you share** (a
+small sign on what the other person can see). **Hide what you do not
+need** (on the *Sharing with {name}* page, switch off a category of
+theirs; it leaves your calendar and never alerts — on this phone only).
+
+**`alerts` — Alerts on shared things** · `Icons.notifications_rounded` ·
+lead: "Their alerts never ring on your phone. Yours ring when you say."
+
+Card `alerts` ("Try it: choose what rings"). Your phone only: one event
+of Sam's ("Flight, 14:30", in Travel), on which you already set a
+reminder; your Travel category has an alarm; under it the Sharing page's
+own *Alerts for shared events* row and one line that says what would
+ring.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `off` | Choose *Off*. | "Nothing rings." |
+| `own` | Choose *Only alerts I add*. | "Your reminder rings." |
+| `category` | Choose *Category alerts too*. | "Your reminder and Travel's alarm ring." |
+
+Rows: **Three choices** (*Off*, *Only alerts I add*, *Category alerts
+too*). **Add your own** (open a shared event and add an alert; it is
+yours alone). **It follows their changes** (the sentence the page ends on
+today: true to the device the guide is read on —
+`SharedRefreshAvailability.isSupported`). **Who is it from** (the alert
+names the person; it can be snoozed, not skipped).
+
+**`stop` — Stop sharing** · `Icons.group_off_rounded` · lead: "Every way
+out, from one thing to everything."
+
+Card `stop` ("Try it: take it back"). Your phone: what you share (one
+category, one event, one folder) over the Sharing page's own *Stop
+sharing everything* and *Unpair* rows.
+
+| Step | Coach line | → |
+| --- | --- | --- |
+| `one` | Turn off the switch of the event. | it leaves Sam's phone |
+| `look` | Open Sam's phone. | the category and the folder remain |
+| `all` | Come back and tap *Stop sharing everything*. | nothing of yours on Sam's phone; you are still paired |
+| `unpair` | Tap *Unpair*. | "Not paired" on both; what Sam shared is gone from yours too |
+
+Rows: **One thing** (switch it off where you switched it on). **All of
+it** (*Stop sharing everything* keeps the pair). **Unpair** (both phones
+drop what the other shared; your own things stay yours). **When it takes
+effect** (when your phone next syncs — at once if it is online; offline,
+the change waits like any other). **Stop syncing, or leave** (*Stop
+syncing* keeps everything on the phone; *Delete cloud copy* and *Delete
+account* are on the same page and say what they remove).
+
+**`private` — What stays private** · `Icons.shield_outlined` · lead:
+"Only what you switch on is shared. The rest never leaves your account."
+
+No card. Rows: **Never shared** (whether you attended, your alerts, your
+counters, and every category, event and folder you did not switch on).
+**They cannot change anything** (sharing is read-only in both
+directions). **Not in your backups** (what the other person shares is
+left out of your backups, exports and reports). **Where your data is
+stored** (the app's own *Where your data is stored* row, as on the sync
+page today).
+
+### 11.5 Files
+
+New: `lib/models/sync_guide_content.dart` (`SyncGuideTopic`),
+`sync_guide_tries.dart` (the cards' specs and steps),
+`guide_share_world.dart`; `lib/widgets/guide_two_phones.dart`,
+`guide_sync_try_*.dart` (one demo per card, as the calendar's
+`calendar_guide_try_*.dart`), `guide_setup_card.dart`;
+`lib/controllers/guide_setup_reader.dart`. Changed: `guide_book.dart`,
+`guide_content.dart` (`demoCards`), `app_guide_content.dart` (three
+pages), `guide_topic_page.dart`, `guide_book_page.dart`,
+`guide_metrics.dart`, `semantics_ids.dart`, `nav_destination.dart`,
+`app_navigator.dart`, the settings hub's How to section; for D43
+`pairing_sheet.dart` and `sync_settings_page.dart` (a body extracted,
+behaviour unchanged); for D49 `sync_settings_page.dart`,
+`sharing_page.dart`, `pairing_sheet.dart`. The three ARBs.
+
+### 11.6 Must not change (in addition to §8, §9.4, §10.4)
+
+- The calendar and notes guides: pages, ids, cards, flows, suites.
+- Every existing `NavDestinationKind` name; the restore of a stamped
+  guide page.
+- The real Sync, Pairing and Sharing surfaces: an extraction for D43 is a
+  move of code, and each surface's own suite stays green unchanged. No
+  change to a bloc, a service or persisted data.
+- An account that never paired pays nothing: the setup card builds no
+  share service and makes no call for it (`query_count_test`,
+  `push_registration_test`, `shared_refresh_wiring_test` stay as they
+  are).
+- A stage writes nothing: no settings key, no database row, no
+  preference.
+
+### 11.7 Slices and the gate
+
+| Slice | What | Who |
+| --- | --- | --- |
+| G1a | The book and its ten pages of rows; the app book down to three; routes, ids, the hub row, Settings › How to; the suites and the flow that pin them. | implementer |
+| G1b | `demoCards` on a book's page; `GuideTwoPhones`; `GuideShareWorld`; card `event` as the pattern. | implementer |
+| G2 | Cards `category`, `folder`, `look`, `alerts`, `stop`. | implementer |
+| G3 | Cards `sync`, `offline`, `conflict`, `pair`, with the two extractions of D43. | implementer |
+| G4 | "Your setup" and the "How this works" rows. | implementer |
+| Review | Code after G1b and after G4; the look once every stage stands; the settings and share device passes on the final build. | reviewer, design-reviewer, qa-runner |
+
+Gate after each slice: `dart analyze lib test` clean, `flutter gen-l10n`
+with `untranslated.txt` empty, the suites the slice touches; the whole
+suite at the first boundary and at the end (the lead's, in six chunks).
+Nothing is committed without the owner's word.
+
+### 11.8 The designer's defaults, and as built
+
+**The look (2026-11-21, the `designer` agent; taken on the owner's
+delegation, D52).** Rendered with real fonts at 360 and 412, text scale
+1.0 / 1.3 / 2.0, light and dark, en and de — 27 pumps, no overflow, both
+phones of one card the same height in every cell. Two facts it found
+change the plan: the pairing sheet is not a form sheet (it draws its own
+handle and title), and the flip cannot stand inside today's stage box.
+
+- **A** The flip stands on the card between the coach line and the stage;
+  the stage itself is the phone. `GuideCardDemo` gains
+  `buildAboveStage`, null by default, and `stageTopFlush`, so every
+  calendar and notes card draws exactly as before.
+- **B** The flip and the phone's bar are clamped at text scale 1.3 with
+  the coach line: guide chrome, not the app's. The rows inside the phone
+  scale in full.
+- **C** The flip is the kit's `SegmentedButton` in
+  `settingsSegmentedStyle`, no check icon; 48 dp tall.
+- **D** The dot: 8 dp, `primary`, after the label, its slot always kept
+  so the label never shifts — a ring while a change is on its way, filled
+  once it arrived, cleared only by looking. Said in words to a screen
+  reader ("…, changed", "…, syncing").
+- **E** `GuideMetrics.syncBeat` is one second and no motion at all: the
+  dot and the rows change in one frame, so reduced motion has nothing to
+  remove.
+- **F** A card's height is the taller phone's tallest state, laid out
+  unseen as the categories card does it; the control under the list is
+  pinned and only the list scrolls. No cap: at 2.0 in German on a 360
+  phone the sync card is taller than the screen, and the page scrolls.
+- **G** The phones are told apart by the mark in the phone's bar — a
+  phone glyph for hers, Sam's face for Sam's, a linked-phones glyph for
+  her other phone — never by a second colour.
+- **H** The pairing sheet's header moves to `FormSheetHandle` and
+  `FormSheetHeader` with a help button at its end; the guide page opens
+  over the sheet, and back returns to it with the code as it was.
+- **I** A setup row is never dimmed — it still opens its screen — and
+  carries a caption only when an earlier row comes first.
+- **J** "How this works" is a row at the end of a section, named after
+  the guide page it opens, with the school glyph the alert settings use.
+- **K** Airplane mode is a toggle in the phone's bar, not a row: a row
+  would teach a setting ANTA does not have. "New note" and its kin are
+  plain action rows; "Fill it in" is a chip with the guide's practice
+  glyph.
+- **L** A phone with nothing to show says so in one centred line.
+
+The full specification, with tokens, constants and measurements, and the
+renders: `%TEMP%\anta-guide-design\` (`spec.md` and the PNGs) — outside
+the repo; the design-reviewer re-renders against it.
+
+**G1a as built (2026-11-21, an `implementer`).** `GuideBook.sync` between
+the notes guide and the app's; `SyncGuideTopic` with the ten pages and 41
+read rows (`lib/models/sync_guide_content.dart`); the app guide down to
+`menu`, `settings`, `backup` and named "Backup and settings";
+`NavDestinationKind.syncGuide` appended; `settings-hub-row-syncGuide`.
+113 keys added and 45 retired per language. Eight rows of §11.4 were
+written to what the code does rather than to the draft: there is no
+duplicate-event action (the row describes the partner's copy); a category
+has three ways in, not two; an event moved out of a shared category
+falls back to its own switch; "Stop syncing" leaves the partner holding
+what was shared as it stood; a change leaves the partner's phone at
+*their* next read; a new partner does see your name and picture; "within
+a few minutes" stands on the engine's thirty seconds and three minutes;
+Unpair is on the Sharing page.
+
+**G1b as built (2026-11-21, an `implementer`).** `GuideCardDemo` gains
+`buildAboveStage` and `stageTopFlush`, both off by default;
+`GuideTopic.demoCards` with the factory `guideBookCardDemo` in the
+widgets layer; `GuideTwoPhones` and the `GuideTwoPhonesDemo` base (the
+world, the phone in view, the dots, the beat: `send`, `land`, `settle`);
+`GuideShareWorld`; `SyncGuideTries` with `GuideShareStep` (a check on the
+world) and `GuideFlipStep` (the flip, D44); the card `event`. The read
+sheet took two additive parameters (`ownAlerts`, `caption`) so the stage
+opens it without the alert rows. The card's day holds three events, not
+the two of §11.4's sentence.
+
+**The code review of G1 (a `reviewer`, fresh context): no data or crash
+finding; these, each answered in the frame pass that follows G2.**
+
+- *A step about Sam's phone was judged by her own mark:* sharing and
+  un-sharing within one beat completed `unshare` though Sam never
+  received anything. Rule from here on: such a step reads what arrived
+  on Sam's phone and left it.
+- *The dots:* one phone "bound" at a time, so two sends that cross leave
+  the first ring standing; and a dot fills though the beat delivered
+  nothing (`GuideShareWorld.inFlight` exists for it and is read
+  nowhere).
+- *Sam's read sheet stays open* on an event un-shared while it is up —
+  the real sheet closes itself (`SharedEventGone`); the stage passes no
+  `changes`.
+- `settle()` redraws outside the disposed guard; a landing that marks a
+  step takes a standing report down against its own comment; a row
+  tapped twice opens two sheets; a card demo is never handed the owner's
+  appearance or categories.
+- *The share row is composed a second time* for the stage instead of
+  being the editor's own (`_buildShareRow`): it will drift. To extract.
+- *Two rows promise more than the code:* "Stop syncing keeps everything
+  on this phone" — what the partner shared leaves it
+  (`SyncBindingService._unbind`); "left out of your backups and exports"
+  — a selection that holds a partner's note or folder is refused whole.
+
+**The look's review of the frame and the first card (a
+`design-reviewer`, fresh context; renders and measurements in
+`%TEMP%\anta-guide-design\built\`).** Everything the spec pins holds —
+the flip 48 dp and unmoved by its dot, one stage rect on both phones in
+36 cells and seven states, the clamps, the contrasts, the stock tap-target
+and text-contrast guidelines, the old cards untouched. What it found, and
+what the lead took from it for the frame pass:
+
+- **At text scale 2.0 in German on a 360 phone the card is 797 dp, not
+  the 612 the spec measured with stand-in rows:** the switch she taps and
+  the dot it lights never share a screen. *Taken:* two events in the
+  day, as §11.4 says, not three; the share row reserves only the two
+  captions the stage shows (the editor's third, "Turn on sync to share",
+  never appears there); decision F stands otherwise, and is measured
+  again after.
+- **Nothing on the stage says in words whose phone it is** — both bars
+  read "Calendar · Sat, Nov 21", Sam's mark is a face with no initial,
+  and the selected segment's fill is 1.23:1 on the card. *Taken:* the
+  phone's bar reads "{whose phone} · {area}" ("Sam's phone · Calendar"),
+  seen and spoken; the date goes — it taught nothing.
+- **A wrapped flip label leaves its dot at the segment's edge**
+  (Romanian from 1.3). *Taken:* the label is measured by its longest
+  line.
+- **"Selected" is on a wrapper node, never spoken; and nothing but a
+  wash ties the switch to the selected event.** *Taken:* the flag on the
+  row's own node; the control becomes the editor's own pair — the
+  event's title row over its share row.
+- **The read sheet says "Only you can change this event" while she is
+  looking through Sam's eyes.** *Taken:* the stage's caption says it
+  from Sam's side — Sam cannot change it, only you can.
+- **Two time formats in one card** (24-hour on the stage, the locale's
+  in the sheet). *Taken:* one source, the app's.
+- The phone's bar has no trailing slot yet (the offline card's airplane
+  toggle needs it); `phoneBarMaxTextScale` is a literal beside a derived
+  twin. *Taken, both.*
+- For a device: the beat's real second, the non-linear 2.0 scale,
+  TalkBack's stops per row and its reading of the dot, the press ripple.
+
+**G2 as built (2026-11-21, an `implementer`).** The cards `category`,
+`folder`, `stop`; the world grew categories, folders, notes and the
+pair; `lib/widgets/guide_share_rows.dart` holds the rows the cards
+share. "Training" is the built-in Gym category under the app's own
+label. A folder or a note opens nothing on a real row's tap there, so
+the rows are composed from the app's own row parts as the calendar's
+categories card does; on Sam's phone a note opens its long-press sheet
+with only *Copy to my notes* live. Rule from the code review, applied to
+all four cards: a step about Sam's phone is judged by what arrived there
+and left — `GuideShareWorld.takenBack`, `hasLeft`.
+
+**The frame pass as built (2026-11-21, an `implementer`, after the two
+reviews — all fourteen points).**
+
+- *Dots:* a set of waiting phones; a ring only while something is on its
+  way to that phone, filled only when a landing delivered something;
+  `inFlightTo(phone)` for a card whose changes travel both ways.
+- *The coach:* `did(action, keepReport:)`, off by default, so a landing
+  that marks a step leaves her report standing; one guarded `redraw()`.
+- *The bar:* "{phone} · {area}" through `syncGuidePhoneBar`, seen and
+  spoken; a trailing 48 dp slot; the back slot the folder card added.
+- *The flip's label* is measured by its longest line.
+- *One phone:* `onePhone`, no flip.
+- *`EventShareRow`* (`lib/widgets/event_share_row.dart`): the editor's
+  own share row as one public widget — the editor builds it, its suites
+  unchanged — with `reserve` naming the captions to keep room for.
+- *Sheets:* `openOnce`; Sam's read sheet closes when its event leaves.
+- *`event`:* two events; the control is the event's title row over its
+  share row; `selected` on the row's own node; the caption from Sam's
+  side; one time format, the read sheet's.
+- *`stop`:* her phone lists what she shares as rows with a ✕, the
+  Sharing page's own way to take one thing back; the switch is gone;
+  `all` counts after an Unpair done first too.
+- *Rows reworded:* `syncGuideStopSyncBody`, `syncGuidePrivateBackupsBody`.
+
+Measured (the span from the coach line to the stage's bottom, against a
+732 dp screen under the bar; then the card at text scale 2.0):
+
+| Card | en 1.0 span | en 2.0 card | de 2.0 card |
+| --- | --- | --- | --- |
+| `event` | 410 | 630 | 630 |
+| `category` | 430 | 654 | 719 |
+| `folder` | 331 | 498 | 535 |
+| `stop` | 547 | 876 | 897 |
+
+At 1.0 every card fits one screen. At 2.0 `stop` does not: its ✕ rows
+sit under the flip, but the Pairing section is a scroll away from it —
+decision F as taken, the extreme cell.
+
+**G3 as built (2026-11-21, an `implementer`): `look`, `alerts`.** Both
+are her phone alone (`onePhone`). The Sharing page's look rows and its
+alerts row moved into `lib/widgets/share_settings_sections.dart`
+(`shareLookSection`, `shareAlertsSection`, `showShareAlertsMenu`), which
+the page and the stages both call; an `identifier` mapping gives a stage
+its own ids. What rings is read from `ShareAlerts.inheritsOn` through
+`GuideShareWorld.ringsFor` — no scheduler, no static cache. Against
+§11.4: *Mark what you share* ships on, so the card starts it off; the
+alerts row is a menu row in the app, so its coach line says "tap … and
+choose"; "Your reminder rings" would have broken the app's own vocabulary
+(a reminder notifies, an alarm rings — `reminder_word_test`), so the
+lines say "Your alert rings" and "Your alert and {category}'s alarm
+ring"; Travel is a demo category of hers, there is no built-in one.
+
+**G4 as built (2026-11-21, an `implementer`): `sync`, `offline`,
+`conflict`.** The Sync section's rows moved into
+`lib/widgets/sync_settings_sections.dart` (`syncThisDatabaseEntry`,
+`SyncBindTile`, `syncStatusEntry`, `syncNowEntry`, `SyncStatusLines`,
+`SyncFixedLinesSlot`); the page lost about 420 lines and its suites pass
+unedited. `GuideSyncWorld` (`lib/models/guide_sync_world.dart`) is the
+engine in miniature — each phone an outbox, an online flag and what it
+has seen of the other; `deliver()` pulls then pushes on every online
+phone until nothing moves — held in `GuideShareWorld.sync`.
+`GuideTwoPhonesDemo.waitsFor(phone)` lets a change held by airplane mode
+ring with no beat running. Against §11.4: *Sync this database* is a row
+one taps, which the status row and *Sync now* replace once the database
+syncs — not a switch — so the line says "Tap"; a note written before
+sync is on travels with the bind, so turning it on can complete two
+steps; the app marks no row as waiting, so "… · 1 waiting" on the status
+line is the mark; the conflict card has an airplane toggle on each phone
+and its line says "on both phones"; the rule as the code has it — the
+later stamp stays in the note, the other edit is filed beside it under
+`conflictCopyTitle`, on both phones after one beat whichever comes
+online first. `look` lost two of its four events.
+
+Measured as before (the span against 732 dp; the card at 2.0):
+
+| Card | en 1.0 span | en 2.0 card | de 2.0 card |
+| --- | --- | --- | --- |
+| `look` | 565 | 946 | 1023 |
+| `alerts` | 308 | 521 | 582 |
+| `sync` | 631 | 931 | 996 |
+| `offline` | 590 | 886 | 951 |
+| `conflict` | 528 | 814 | 839 |
+
+Every card fits one screen at 1.0; at 2.0 the settings-kit rows the
+cards borrow make five of them taller than the screen, and the page
+scrolls (decision F).
+
+**G5 as built (2026-11-21, an `implementer`): `pair`, the pairing
+sheet's header, the help rows.** The sheet's parts moved into
+`lib/widgets/pairing_sheet_parts.dart` (`PairingCreateCodeButton`,
+`PairingCodeView`, `PairingCountdown`, `PairingCodeEntry`), which the
+sheet and the stage both draw; `PairingInviteTile` and `PairedTile` moved
+out of the page's `_pairingRow` into `sync_settings_sections.dart`. The
+sheet's header is `FormSheetHandle` + `FormSheetHeader`: ✕, the title
+(stacking at large text), and a help button (`pairing-how`) that drops
+focus and opens the guide's `pair` page over the sheet — back returns to
+the code and to whatever was typed. One behaviour is new because of that
+button: a pair that lands while the guide is over the sheet removes the
+sheet from under it (`Navigator.removeRoute`; the old `maybePop` would
+have closed the guide and left the sheet). On the stage the code's life
+is held still ("Expires in 10:00", `heldAt`), Copy only reports, the code
+is plain text, and "Fill it in" is a `FormChip` with the new optional
+`glyph`. Against §11.4: the real page has no row titled "Sharing with
+Sam" — that is the title of the page the paired row opens — so the stage
+shows the real paired row. The three help rows were first built as the
+last row of the Sync section (both shapes), of the Pairing section and of
+the Sharing page's Pairing section; the gate and both reviews turned that
+placement down (below).
+
+**G6 as built (2026-11-21, an `implementer`): "Your setup".**
+`GuideSetupReader` (`lib/controllers/guide_setup_reader.dart`, a
+`ValueNotifier<GuideSetupFacts>`; a null fact is "not known yet") reads
+the account from `AuthService` in memory, sync from the share service's
+known availability or else the stored binding
+(`SettingsService.getSyncBinding`, never `SyncBindingService`, whose
+build squares claims and can unbind), the pair from memory where
+anything answers, and what is shared only for a paired account. Nothing
+reaches the network. The card is `guideSetupSection`
+(`lib/widgets/guide_setup_card.dart`), a `leading` section of
+`GuideHubList` drawn in hub mode only — a search never shows it — under
+the new optional `SettingsSectionData.identifier`. `GuideBookPage` owns
+the reader for the sync book alone, is `RouteAware` and re-reads on
+`didPopNext`. Captions follow the real prerequisites: pairing needs only
+a sign-in, sharing needs all three. A build without cloud (the QA build)
+shows the card's one "not available" line, and the settings flow expects
+that. In the same slice the pairing sheet's refusal under the code field
+wraps (`FormMetrics.fieldErrorMaxLines` = 4): on a 360 phone "That code is
+not valid any more. Ask for a new one." was cut to one line.
+
+**The gate on the fixes and the guide together (2026-11-21, the lead).**
+`dart analyze lib test` clean, `untranslated.txt` empty, the whole suite
+in seven calls: 18,856 passed, 17 skipped, **10 failed** — all ten in the
+Sync & sharing page's own suites (`sync_section_test.dart` nine,
+`sync_held_back_section_test.dart` one), none of which the slices had
+run. Cause: the help rows made the Sync and Pairing sections a row taller
+each, so the held-back and "Finish deleting" sections left the lazily
+built range and "the Sync section still ends with Delete" stopped being
+true. §11.6 had it right — a surface's own suite stays green unchanged —
+and the slice had not run the suites that say so.
+
+**The closing reviews (2026-11-21; a `reviewer` on the code of G2–G6,
+two `design-reviewer`s on the built cards, each in a fresh context).**
+Full reports: `%TEMP%\anta-guide-design\reviews\`; renders `built2\`,
+`built3\`.
+
+- *Code.* The four extractions are pure moves, checked line by line
+  (event share row; the Sharing page's look and alerts; the Sync section;
+  the pairing sheet's parts) and `removeRoute` is sound against the SDK;
+  no stage writes or builds anything (D41). Found: the help rows change
+  the real page (the red suites); the setup card's sync row says 'Turn on
+  "Sync this database"' for a database bound to **another** account,
+  where the page draws no such row; the reader pays an `overview()` on
+  every refresh, and that read's own housekeeping can delete the
+  share-sending marker; with the share census unknown the reader builds
+  `PairingService` for an account that never paired; a first open reads
+  the overview twice; a transient not-paired strands the card; a setup
+  row from the guide can stack a second Sync & sharing page or close the
+  guide; a pair made while the guide is over the sheet lets the page
+  push Sharing over the guide; the clipped-text check now skips every
+  phone template.
+- *The look, sharing cards.* `event`, `category`, `folder`, `look` ready
+  with small fixes; **`stop` and `alerts` not ready**. `stop`: after a ✕
+  the next ✕ rises under the finger; after Unpair her phone says "Nothing
+  is shared yet" and Sam's bar still says "Sharing with you"; Sam's side
+  never names the category. `alerts`: the stage is 456 / 420 / 456 dp with
+  the choice at 2.0 in German, and nothing on it shows the reminder or
+  the alarm its line talks about. Across cards: Sam's mark in the bar and
+  the "from you" mark are the same faceless glyph; "from you" on Sam's
+  day is only an outlined ring; the folder's note sheet still says "Only
+  you can change this note." on Sam's phone; the copy in "Ideas" cannot
+  be seen; `look`'s "Notes shared with you" changes nothing on the stage;
+  the bars of the two phones differ by 8 dp in `folder`. And the record's
+  heights above were measured on a bare 360-wide card, not the 328-wide
+  card the page draws — they understate (`look` 1163, `category` 903,
+  `event` 695 at 2.0 in German).
+- *The look, sync cards and the rest.* `sync`, `offline`, `conflict`,
+  `pair`, "Your setup": ready with small fixes; **the help rows and the
+  pairing sheet not ready**. The sheet: with the keyboard up at 2.0 the
+  code field and Connect are under the keys (the new header costs about
+  96 dp there) and the body does not scroll; Copy / Share / Cancel
+  overflow in German at every scale. The help rows: "Pair with someone"
+  under "Not paired" reads as the action. Smaller: the airplane toggle
+  says "selected", not on/off; a setup row's height changes when a name
+  arrives; the share to-do is a state, not a step; "Fill it in" reads as
+  the app's own button; the paired row has a chevron and no tap.
+
+**The answers (2026-11-21, the lead's decisions; five `implementer`s on
+disjoint files).**
+
+- **Default J is replaced: help is a button in the page's bar.** Sync &
+  sharing and the Sharing page each carry one `help_outline` button in
+  their `SettingsAppBar` (`sharing-sync-how`, `sharing-page-how`; tooltip
+  "How it works"), opening the sync book's hub, where "Your setup"
+  stands — the idiom the pairing sheet's header already has
+  (`pairing-how`, which opens the `pair` page). The page's body is
+  exactly what it was, and its two suites are green unedited: that was
+  the criterion, and it decided. *Tried first and withdrawn:* a "How it
+  works" section of its own, as the alert and fasting settings have,
+  placed last — eight of the ten reds went, two stayed, because the
+  suites pin that held-back and "Finish deleting" **are** the end of the
+  list (review H2: "the deletion section is last"). *Not taken:* that
+  section above held-back (all ten reds, and it would bury the rows that
+  ask for attention under help); editing the two suites (a page's own
+  pins do not move for a help row). What the bar costs: the page's
+  search no longer finds the help entry; the settings hub's "How to"
+  rows and the guide hub's search still do.
+- **`stop`.** A taken-back row stays in place, disabled, saying so; after
+  Unpair both phones read as the table says; Sam's side names the
+  category; the category step says in words that the app un-shares a
+  category from the Sharing page's picker (the ✕ stays the stage's
+  shorthand — the one admitted departure from D43).
+- **`alerts`.** The alerts row is laid out with all three values; a
+  caption under the flight names her reminder, the category's alarm and
+  whose event it is.
+- **The frame.** Sam is a letter avatar, so the faceless mark means only
+  "you"; the coach line that sends her to Sam's phone says the outlined
+  picture marks what came from her; every phone's bar takes the tallest
+  bar's height.
+- **`folder`, `category`, `look`.** The note sheet speaks from Sam's
+  side; "Ideas" opens and shows the copy; the category caption's slot is
+  reserved; `look` leaves the notes row off the stage and keeps each
+  step's control within a screen of the row it changes at 2.0.
+- **`sync`, `offline`, `conflict`.** The toggle reports toggled on one
+  node; the task line is drawn as a line of its note; the lines name the
+  status to watch, where the plane is, and which phone's edit went
+  where.
+- **The pairing sheet and `pair`.** The body under the header scrolls
+  with the clearance as its padding; the three actions stack when they
+  do not fit; the code stays on one line; "Fill it in" stands on the
+  card, not in Sam's phone; the paired row's tap says what it opens in
+  the app.
+- **"Your setup".** The sync fact carries its reason (on, off, bound to
+  another account) and is worded from it; one overview per share change,
+  not per refresh — its marker housekeeping is the same the Sharing page
+  does, and is the only write; the stored pair is read through
+  `SettingsService`, so a never-paired account builds no pairing service
+  (D48 as written); no double read; a transient not-paired keeps its
+  subscription; from the guide a setup row goes back to a Sync & sharing
+  page already under it; a row's title is two lines at most in a slot
+  reserved for two; the share to-do is an action.
+- **Left as they are, on purpose:** the share caption breaking at the
+  hyphen of "read-only" (correct line breaking; a non-breaking hyphen
+  would stop a typed search matching); the coach slot's blank above the
+  flip on `stop` (the slot reserves the card's longest line — must not
+  change); "Share with your partner" in the read rows against "Share
+  with Sam" on the stage (the real row names the partner once paired);
+  her phone showing the code in the row and in the code view (as the app
+  does, the sheet being drawn inline); the conflict copy's 24-hour time
+  beside the status row's 12-hour one — that is the app's own
+  `conflictCopyTitle`, a stored title, and is the owner's to change.
+
+**The answer pass as built (2026-11-21).**
+
+- *`stop`.* All three rows stand for the card's life; a taken-back row is
+  dimmed, its ✕ disabled, its caption "No longer shared"
+  (`syncGuideTryStopNotShared`) in a slot that holds both captions — also
+  after "Stop sharing everything". Only Unpair replaces the list, with
+  the app's `pairingNotPaired` on both phones, and both bars drop to the
+  plain area word (`shareSectionLabel`). Sam's side carries the category's
+  name as a section label over its event. The look step's line adds "An
+  outlined picture marks an event from you."
+- *`alerts`.* The alerts row lies in a caption slot with all three values;
+  under the flight, one caption built from the app's own words
+  (`shareFromPartner`, `EventAlert.describe`): "From Sam · Your alert: 30
+  min before · Travel's alarm: 3 h before" — "alert", never "reminder"
+  (`reminder_word_test`).
+- *`look`.* The notes row is filtered out of the real section by its id;
+  her Dentist moved to the day's last row, next to the section: at 2.0 in
+  German the Mark switch is 701 dp from the row it marks, down from 997.
+- *The frame.* Sam's mark is `GuideShareLooks.samMark`, the app's avatar
+  disc with his initial — `UserAvatar` itself draws the person glyph for
+  anyone without a picture and is unchanged; one `tall` flag gives every
+  bar of a card the tallest bar's height.
+- *`event`, `category`, `folder`.* The lines on screen while the outlined
+  mark is say what it means; `syncGuideSharedNoteCaption` takes the name;
+  "Ideas" opens — "No notes yet", then the copy — and going there is no
+  step; the category row reserves its longest caption.
+- *`sync`, `offline`, `conflict`.* The airplane toggle is one node — id,
+  label, button, toggled, tap; "Milk" is `GuideSyncNoteTask`, a checked
+  line of its note; the write step waits for the status ("When the status
+  says “Up to date”, tap “New Note”."); the airplane lines point at the
+  plane in the bar; the conflict report is chosen by which phone's edit
+  was later.
+- *The pairing sheet.* Everything under the header is a scroll view whose
+  bottom padding is 24 plus the clearance. That alone left the field
+  under the keys — `EditableText` reveals a field into its viewport, and
+  the viewport runs on under the keyboard — so `PairingCodeEntry` takes
+  `revealBelow` and adds it to the field's scroll padding. The three
+  actions are an `OverflowBar`; the code is one line in a `FittedBox`.
+  The "or" divider keeps its style: the 3.94:1 was the sampler, the token
+  gives 15.48:1.
+- *`pair`.* "Fill it in" stands on the card under the flip
+  (`buildAboveStage`), always there, enabled only while Sam's phone is
+  shown and a code waits; a tap on either paired row says what it opens
+  in the app.
+- *The help button.* `syncGuideHelpButton` in
+  `sync_settings_sections.dart`, called by both pages; `sharingPairHow`
+  is retired; the settings flow `09_hub_sharing` taps it and waits for
+  the book.
+- *"Your setup".* `GuideSetupSync { on, off, otherAccount }` through
+  `SyncPause.forAccount`; another account's binding is titled with the
+  status row's own words (`syncPausedOtherAccount`). A paused engine of
+  her own account is **not** told: the reader has no in-memory answer for
+  it (`SyncEngine`'s pause is private). `_shared` holds the last count;
+  `storedPairing` reads `SettingsService.getPairingSettings()`; a row's
+  templates leave names blank and hold two title lines, and only a title
+  that carries a name is capped at two lines — a fixed title keeps all
+  its words. `AppNavigator.toSyncSettings(goBack:)`, passed by the card
+  alone. The clipped-text check skips only the caption slots' candidates
+  again: every hidden phone's template is checked, and nothing clipped.
+
+Gate on the answer pass: analyze clean, the whole suite 19,031 passed,
+17 skipped, none failed (the database page's delete-all case went red
+once under the load of two reviews running beside it; 47 of 47 alone).
+
+**The second round (2026-11-21; one `reviewer` on the real surfaces the
+answers changed, one `design-reviewer` on the reworked ones).** No
+severity 3 left; every surface "ready with small fixes"; nothing that
+loses data, crashes or strands the app. Taken, in a last pass of two
+`implementer`s:
+
+- The sheet could now reach the screen's height, and a scroll-controlled
+  sheet without `useSafeArea` puts its handle, ✕ and help under the
+  status bar: `useSafeArea: true`, pinned with a top inset.
+- With a code shown and the keyboard up, Connect sat 6 dp under the keys:
+  the field's reveal now includes the gap and Connect's own laid-out
+  height (only when `revealBelow` is given — the stage passes none). The
+  keyboard's Done already connected a whole code; that is pinned now.
+- `goBack` went back to the last Sync & sharing page anywhere in the
+  stack, closing whatever stood between: it does so only when every page
+  above it is the Sharing page directly over it or a stamped guide page;
+  otherwise it pushes, as before. A guide *topic* page carries no stamp
+  (pinned), and none can stand between — a topic opens nothing.
+- The pair-arrival guard asked "is anything on top": a dialog of the
+  page's own then lost the ask for good. It asks `AppNavigator.isTopPage`
+  now — Sharing is left unopened only under another *page* — and the
+  remembered sheet route is gone.
+- The reader's count could go stale behind a covered hub:
+  `stepOpened()` also discards a read already out, and the hub calls it
+  from `didPushNext` for any page it did not open as a topic of its own
+  book.
+- The share row under another account's binding said "Turn on sync
+  first": it says "Sync is paused" (`syncGuideSetupSyncPausedFirst`).
+- The help button's tooltip is "How sync and sharing work"
+  (`syncGuideHowSyncWorks`); "Fill it in" is "Fill in the code"; the
+  stop card's sentence about the category picker left the coach line and
+  is the report said when the category's ✕ is tapped.
+
+*Left, each a severity 1 or a decision already taken:* the `alerts`
+result line in the same quiet style as the facts above it; Romanian
+"Alerta ta: Cu 30 de min înainte" (the app's own timing words begin with
+a capital); no hairline under the sheet's header while its body is
+scrolled; "Abbrechen" under a code reading as "close" rather than
+"discard this code" (the sheet's own label, the owner's to reword); the
+paused setup row wearing the plain to-do ring; `stop` at 2.0 in German,
+where the coach line and Unpair are more than a screen apart (decision
+F); no test long-presses the code inside its `FittedBox`.
+
+**Heights as the page draws them** (`guide_sync_heights_test.dart`,
+360 × 780, German, text scale 2.0, the card 328 wide; 732 dp are visible
+under the bar). These replace the tables above, which were measured on a
+bare 360-wide card and understate.
+
+| Card | Card | Stage | Flip (or coach) to the stage's end |
+| --- | --- | --- | --- |
+| `sync` | 1032 | 835 | 906 |
+| `pair` | 834 | 578 | 682 |
+| `offline` | 1016 | 794 | 865 |
+| `conflict` | 889 | 592 | 663 |
+| `event` | 695 | 488 | 544 |
+| `category` | 953 | 696 | 752 |
+| `folder` | 560 | 353 | 409 |
+| `look` | 1002 | 876 | 963 |
+| `alerts` | 759 | 608 | 720 |
+| `stop` | 933 | 701 | 757 |
+
+Five fit a screen at the largest text in the longest language; `sync`,
+`offline`, `category`, `look` and `stop` scroll there (decision F), and
+all ten fit at 1.0.
+
+**The last gate (2026-11-21, the finished tree, a quiet machine).**
+`dart analyze lib test` clean; `flutter gen-l10n` with `untranslated.txt`
+empty; the whole suite **19,038 passed, 17 skipped, none failed**, in
+seven calls; the relay's 106 of 106. The must-not-change list was read
+against the diff: the calendar and notes guides keep their pages, ids,
+cards and flows — the card machinery they share gained slots that are
+inert by default (`buildAboveStage`, `stageTopFlush`, `redraw`,
+`did(keepReport:)`); `NavDestinationKind` gained `syncGuide` and lost
+nothing; the Sync & sharing page's two suites are unedited and green;
+for the guide no bloc, no sync, share or pairing service and no
+persisted key changed — the navigator's routes and its two queries are
+§11.5's, and every other change under `lib/bloc`, `lib/services` and
+`lib/database` in this tree is the fix pass's
+(`cloud-share-surfaces-roadmap.md` §17.7); `query_count_test` and
+`shared_refresh_wiring_test` are as they were, and
+`push_registration_test`'s two added lines are that fix pass's too
+(A12).
+
+**The device passes (2026-11-21, a `qa-runner`, the final build on
+`emulator-5556`).** `qa pass settings`: 21 of 21 green, no flaky —
+`09_hub_sharing` (the bar's help button opens the book) and
+`20_guide_books` (the sync book's pages, the pair card's code filled in
+on Sam's phone, the setup card's "not available" line: the QA build has
+no cloud) among them. `qa pass share`, two guests against the local
+Firebase emulators with the cloud build: 27 of 27 green, from `00_pair`
+to `06_delete_account` — the first device proof of
+`cloud-share-surfaces-roadmap.md` §17.7's fixes. **`qa pass sync` did
+not run:** it needs a freshly started emulator suite, the runner's stop
+of the running one was refused by the session's permissions, and the
+lead did not go around that. It is the owner's to run (stop and restart
+`tool\firebase\emulators.cmd`, `qa fleet boot 1`, `qa pass sync -d
+emulator-5556`).
+
+**Still to see on a phone** (no suite or pass can show them): the
+glyphs ⋮ and ✕ in the coach lines against the emoji-font trap; TalkBack
+on the flip's dot, the airplane toggle, a taken-back row and the help
+button; the pairing code in the phone's own monospace font at the
+largest text, and the sheet's field and Connect over the real keyboard;
+the one-second beat as the eye sees it; the setup card with a real
+account — the QA build only ever shows its "not available" line.

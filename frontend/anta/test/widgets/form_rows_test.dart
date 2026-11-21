@@ -1220,6 +1220,43 @@ void main() {
       expect(taps, 1);
     });
 
+    testWidgets("a chip's glyph leads its label in the label's ink, inside "
+        'the 48 dp target, and says nothing of its own', (tester) async {
+      await tester.pumpWidget(
+        page(
+          FormChipRow(
+            indented: false,
+            chips: [
+              FormChip(
+                label: 'Fill it in',
+                selected: false,
+                glyph: Icons.touch_app_rounded,
+                identifier: 'guide-fill',
+                onTap: () {},
+              ),
+            ],
+          ),
+        ),
+      );
+      final glyph = find.byIcon(Icons.touch_app_rounded);
+      final label = find.text('Fill it in');
+      expect(tester.getRect(glyph).right, lessThan(tester.getRect(label).left));
+      expect(tester.getSize(glyph).width, FormMetrics.chipGlyphSize);
+      final scheme = Theme.of(tester.element(label)).colorScheme;
+      expect(tester.widget<Icon>(glyph).color, scheme.onSurfaceVariant);
+      expect(
+        tester.getSize(find.bySemanticsIdentifier('guide-fill')).height,
+        FormMetrics.chipTapTarget,
+      );
+      expect(
+        tester
+            .getSemantics(find.bySemanticsIdentifier('guide-fill'))
+            .getSemanticsData()
+            .label,
+        'Fill it in',
+      );
+    });
+
     List<Widget> unitChips() => [
       FormChip(label: 'Minuten', selected: true, onTap: () {}),
       FormChip(label: 'Stunden', selected: false, onTap: () {}),

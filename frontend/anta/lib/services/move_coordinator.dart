@@ -9,6 +9,7 @@ import '../models/note_metadata.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/share_copy.dart';
 import '../widgets/folder_picker_dialog.dart';
+import 'duplicate_name_exception.dart';
 import 'folder_storage_service.dart';
 import 'move_history_service.dart';
 import 'note_storage_service.dart';
@@ -538,7 +539,12 @@ class MoveCoordinator {
     String? destination = entry.sourceParentId;
 
     if (destination != null) {
-      final exists = await _folderService.getFolderById(destination);
+      // A tombstone is gone too, as the note's Undo and the batch read it:
+      // the move into it would be refused, with no picker to get past it.
+      final exists = await _folderService.getFolderById(
+        destination,
+        includeDeleted: false,
+      );
       if (exists == null) {
         if (!context.mounted) return;
         CustomSnackbar.show(context, l10n.originalLocationGone);
@@ -551,16 +557,37 @@ class MoveCoordinator {
           currentFolderId: '',
           excludeFolderIds: {entry.itemId, ...descendantIds},
         );
-        destination = (picked == null || picked.isEmpty) ? null : picked;
+        // Left without a pick is a cancel, in the note's Undo's words, and
+        // the entry stays undoable; the top level is a pick of its own ('').
+        if (picked == null) {
+          if (context.mounted) {
+            CustomSnackbar.show(context, l10n.moveUndoCanceled);
+          }
+          return;
+        }
+        destination = picked.isEmpty ? null : picked;
       }
     }
 
     if (!context.mounted) return;
 
-    final result = await _folderService.moveFolder(
-      folderId: entry.itemId,
-      targetParentId: destination,
-    );
+    // As the note's Undo: a sibling's name says so in the batch's words; a
+    // refused move — a partner's folder picked — or a database failure is
+    // a failed move. Either way the entry stays undoable.
+    model.Folder? result;
+    try {
+      result = await _folderService.moveFolder(
+        folderId: entry.itemId,
+        targetParentId: destination,
+      );
+    } on DuplicateNameException {
+      if (context.mounted) {
+        CustomSnackbar.showError(context, l10n.moveSkippedDueToDuplicates(1));
+      }
+      return;
+    } catch (e, st) {
+      debugPrint('[MoveCoordinator] folder undo failed: $e\n$st');
+    }
     if (!context.mounted) return;
 
     if (result == null) {
@@ -579,9 +606,15 @@ class MoveCoordinator {
     final l10n = AppLocalizations.of(context)!;
     String? destination = entry.sourceParentId;
 
+    // A tombstone is gone too, as the batch Undo reads it: the move into it
+    // would be refused.
     final needsPrompt =
         destination == null ||
-        (await _folderService.getFolderById(destination)) == null;
+        (await _folderService.getFolderById(
+              destination,
+              includeDeleted: false,
+            )) ==
+            null;
 
     if (needsPrompt) {
       if (!context.mounted) return;
@@ -607,10 +640,23 @@ class MoveCoordinator {
 
     if (!context.mounted) return;
 
-    final result = await _noteService.moveNote(
-      noteId: entry.itemId,
-      targetFolderId: destination,
-    );
+    // A title at the source says so in the batch's words; a refused move —
+    // the picked folder turned out to be a partner's — or a database
+    // failure is said as a failed move. Either way the entry stays undoable.
+    NoteMetadata? result;
+    try {
+      result = await _noteService.moveNote(
+        noteId: entry.itemId,
+        targetFolderId: destination,
+      );
+    } on DuplicateNameException {
+      if (context.mounted) {
+        CustomSnackbar.showError(context, l10n.moveSkippedDueToDuplicates(1));
+      }
+      return;
+    } catch (e, st) {
+      debugPrint('[MoveCoordinator] note undo failed: $e\n$st');
+    }
     if (!context.mounted) return;
 
     if (result == null) {
@@ -636,9 +682,10 @@ class MoveCoordinator {
     }
   }
 
+  /// The first top-level folder of the person's own: a partner's sorts
+  /// among them by position, and a move into it is refused.
   static Future<String?> _firstAvailableFolderId() async {
     final rootFolders = await _folderService.loadAllFoldersForParent(null);
-    if (rootFolders.isNotEmpty) return rootFolders.first.id;
-    return null;
+    return rootFolders.where((folder) => !folder.fromPartner).firstOrNull?.id;
   }
 }

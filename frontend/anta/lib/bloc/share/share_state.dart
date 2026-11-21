@@ -89,12 +89,22 @@ final class ShareLoaded extends ShareState {
   /// The last act's, kept across the reloads after it.
   final ShareOutcome? outcome;
 
+  /// Which read of the overview [overview] is, counted by the bloc: a reload
+  /// whose read failed carries the last read and its number, a read that
+  /// answered a new number even when it says the same. A list sheet keeps a
+  /// row its ✕ un-shared hidden while the state is still the read its ✕'s
+  /// outcome came with, and lets the next read decide — one equal to the
+  /// last would otherwise be dropped as the same state, and the row never
+  /// shown again once it was shared again elsewhere.
+  final int read;
+
   const ShareLoaded({
     required this.availability,
     required this.overview,
     this.look = const ShareLook(),
     this.alerts = ShareAlerts.own,
     this.outcome,
+    this.read = 0,
   });
 
   /// This state with what a receiver's setting write in flight will have
@@ -109,8 +119,16 @@ final class ShareLoaded extends ShareState {
     look: look ?? this.look,
     alerts: alerts ?? this.alerts,
     outcome: outcome,
+    read: read,
   );
 
   @override
-  List<Object?> get props => [availability, overview, look, alerts, outcome];
+  List<Object?> get props => [
+    availability,
+    overview,
+    look,
+    alerts,
+    outcome,
+    read,
+  ];
 }

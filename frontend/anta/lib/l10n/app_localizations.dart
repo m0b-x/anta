@@ -14578,7 +14578,7 @@ abstract class AppLocalizations {
   /// No description provided for @guideHubIntro.
   ///
   /// In en, this message translates to:
-  /// **'Three short guides. Search here to look through all of them at once.'**
+  /// **'Four short guides. Search here to look through all of them at once.'**
   String get guideHubIntro;
 
   /// No description provided for @guideHubSectionGuides.
@@ -14605,16 +14605,34 @@ abstract class AppLocalizations {
   /// **'Folders, writing, markdown, lists, your own shortcuts, the money ledger, autocomplete, counters'**
   String get guideBookNotesCaption;
 
+  /// No description provided for @guideBookSyncTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync and sharing'**
+  String get guideBookSyncTitle;
+
+  /// No description provided for @guideBookSyncCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Your phones in step, pairing, sharing events, categories and folders, stopping'**
+  String get guideBookSyncCaption;
+
+  /// No description provided for @syncGuideIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep your phones in step, and share what you choose with one person.'**
+  String get syncGuideIntro;
+
   /// No description provided for @guideBookAppTitle.
   ///
   /// In en, this message translates to:
-  /// **'Backup, sync and settings'**
+  /// **'Backup and settings'**
   String get guideBookAppTitle;
 
   /// No description provided for @guideBookAppCaption.
   ///
   /// In en, this message translates to:
-  /// **'The main menu, keeping a copy of your notes, syncing between phones, the settings'**
+  /// **'The main menu, keeping a copy of your notes, the settings'**
   String get guideBookAppCaption;
 
   /// No description provided for @notesGuideIntro.
@@ -15751,8 +15769,11 @@ abstract class AppLocalizations {
   /// No description provided for @notesGuideSafeBackupBody.
   ///
   /// In en, this message translates to:
-  /// **'Deleting is final, and this phone holds the only copy until you keep another. The “{guideBookAppTitle}” guide shows how to back up and how to sync.'**
-  String notesGuideSafeBackupBody(String guideBookAppTitle);
+  /// **'Deleting is final, and this phone holds the only copy until you keep another. The “{guideBookAppTitle}” guide shows how to back up, and “{guideBookSyncTitle}” how to sync.'**
+  String notesGuideSafeBackupBody(
+    String guideBookAppTitle,
+    String guideBookSyncTitle,
+  );
 
   /// No description provided for @notesGuideSafeShareTitle.
   ///
@@ -16040,106 +16061,1316 @@ abstract class AppLocalizations {
   /// **'The first screen offers “{restoreFromBackup}”: pick a backup file and everything is back before you have made a single note.'**
   String appGuideBackupFirstRunBody(String restoreFromBackup);
 
-  /// No description provided for @appGuidePageSync.
+  /// No description provided for @syncGuidePageSync.
   ///
   /// In en, this message translates to:
-  /// **'Sync between phones'**
-  String get appGuidePageSync;
+  /// **'Sync between your phones'**
+  String get syncGuidePageSync;
 
-  /// No description provided for @appGuidePageSyncCaption.
+  /// No description provided for @syncGuidePageSyncCaption.
   ///
   /// In en, this message translates to:
-  /// **'Sign in once, the same notes on every device'**
-  String get appGuidePageSyncCaption;
+  /// **'Sign in once, the same notes on every phone'**
+  String get syncGuidePageSyncCaption;
 
-  /// No description provided for @appGuideSyncLead.
+  /// No description provided for @syncGuideSyncLead.
   ///
   /// In en, this message translates to:
-  /// **'Sync keeps a copy of a database in your account and sends every change to your other devices. It is off until you turn it on.'**
-  String get appGuideSyncLead;
+  /// **'One account, the same notes and calendar on every phone you sign in on. It is off until you turn it on.'**
+  String get syncGuideSyncLead;
 
-  /// No description provided for @appGuideSyncSignInTitle.
+  /// No description provided for @syncGuideSignInTitle.
   ///
   /// In en, this message translates to:
-  /// **'Sign in'**
-  String get appGuideSyncSignInTitle;
+  /// **'Sign in once'**
+  String get syncGuideSignInTitle;
 
-  /// No description provided for @appGuideSyncSignInBody.
+  /// Body of the sync guide's row about signing in; the placeholders are the app's own labels
   ///
   /// In en, this message translates to:
   /// **'“{sharingSettings}” in “{settingsHubTitle}”: “{signInWithGoogle}”. Your notes stay on the phone; signing in alone sends nothing.'**
-  String appGuideSyncSignInBody(
+  String syncGuideSignInBody(
     String sharingSettings,
     String settingsHubTitle,
     String signInWithGoogle,
   );
 
-  /// No description provided for @appGuideSyncOnTitle.
+  /// No description provided for @syncGuideOnTitle.
   ///
   /// In en, this message translates to:
-  /// **'Turn it on'**
-  String get appGuideSyncOnTitle;
+  /// **'Turn it on per database'**
+  String get syncGuideOnTitle;
 
-  /// No description provided for @appGuideSyncOnBody.
+  /// Body of the sync guide's row about the per-database switch; syncThisDatabaseDesc is the switch's own description, closed by a full stop
   ///
   /// In en, this message translates to:
-  /// **'“{syncThisDatabase}” on the same page starts syncing the database you are using. {syncThisDatabaseDesc}.'**
-  String appGuideSyncOnBody(
-    String syncThisDatabase,
-    String syncThisDatabaseDesc,
-  );
+  /// **'“{syncThisDatabase}” on the same page syncs the database you are using; each database has its own switch. {syncThisDatabaseDesc}.'**
+  String syncGuideOnBody(String syncThisDatabase, String syncThisDatabaseDesc);
 
-  /// No description provided for @appGuideSyncStatusTitle.
+  /// No description provided for @syncGuideStatusTitle.
   ///
   /// In en, this message translates to:
-  /// **'Where it stands'**
-  String get appGuideSyncStatusTitle;
+  /// **'Read the status line'**
+  String get syncGuideStatusTitle;
 
-  /// No description provided for @appGuideSyncStatusBody.
+  /// Body of the sync guide's row about the Sync & sharing page's status line
   ///
   /// In en, this message translates to:
-  /// **'The page says “{syncUpToDate}”, “{syncOffline}” or how many changes are waiting; the main menu\'s top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “{syncNow}” does not wait.'**
-  String appGuideSyncStatusBody(
+  /// **'The page says “{syncUpToDate}”, “{syncOffline}” or how many changes are waiting; the main menu\'s top row shows when it last synced. “{syncNow}” does not wait.'**
+  String syncGuideStatusBody(
     String syncUpToDate,
     String syncOffline,
     String syncNow,
   );
 
-  /// No description provided for @appGuideSyncCadenceTitle.
+  /// No description provided for @syncGuideCadenceTitle.
   ///
   /// In en, this message translates to:
-  /// **'When it syncs'**
-  String get appGuideSyncCadenceTitle;
+  /// **'How often'**
+  String get syncGuideCadenceTitle;
 
-  /// No description provided for @appGuideSyncCadenceBody.
+  /// Body of the sync guide's row about when changes are sent; a few minutes is the push's longest wait while the app is open
   ///
   /// In en, this message translates to:
-  /// **'“{syncAutomatic}” on the same page is on to begin with: changes sync while the app is open and when you leave it. Turn it off and nothing moves until you tap “{syncNow}” — for a metered connection, or when you want to say when.'**
-  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow);
+  /// **'“{syncAutomatic}” is on to begin with: a change goes within a few minutes while the app is open, and when you leave it. Turn it off and nothing moves until you tap “{syncNow}”.'**
+  String syncGuideCadenceBody(String syncAutomatic, String syncNow);
 
-  /// No description provided for @appGuideSyncOtherTitle.
+  /// No description provided for @syncGuideOtherTitle.
   ///
   /// In en, this message translates to:
-  /// **'On the other phone'**
-  String get appGuideSyncOtherTitle;
+  /// **'A second phone'**
+  String get syncGuideOtherTitle;
 
-  /// No description provided for @appGuideSyncOtherBody.
+  /// Body of the sync guide's row about adding a second phone
   ///
   /// In en, this message translates to:
-  /// **'Sign in with the same account and turn “{syncThisDatabase}” on there too. ANTA lists the spaces in your account; pick yours and it is downloaded into a new database on that phone. After that, only changes travel.'**
-  String appGuideSyncOtherBody(String syncThisDatabase);
+  /// **'Sign in there with the same account and turn “{syncThisDatabase}” on. Pick your database from the list and it arrives as a database of its own; after that, only changes travel.'**
+  String syncGuideOtherBody(String syncThisDatabase);
 
-  /// No description provided for @appGuideSyncConflictTitle.
+  /// No description provided for @syncGuidePagePair.
   ///
   /// In en, this message translates to:
-  /// **'Two phones, one note'**
-  String get appGuideSyncConflictTitle;
+  /// **'Pair with someone'**
+  String get syncGuidePagePair;
 
-  /// No description provided for @appGuideSyncConflictBody.
+  /// No description provided for @syncGuidePagePairCaption.
   ///
   /// In en, this message translates to:
-  /// **'If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.'**
-  String get appGuideSyncConflictBody;
+  /// **'One other person, linked by a code'**
+  String get syncGuidePagePairCaption;
+
+  /// No description provided for @syncGuidePairLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing is between you and one other person. Pairing is how the two phones find each other.'**
+  String get syncGuidePairLead;
+
+  /// No description provided for @syncGuidePairOneTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One person at a time'**
+  String get syncGuidePairOneTitle;
+
+  /// Body of the sync guide's row saying a pair is two accounts; unpair is the Sharing page's Unpair label
+  ///
+  /// In en, this message translates to:
+  /// **'A pair is two accounts. To pair with someone else, “{unpair}” first.'**
+  String syncGuidePairOneBody(String unpair);
+
+  /// No description provided for @syncGuidePairCodeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The code'**
+  String get syncGuidePairCodeTitle;
+
+  /// Body of the sync guide's row about the pairing code; ten minutes is PairingService.inviteLifetime
+  ///
+  /// In en, this message translates to:
+  /// **'“{pairingSection}” in “{sharingSettings}”: one of you taps “{createCode}”, the other types it under “{enterCode}”. A code works once, for ten minutes; make a new one if it runs out.'**
+  String syncGuidePairCodeBody(
+    String pairingSection,
+    String sharingSettings,
+    String createCode,
+    String enterCode,
+  );
+
+  /// No description provided for @syncGuidePairSyncTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Both of you sync'**
+  String get syncGuidePairSyncTitle;
+
+  /// Body of the sync guide's row saying both phones must sync to share
+  ///
+  /// In en, this message translates to:
+  /// **'Each phone needs “{syncThisDatabase}” on before it can share or receive: what you share travels with sync.'**
+  String syncGuidePairSyncBody(String syncThisDatabase);
+
+  /// No description provided for @syncGuidePairEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing shares nothing'**
+  String get syncGuidePairEmptyTitle;
+
+  /// No description provided for @syncGuidePairEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A new pair starts empty: the other person sees your name and picture, and nothing else until you share it.'**
+  String get syncGuidePairEmptyBody;
+
+  /// No description provided for @syncGuidePageOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'No signal, and two phones at once'**
+  String get syncGuidePageOffline;
+
+  /// No description provided for @syncGuidePageOfflineCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing offline, and one note changed twice'**
+  String get syncGuidePageOfflineCaption;
+
+  /// No description provided for @syncGuideOfflineLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing waits for the network. What you write is saved on the phone first.'**
+  String get syncGuideOfflineLead;
+
+  /// No description provided for @syncGuideOfflineNormalTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline is normal'**
+  String get syncGuideOfflineNormalTitle;
+
+  /// Body of the sync guide's row about working offline; syncOffline is the status line's offline reading
+  ///
+  /// In en, this message translates to:
+  /// **'Every change is saved on the phone and sent once a connection is back. Meanwhile the page says “{syncOffline}”.'**
+  String syncGuideOfflineNormalBody(String syncOffline);
+
+  /// No description provided for @syncGuideOfflineConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Two edits of one note'**
+  String get syncGuideOfflineConflictTitle;
+
+  /// No description provided for @syncGuideOfflineConflictBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If the same note changes on two phones, the later edit stays in the note and the other is filed beside it as a copy, so no text is lost. Delete whichever you do not need.'**
+  String get syncGuideOfflineConflictBody;
+
+  /// No description provided for @syncGuideOfflineCloseTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Closing the app'**
+  String get syncGuideOfflineCloseTitle;
+
+  /// No description provided for @syncGuideOfflineCloseBody.
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA sends what is waiting when you leave it. Whatever is still waiting goes the next time the app syncs.'**
+  String get syncGuideOfflineCloseBody;
+
+  /// No description provided for @syncGuidePageEvent.
+  ///
+  /// In en, this message translates to:
+  /// **'Share one event'**
+  String get syncGuidePageEvent;
+
+  /// No description provided for @syncGuidePageEventCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'One switch in the event\'s editor'**
+  String get syncGuidePageEventCaption;
+
+  /// No description provided for @syncGuideEventLead.
+  ///
+  /// In en, this message translates to:
+  /// **'One switch on the event itself.'**
+  String get syncGuideEventLead;
+
+  /// No description provided for @syncGuideEventSwitchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where the switch is'**
+  String get syncGuideEventSwitchTitle;
+
+  /// Body of the sync guide's row about the event's share switch; shareWith is the switch's label with the stand-in partner name
+  ///
+  /// In en, this message translates to:
+  /// **'In the event\'s editor: “{shareWith}”. It shows once you are paired.'**
+  String syncGuideEventSwitchBody(String shareWith);
+
+  /// No description provided for @syncGuideEventTheirsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What they can do'**
+  String get syncGuideEventTheirsTitle;
+
+  /// No description provided for @syncGuideEventTheirsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'See it, open it, copy it and add alerts of their own. They never change it.'**
+  String get syncGuideEventTheirsBody;
+
+  /// No description provided for @syncGuideEventFollowTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'It follows your changes'**
+  String get syncGuideEventFollowTitle;
+
+  /// No description provided for @syncGuideEventFollowBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Move or rename it and what they see follows. Delete it and it leaves their phone.'**
+  String get syncGuideEventFollowBody;
+
+  /// No description provided for @syncGuideEventCopyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Their copy is theirs'**
+  String get syncGuideEventCopyTitle;
+
+  /// Body of the sync guide's row about the partner's copy of a shared event; copy is the read sheet's Copy to my calendar label
+  ///
+  /// In en, this message translates to:
+  /// **'“{copy}” gives them an event of their own. Your later changes do not reach that copy, and it stays when you stop sharing.'**
+  String syncGuideEventCopyBody(String copy);
+
+  /// No description provided for @syncGuidePageCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Share a whole category'**
+  String get syncGuidePageCategory;
+
+  /// No description provided for @syncGuidePageCategoryCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Every event in it, the new ones too'**
+  String get syncGuidePageCategoryCaption;
+
+  /// No description provided for @syncGuideCategoryLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything in the category, now and later.'**
+  String get syncGuideCategoryLead;
+
+  /// No description provided for @syncGuideCategoryWhereTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where the switch is'**
+  String get syncGuideCategoryWhereTitle;
+
+  /// Body of the sync guide's row about where a category is shared; sharingPage is the Sharing page's title, categories its Categories row
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareWith}” in a category\'s editor, or in its ⋮ menu on the “{calendarCategories}” page. “{sharingPage}” › “{categories}” ticks several at once.'**
+  String syncGuideCategoryWhereBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+    String categories,
+  );
+
+  /// No description provided for @syncGuideCategoryAllTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything in it'**
+  String get syncGuideCategoryAllTitle;
+
+  /// No description provided for @syncGuideCategoryAllBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Every event of the category is shared, and each one you add to it later.'**
+  String get syncGuideCategoryAllBody;
+
+  /// No description provided for @syncGuideCategoryOutTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One event out'**
+  String get syncGuideCategoryOutTitle;
+
+  /// Body of the sync guide's row about taking one event out of a shared category; through is the event switch's reading with an ellipsis for the category's name
+  ///
+  /// In en, this message translates to:
+  /// **'An event in a shared category has no switch of its own: it reads “{through}”. Move it to another category and its own switch decides again.'**
+  String syncGuideCategoryOutBody(String through);
+
+  /// No description provided for @syncGuideCategoryTheirsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On their side'**
+  String get syncGuideCategoryTheirsTitle;
+
+  /// Body of the sync guide's row about how a shared category reaches the partner
+  ///
+  /// In en, this message translates to:
+  /// **'It appears on their “{calendarCategories}” page under your name. They choose whether it shows on their calendar.'**
+  String syncGuideCategoryTheirsBody(String calendarCategories);
+
+  /// No description provided for @syncGuidePageFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Share a folder and its notes'**
+  String get syncGuidePageFolder;
+
+  /// No description provided for @syncGuidePageFolderCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything inside, read-only for them'**
+  String get syncGuidePageFolderCaption;
+
+  /// No description provided for @syncGuideFolderLead.
+  ///
+  /// In en, this message translates to:
+  /// **'A folder shares everything inside it.'**
+  String get syncGuideFolderLead;
+
+  /// No description provided for @syncGuideFolderWhereTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where the switch is'**
+  String get syncGuideFolderWhereTitle;
+
+  /// Body of the sync guide's row about where a folder is shared; the placeholders are the folder menu's entry, the Sharing page's Share a folder row, its title and its Folders row
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareWith}” in a folder\'s ⋮ menu, or “{addFolder}” under “{sharingPage}” › “{folders}”.'**
+  String syncGuideFolderWhereBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+    String folders,
+  );
+
+  /// No description provided for @syncGuideFolderInsideTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What goes with it'**
+  String get syncGuideFolderInsideTitle;
+
+  /// No description provided for @syncGuideFolderInsideBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Its notes, the folders inside it and whatever you move in later. A note you move out is yours alone again.'**
+  String get syncGuideFolderInsideBody;
+
+  /// No description provided for @syncGuideFolderReadOnlyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Read only for them'**
+  String get syncGuideFolderReadOnlyTitle;
+
+  /// Body of the sync guide's row about a shared folder being read-only; copy is the Copy to my notes label
+  ///
+  /// In en, this message translates to:
+  /// **'They read its notes and can keep one with “{copy}”. They cannot write in your folder.'**
+  String syncGuideFolderReadOnlyBody(String copy);
+
+  /// No description provided for @syncGuideFolderNoteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A single note'**
+  String get syncGuideFolderNoteTitle;
+
+  /// No description provided for @syncGuideFolderNoteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A note is shared by the folder it is in. To share one, put it in a shared folder.'**
+  String get syncGuideFolderNoteBody;
+
+  /// No description provided for @syncGuidePageLook.
+  ///
+  /// In en, this message translates to:
+  /// **'How shared things look'**
+  String get syncGuidePageLook;
+
+  /// No description provided for @syncGuidePageLookCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Telling their things from yours'**
+  String get syncGuidePageLookCaption;
+
+  /// No description provided for @syncGuideLookLead.
+  ///
+  /// In en, this message translates to:
+  /// **'What your partner shares sits among your own. You choose how it is told apart.'**
+  String get syncGuideLookLead;
+
+  /// No description provided for @syncGuideLookEventsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Three looks for events'**
+  String get syncGuideLookEventsTitle;
+
+  /// Body of the sync guide's row about the looks of the partner's events; the placeholders are the Sharing page's row, its title and the three choices
+  ///
+  /// In en, this message translates to:
+  /// **'“{eventLook}” on “{sharingPage}”: “{outlined}”, “{avatar}” or “{plain}”.'**
+  String syncGuideLookEventsBody(
+    String eventLook,
+    String sharingPage,
+    String outlined,
+    String avatar,
+    String plain,
+  );
+
+  /// No description provided for @syncGuideLookNotesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes too'**
+  String get syncGuideLookNotesTitle;
+
+  /// Body of the sync guide's row about the looks of the partner's notes and folders
+  ///
+  /// In en, this message translates to:
+  /// **'“{noteLook}” on the same page: “{avatar}” or “{plain}”.'**
+  String syncGuideLookNotesBody(String noteLook, String avatar, String plain);
+
+  /// Body of the sync guide's row about marking what you share; its title is shareMarkMine
+  ///
+  /// In en, this message translates to:
+  /// **'A small sign on your categories, events and folders that your partner can see.'**
+  String get syncGuideLookMarkBody;
+
+  /// No description provided for @syncGuideLookHideTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide what you do not need'**
+  String get syncGuideLookHideTitle;
+
+  /// Body of the sync guide's row about hiding a category the partner shares; categories is the Sharing page's Categories row
+  ///
+  /// In en, this message translates to:
+  /// **'On “{sharingPage}”, under what they share, “{categories}” switches one of theirs off: its events leave your calendar and do not ring. On this phone only; they never see it.'**
+  String syncGuideLookHideBody(String sharingPage, String categories);
+
+  /// No description provided for @syncGuidePageAlerts.
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts on shared things'**
+  String get syncGuidePageAlerts;
+
+  /// No description provided for @syncGuidePageAlertsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'What rings on your phone'**
+  String get syncGuidePageAlertsCaption;
+
+  /// No description provided for @syncGuideAlertsLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Their alerts never ring on your phone. Yours ring when you say.'**
+  String get syncGuideAlertsLead;
+
+  /// No description provided for @syncGuideAlertsChoicesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Three choices'**
+  String get syncGuideAlertsChoicesTitle;
+
+  /// Body of the sync guide's row about the alerts choice for shared events; the placeholders are the Sharing page's row, its title and the three choices
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareAlerts}” on “{sharingPage}”: “{off}” silences them all, “{own}” rings only alerts you add, “{category}” lets shared events follow your category alerts too.'**
+  String syncGuideAlertsChoicesBody(
+    String shareAlerts,
+    String sharingPage,
+    String off,
+    String own,
+    String category,
+  );
+
+  /// No description provided for @syncGuideAlertsOwnTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add your own'**
+  String get syncGuideAlertsOwnTitle;
+
+  /// No description provided for @syncGuideAlertsOwnBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Open a shared event and add an alert from its sheet. It is yours alone: it never rings on their phone.'**
+  String get syncGuideAlertsOwnBody;
+
+  /// No description provided for @syncGuideAlertsFollowTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'It follows their changes'**
+  String get syncGuideAlertsFollowTitle;
+
+  /// Body of the sync guide's row about alerts following a shared event, on Android
+  ///
+  /// In en, this message translates to:
+  /// **'An alert of yours follows your partner\'s changes to the event, even while ANTA is closed.'**
+  String get syncGuideAlertsFollowFreshBody;
+
+  /// Body of the sync guide's row about alerts following a shared event, where the app cannot check while it is closed
+  ///
+  /// In en, this message translates to:
+  /// **'An alert of yours follows what this phone last received.'**
+  String get syncGuideAlertsFollowLastReceivedBody;
+
+  /// No description provided for @syncGuideAlertsFromTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Who it is from'**
+  String get syncGuideAlertsFromTitle;
+
+  /// No description provided for @syncGuideAlertsFromBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The alert names your partner. You can snooze it, not skip it.'**
+  String get syncGuideAlertsFromBody;
+
+  /// No description provided for @syncGuidePageStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing'**
+  String get syncGuidePageStop;
+
+  /// No description provided for @syncGuidePageStopCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'One thing, everything, or the pair'**
+  String get syncGuidePageStopCaption;
+
+  /// No description provided for @syncGuideStopLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Every way out, from one thing to everything.'**
+  String get syncGuideStopLead;
+
+  /// No description provided for @syncGuideStopOneTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One thing'**
+  String get syncGuideStopOneTitle;
+
+  /// No description provided for @syncGuideStopOneBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch it off where you switched it on.'**
+  String get syncGuideStopOneBody;
+
+  /// No description provided for @syncGuideStopAllTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'All of it'**
+  String get syncGuideStopAllTitle;
+
+  /// Body of the sync guide's row about stopping every share
+  ///
+  /// In en, this message translates to:
+  /// **'“{stopAll}” on “{sharingPage}” takes everything back and keeps you paired.'**
+  String syncGuideStopAllBody(String stopAll, String sharingPage);
+
+  /// Body of the sync guide's row about unpairing; its title is unpair
+  ///
+  /// In en, this message translates to:
+  /// **'On “{sharingPage}”, it ends sharing both ways: each phone drops what the other shared. Your own things stay yours.'**
+  String syncGuideStopUnpairBody(String sharingPage);
+
+  /// No description provided for @syncGuideStopWhenTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'When it takes effect'**
+  String get syncGuideStopWhenTitle;
+
+  /// No description provided for @syncGuideStopWhenBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your phone sends the change when it next syncs, and it leaves your partner\'s phone when theirs does. Offline, the change waits like any other.'**
+  String get syncGuideStopWhenBody;
+
+  /// No description provided for @syncGuideStopSyncTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop syncing, or leave'**
+  String get syncGuideStopSyncTitle;
+
+  /// Body of the sync guide's row about stopping sync or deleting the cloud copy or the account; the placeholders are the Sync & sharing page's own labels
+  ///
+  /// In en, this message translates to:
+  /// **'“{syncStop}” keeps your own things on this phone; what your partner shares leaves it. Your partner keeps what you share as it is now, so stop sharing first. “{deleteCloud}” and “{deleteAccount}” on “{sharingSettings}” say what they remove.'**
+  String syncGuideStopSyncBody(
+    String syncStop,
+    String deleteCloud,
+    String deleteAccount,
+    String sharingSettings,
+  );
+
+  /// No description provided for @syncGuidePagePrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'What stays private'**
+  String get syncGuidePagePrivate;
+
+  /// No description provided for @syncGuidePagePrivateCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'What is never shared, and where it is kept'**
+  String get syncGuidePagePrivateCaption;
+
+  /// No description provided for @syncGuidePrivateLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Only what you switch on is shared. The rest never leaves your account.'**
+  String get syncGuidePrivateLead;
+
+  /// No description provided for @syncGuidePrivateNeverTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Never shared'**
+  String get syncGuidePrivateNeverTitle;
+
+  /// No description provided for @syncGuidePrivateNeverBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your counters, alerts, attendance marks, templates and settings, and every category, event and folder you did not switch on.'**
+  String get syncGuidePrivateNeverBody;
+
+  /// No description provided for @syncGuidePrivateReadOnlyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'They cannot change anything'**
+  String get syncGuidePrivateReadOnlyTitle;
+
+  /// No description provided for @syncGuidePrivateReadOnlyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing is read-only both ways, so a list cannot be ticked off by both of you.'**
+  String get syncGuidePrivateReadOnlyBody;
+
+  /// No description provided for @syncGuidePrivateBackupsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Not in your backups'**
+  String get syncGuidePrivateBackupsTitle;
+
+  /// No description provided for @syncGuidePrivateBackupsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your backups and calendar exports leave out what your partner shares, and a notes export that includes something of theirs is refused. Reports, goals and attendance count only your own events.'**
+  String get syncGuidePrivateBackupsBody;
+
+  /// Body of the sync guide's row about where synced data is stored; its title is dataNoticeTitle
+  ///
+  /// In en, this message translates to:
+  /// **'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “{dataNotice}” on “{sharingSettings}” says where it is kept and how to remove it.'**
+  String syncGuidePrivateDataBody(String dataNotice, String sharingSettings);
+
+  /// The partner's name on the sync guide's two-phone stages (D45); the same name in every language
+  ///
+  /// In en, this message translates to:
+  /// **'Sam'**
+  String get syncGuideDemoPartner;
+
+  /// How Sam's phone on a sync guide stage names the reader, as the word that follows 'From' in shareFromPartner and shareMarkPartnerLabel ('From you'); lower case, in the case that preposition takes
+  ///
+  /// In en, this message translates to:
+  /// **'you'**
+  String get syncGuideDemoYou;
+
+  /// Sync guide stage: the flip's segment for the reader's own phone on a sharing card
+  ///
+  /// In en, this message translates to:
+  /// **'Your phone'**
+  String get syncGuidePhoneYours;
+
+  /// Sync guide stage: the flip's segment for the partner's phone on a sharing card; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'{name}\'s phone'**
+  String syncGuidePhoneTheirs(String name);
+
+  /// Sync guide stage: the flip's segment for the phone in the reader's hand on a sync card
+  ///
+  /// In en, this message translates to:
+  /// **'This phone'**
+  String get syncGuidePhoneThis;
+
+  /// Sync guide stage: the flip's segment for the reader's second phone on a sync card
+  ///
+  /// In en, this message translates to:
+  /// **'Your other phone'**
+  String get syncGuidePhoneOther;
+
+  /// Screen-reader label of a flip segment whose phone changed since the reader last looked; phone is the segment's label
+  ///
+  /// In en, this message translates to:
+  /// **'{phone}, changed'**
+  String syncGuidePhoneChanged(String phone);
+
+  /// Screen-reader label of a flip segment whose phone a change is still on its way to; phone is the segment's label
+  ///
+  /// In en, this message translates to:
+  /// **'{phone}, syncing'**
+  String syncGuidePhoneSyncing(String phone);
+
+  /// Title in the bar of a sync guide stage's phone, seen and spoken: whose phone it is, then the page it shows; phone is the flip's label (syncGuidePhoneYours or syncGuidePhoneTheirs), area the page's own title (Calendar, Notes)
+  ///
+  /// In en, this message translates to:
+  /// **'{phone} · {area}'**
+  String syncGuidePhoneBar(String phone, String area);
+
+  /// Centred line on Sam's phone on a sync guide stage while the reader shares nothing with Sam
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing from you yet'**
+  String get syncGuideEmptyFromYou;
+
+  /// Title of the sync guide's Try it card on the event page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: share an event'**
+  String get syncGuideTryEvent;
+
+  /// Coach line of the sync guide's event card; shareWith is shareWithPartner with Sam's name
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on “{shareWith}”.'**
+  String syncGuideCoachEventShare(String shareWith);
+
+  /// Coach line of the sync guide's event card: look at the partner's phone with the flip; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'Open {name}\'s phone.'**
+  String syncGuideCoachEventLook(String name);
+
+  /// Coach line of the sync guide's event card, shown while the partner's phone shows the shared event with its outlined avatar: names that mark, then asks to open the event
+  ///
+  /// In en, this message translates to:
+  /// **'An outlined picture means it\'s from you. Tap the event there.'**
+  String get syncGuideCoachEventOpen;
+
+  /// Coach line of the sync guide's event card; shareWith is shareWithPartner with Sam's name
+  ///
+  /// In en, this message translates to:
+  /// **'Come back to your phone and turn “{shareWith}” off.'**
+  String syncGuideCoachEventUnshare(String shareWith);
+
+  /// Coach report after Copy to my calendar on the partner's phone in the sync guide's event card; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'The copy is {name}\'s own event. Yours is still yours.'**
+  String syncGuideReportEventCopy(String name);
+
+  /// Caption of the partner's read sheet when the sync guide's stage opens it on Sam's phone, said from Sam's side: the reader shared the event; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'{name} can\'t change it. Only you can.'**
+  String syncGuideSharedEventCaption(String name);
+
+  /// Title of the sync guide's Try it card on the category page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: share a category'**
+  String get syncGuideTryCategory;
+
+  /// Coach line of the sync guide's category card; category is the demo category's name, shareWith is shareWithPartner with Sam's name
+  ///
+  /// In en, this message translates to:
+  /// **'Open ⋮ on {category} and choose “{shareWith}”.'**
+  String syncGuideCoachCategoryShare(String category, String shareWith);
+
+  /// Coach line of the sync guide's category card, shown while the partner's phone shows the category's events with their outlined avatars: names that mark, then asks to add an event; add is syncGuideAddEventTo
+  ///
+  /// In en, this message translates to:
+  /// **'An outlined picture means it\'s from you. Come back to your phone and tap “{add}”.'**
+  String syncGuideCoachCategoryAdd(String add);
+
+  /// Coach line of the sync guide's category card: look at the partner's phone once more, where the added event arrived; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'Open {name}\'s phone again.'**
+  String syncGuideCoachCategoryFollow(String name);
+
+  /// Action row on the reader's phone in the sync guide's category card: adds a demo event to the shared category; category is its name
+  ///
+  /// In en, this message translates to:
+  /// **'Add an event to {category}'**
+  String syncGuideAddEventTo(String category);
+
+  /// Title of the sync guide's Try it card on the folder page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: share a folder'**
+  String get syncGuideTryFolder;
+
+  /// Coach line of the sync guide's folder card; folder is syncGuideDemoFolderTrips, shareWith is shareWithPartner with Sam's name
+  ///
+  /// In en, this message translates to:
+  /// **'Open ⋮ on {folder} and choose “{shareWith}”.'**
+  String syncGuideCoachFolderShare(String folder, String shareWith);
+
+  /// Coach line of the sync guide's folder card: open the shared folder on the partner's phone; folder is syncGuideDemoFolderTrips
+  ///
+  /// In en, this message translates to:
+  /// **'Tap {folder} there.'**
+  String syncGuideCoachFolderOpen(String folder);
+
+  /// Coach line of the sync guide's folder card; copy is sharedNoteCopy
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a note there and choose “{copy}”.'**
+  String syncGuideCoachFolderCopy(String copy);
+
+  /// Demo folder of the reader's on the sync guide's folder and stop cards
+  ///
+  /// In en, this message translates to:
+  /// **'Trips'**
+  String get syncGuideDemoFolderTrips;
+
+  /// Second demo folder of the reader's on the sync guide's folder card
+  ///
+  /// In en, this message translates to:
+  /// **'Recipes'**
+  String get syncGuideDemoFolderRecipes;
+
+  /// Sam's own demo folder on the sync guide's folder card, where a copied note goes
+  ///
+  /// In en, this message translates to:
+  /// **'Ideas'**
+  String get syncGuideDemoFolderIdeas;
+
+  /// Demo note title in the Trips folder of the sync guide's folder card
+  ///
+  /// In en, this message translates to:
+  /// **'Lisbon in May'**
+  String get syncGuideDemoNoteLisbon;
+
+  /// Demo note title in the Trips folder of the sync guide's folder card
+  ///
+  /// In en, this message translates to:
+  /// **'Packing list'**
+  String get syncGuideDemoNotePacking;
+
+  /// Demo note title in the Recipes folder of the sync guide's folder card
+  ///
+  /// In en, this message translates to:
+  /// **'Pancakes'**
+  String get syncGuideDemoNotePancakes;
+
+  /// Line at the top of a shared note's sheet on Sam's phone in the sync guide's folder card, said from Sam's side: the reader shared the note; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'{name} can\'t change it. Only you can.'**
+  String syncGuideSharedNoteCaption(String name);
+
+  /// Coach report after Copy to my notes on the partner's phone in the sync guide's folder card; name is syncGuideDemoPartner, folder is syncGuideDemoFolderIdeas
+  ///
+  /// In en, this message translates to:
+  /// **'The copy is in {name}\'s “{folder}”. Yours is unchanged.'**
+  String syncGuideReportFolderCopy(String name, String folder);
+
+  /// Title of the sync guide's Try it card on the stop page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: take it back'**
+  String get syncGuideTryStop;
+
+  /// Coach line of the sync guide's stop card: the ✕ that ends one share, on the row of the shared list; event is the demo event's title
+  ///
+  /// In en, this message translates to:
+  /// **'Tap ✕ on {event}.'**
+  String syncGuideCoachStopOne(String event);
+
+  /// Coach line of the sync guide's stop card; stopAll is shareStopAll
+  ///
+  /// In en, this message translates to:
+  /// **'Come back to your phone and tap “{stopAll}”.'**
+  String syncGuideCoachStopAll(String stopAll);
+
+  /// Coach line of the sync guide's stop card; unpair is unpair
+  ///
+  /// In en, this message translates to:
+  /// **'Now tap “{unpair}”.'**
+  String syncGuideCoachStopUnpair(String unpair);
+
+  /// Coach report after Unpair in the sync guide's stop card; name is syncGuideDemoPartner
+  ///
+  /// In en, this message translates to:
+  /// **'Not paired any more. What {name} shared is gone from your phone too; your own things stay yours.'**
+  String syncGuideReportStopUnpair(String name);
+
+  /// Caption of a row on the reader's phone in the sync guide's stop card once its share is taken back; the row stays in place with its ✕ off
+  ///
+  /// In en, this message translates to:
+  /// **'No longer shared'**
+  String get syncGuideTryStopNotShared;
+
+  /// Second sentence of the coach line that opens the partner's phone in the sync guide's stop card: says what the outlined event picture on that phone means
+  ///
+  /// In en, this message translates to:
+  /// **'An outlined picture marks an event from you.'**
+  String get syncGuideTryStopFromYou;
+
+  /// Report said on the sync guide's stop card when the category row's ✕ is tapped: on the real Sharing page a category has no ✕ and is taken back in its picker; categories is shareRowCategories
+  ///
+  /// In en, this message translates to:
+  /// **'In the app, you untick a category under “{categories}”.'**
+  String syncGuideTryStopCategoryPicker(String categories);
+
+  /// Coach line of the sync guide's look and alerts cards: the next choice on the same Sharing page row; choice is the app's label for it (shareLookPlain, shareAlertsOwn, shareAlertsCategory)
+  ///
+  /// In en, this message translates to:
+  /// **'Now choose “{choice}”.'**
+  String syncGuideCoachChooseNext(String choice);
+
+  /// Title of the sync guide's Try it card on the look page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: choose the look'**
+  String get syncGuideTryLook;
+
+  /// Coach line of the sync guide's look card; setting is shareEventLook, look is shareLookAvatar
+  ///
+  /// In en, this message translates to:
+  /// **'Set “{setting}” to “{look}”.'**
+  String syncGuideCoachLookAvatar(String setting, String look);
+
+  /// Coach line of the sync guide's look card; mark is shareMarkMine
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on “{mark}”.'**
+  String syncGuideCoachLookMark(String mark);
+
+  /// Title of the sync guide's Try it card on the alerts page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: choose what rings'**
+  String get syncGuideTryAlerts;
+
+  /// Coach line of the sync guide's alerts card: open the Sharing page's alerts row and pick Off; alerts is shareAlerts, off is shareAlertsOff
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{alerts}” and choose “{off}”.'**
+  String syncGuideCoachAlertsOff(String alerts, String off);
+
+  /// The reader's own demo category in the sync guide's alerts card, which carries an alarm; the partner's flight is in it
+  ///
+  /// In en, this message translates to:
+  /// **'Travel'**
+  String get syncGuideDemoCategoryTravel;
+
+  /// Line under the partner's event in the sync guide's alerts card while Alerts for shared events is Off
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing rings.'**
+  String get syncGuideRingsNothing;
+
+  /// Line under the partner's event in the sync guide's alerts card while only the reader's own alerts arm: the alert she added to that event. Says the umbrella word for an alert, never the reminder tier's word
+  ///
+  /// In en, this message translates to:
+  /// **'Your alert rings.'**
+  String get syncGuideRingsOwn;
+
+  /// Line under the partner's event in the sync guide's alerts card while category alerts arm too: her own alert, and the alarm her category carries; category is syncGuideDemoCategoryTravel
+  ///
+  /// In en, this message translates to:
+  /// **'Your alert and {category}\'s alarm ring.'**
+  String syncGuideRingsBoth(String category);
+
+  /// Caption under the partner's flight in the sync guide's alerts card: whose event it is (shareFromPartner), the alert the reader added to it and the alarm her category carries, each timing from the app's alert formatter ("30 min before"); category is syncGuideDemoCategoryTravel. Says the umbrella word for an alert, never the reminder tier's word
+  ///
+  /// In en, this message translates to:
+  /// **'{from} · Your alert: {own} · {category}\'s alarm: {alarm}'**
+  String syncGuideTryAlertsFlightCaption(
+    String from,
+    String own,
+    String category,
+    String alarm,
+  );
+
+  /// The one centred line on the reader's other phone in a sync guide card while no note has reached it yet
+  ///
+  /// In en, this message translates to:
+  /// **'No notes yet'**
+  String get syncGuideEmptyNotes;
+
+  /// Title of the sync guide's Try it card on the page about syncing between the reader's own phones
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: watch it sync'**
+  String get syncGuideTrySync;
+
+  /// Coach line of the sync guide's sync card: turn on sync for the database; sync is syncThisDatabase, a row that is tapped, not a switch
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{sync}”.'**
+  String syncGuideCoachSyncOn(String sync);
+
+  /// Coach line of the sync guide's offline card: make a note on this phone; newNote is the newNote label of the row on the stage
+  ///
+  /// In en, this message translates to:
+  /// **'Add a note with “{newNote}”.'**
+  String syncGuideCoachSyncWrite(String newNote);
+
+  /// Coach line of the sync guide's sync and offline cards: flip the stage to the reader's other phone (syncGuidePhoneOther)
+  ///
+  /// In en, this message translates to:
+  /// **'Open your other phone.'**
+  String get syncGuideCoachSyncLook;
+
+  /// Coach line of the sync guide's sync card: tick the new note's first task line on the other phone, and see the tick arrive back on this one
+  ///
+  /// In en, this message translates to:
+  /// **'Tick its first line there, then come back.'**
+  String get syncGuideCoachSyncEdit;
+
+  /// Coach report of the sync guide's sync card after Sync now while nothing waits
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to send: both phones already match.'**
+  String get syncGuideReportSyncNow;
+
+  /// Title of the note the reader makes with New note in the sync guide's sync and offline cards; a short task list
+  ///
+  /// In en, this message translates to:
+  /// **'Groceries'**
+  String get syncGuideDemoNoteGroceries;
+
+  /// The first task line of the Groceries demo note in the sync guide's sync card
+  ///
+  /// In en, this message translates to:
+  /// **'Milk'**
+  String get syncGuideDemoTaskMilk;
+
+  /// Coach line of the sync guide's sync card right after sync is turned on: watch the status row, which counts the changes it sends, until it says upToDate, then make a note; upToDate is syncUpToDate, newNote is the newNote label of the row on the stage
+  ///
+  /// In en, this message translates to:
+  /// **'When the status says “{upToDate}”, tap “{newNote}”.'**
+  String syncGuideCoachSyncWriteStatus(String upToDate, String newNote);
+
+  /// Title of the sync guide's first Try it card on the offline page
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: write without a signal'**
+  String get syncGuideTryOffline;
+
+  /// Tooltip of the airplane-mode toggle in the bar of a phone on the sync guide's stage — the phone's own setting, not the app's
+  ///
+  /// In en, this message translates to:
+  /// **'Airplane mode'**
+  String get syncGuideAirplaneMode;
+
+  /// Coach line of the sync guide's offline card: take this phone offline with the plane glyph in the bar of the phone on the stage, which has no visible label
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on airplane mode: tap the plane in the bar.'**
+  String get syncGuideCoachOfflineOff;
+
+  /// Coach line of the sync guide's offline card: back on this phone, end airplane mode with the plane glyph in its bar so the waiting note is sent
+  ///
+  /// In en, this message translates to:
+  /// **'Come back and tap the plane to end airplane mode.'**
+  String get syncGuideCoachOfflineOn;
+
+  /// Title of the sync guide's second Try it card on the offline page: one note edited on two offline phones
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: the same note on both phones'**
+  String get syncGuideTryConflict;
+
+  /// Action row on the sync guide's conflict card that adds a line to the Packing list note
+  ///
+  /// In en, this message translates to:
+  /// **'Add a line'**
+  String get syncGuideAddLine;
+
+  /// Coach line of the sync guide's conflict card: edit the note on this phone while it is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Add a line on this phone.'**
+  String get syncGuideCoachConflictHere;
+
+  /// Coach line of the sync guide's conflict card: edit the same note on the other phone, also offline
+  ///
+  /// In en, this message translates to:
+  /// **'Open your other phone and add a line there.'**
+  String get syncGuideCoachConflictThere;
+
+  /// Coach line of the sync guide's conflict card: bring both phones back online with the plane glyph in each phone's bar, which has no visible label
+  ///
+  /// In en, this message translates to:
+  /// **'Turn airplane mode off: tap the plane on both phones.'**
+  String get syncGuideCoachConflictOnline;
+
+  /// Coach report of the sync guide's conflict card once both phones synced, when the line added on the other phone was the later edit: it stays in the note, this phone's line is filed as a conflict copy
+  ///
+  /// In en, this message translates to:
+  /// **'No text was lost: your other phone’s later line is in the note, this phone’s in the copy beside it. Delete whichever you do not need.'**
+  String get syncGuideReportConflict;
+
+  /// The Packing list demo note's one line on the sync guide's conflict card
+  ///
+  /// In en, this message translates to:
+  /// **'Passport'**
+  String get syncGuideDemoLinePassport;
+
+  /// The line the reader adds to the Packing list on this phone in the sync guide's conflict card
+  ///
+  /// In en, this message translates to:
+  /// **'Sunscreen'**
+  String get syncGuideDemoLineSunscreen;
+
+  /// The line the reader adds to the Packing list on the other phone in the sync guide's conflict card
+  ///
+  /// In en, this message translates to:
+  /// **'Umbrella'**
+  String get syncGuideDemoLineUmbrella;
+
+  /// Coach report of the sync guide's conflict card once both phones synced, when the line added on this phone was the later edit: it stays in the note, the other phone's line is filed as a conflict copy
+  ///
+  /// In en, this message translates to:
+  /// **'No text was lost: this phone’s later line is in the note, your other phone’s in the copy beside it. Delete whichever you do not need.'**
+  String get syncGuideReportConflictHere;
+
+  /// Title of the sync guide's Try it card on the pair page: a code made on one phone and entered on the partner's
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: a code, typed once'**
+  String get syncGuideTryPair;
+
+  /// Coach report when the paired row is tapped on the sync guide's pair card: the stage navigates nowhere; page is sharingWithTitle, the Sharing page's title
+  ///
+  /// In en, this message translates to:
+  /// **'In the app, this opens “{page}”.'**
+  String syncGuideReportPairSharing(String page);
+
+  /// Coach line of the sync guide's pair card: make a code on your phone; create is pairingGenerateCode
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{create}”.'**
+  String syncGuideCoachPairInvite(String create);
+
+  /// Coach line of the sync guide's pair card: on the partner's phone, enter the code and connect; connect is pairingConnect
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the code there and tap “{connect}”.'**
+  String syncGuideCoachPairRedeem(String connect);
+
+  /// Coach line of the sync guide's pair card: return to your own phone, which now reads paired
+  ///
+  /// In en, this message translates to:
+  /// **'Come back to your phone.'**
+  String get syncGuideCoachPairBack;
+
+  /// Chip under the code field on the partner's phone in the sync guide's pair card: types the code your phone shows, so nobody has to type eight characters to practise
+  ///
+  /// In en, this message translates to:
+  /// **'Fill in the code'**
+  String get syncGuidePairFill;
+
+  /// Coach report when Copy is tapped on the sync guide's pair card: the stage copies nothing; name is the demo partner
+  ///
+  /// In en, this message translates to:
+  /// **'On your own phone, this copies the code so you can send it to {name}.'**
+  String syncGuideReportPairCopy(String name);
+
+  /// Tooltip of the help button in the pairing sheet's header: opens the sync guide's page on pairing
+  ///
+  /// In en, this message translates to:
+  /// **'How pairing works'**
+  String get syncGuideHowPairingWorks;
+
+  /// Section header at the top of the sync guide's hub: four rows saying what is set up on this phone right now, each opening the screen where the step is taken
+  ///
+  /// In en, this message translates to:
+  /// **'Your setup'**
+  String get syncGuideSetupTitle;
+
+  /// Setup row in the sync guide's hub when an account is signed in; name is the account's name or email address
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in as {name}'**
+  String syncGuideSetupAccountDone(String name);
+
+  /// Setup row in the sync guide's hub when an account with neither a name nor an email address is signed in
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in'**
+  String get syncGuideSetupAccountDoneUnnamed;
+
+  /// Setup row in the sync guide's hub when nobody is signed in; the row opens Sync & sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get syncGuideSetupAccountTodo;
+
+  /// Caption under a setup row in the sync guide's hub whose step needs an account and nobody is signed in
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in first'**
+  String get syncGuideSetupAccountFirst;
+
+  /// Setup row in the sync guide's hub when the open database syncs with the signed-in account; keep it short
+  ///
+  /// In en, this message translates to:
+  /// **'This database syncs'**
+  String get syncGuideSetupSyncDone;
+
+  /// Setup row in the sync guide's hub when the open database does not sync; label is the Sync section's own row, Sync this database
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on “{label}”'**
+  String syncGuideSetupSyncTodo(String label);
+
+  /// Caption under the sharing setup row in the sync guide's hub while the open database does not sync
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on sync first'**
+  String get syncGuideSetupSyncFirst;
+
+  /// Setup row in the sync guide's hub when the signed-in account is paired; name is the partner's
+  ///
+  /// In en, this message translates to:
+  /// **'Paired with {name}'**
+  String syncGuideSetupPairDone(String name);
+
+  /// Setup row in the sync guide's hub when the signed-in account is not paired
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with someone'**
+  String get syncGuideSetupPairTodo;
+
+  /// Caption under the sharing setup row in the sync guide's hub while the account is not paired
+  ///
+  /// In en, this message translates to:
+  /// **'Pair first'**
+  String get syncGuideSetupPairFirst;
+
+  /// Setup row in the sync guide's hub: how many categories, events and folders this person shares with the partner
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{You share 1 thing} other{You share {count} things}}'**
+  String syncGuideSetupShareDone(int count);
+
+  /// Setup row in the sync guide's hub when this person shares nothing: the next step, an imperative like 'Sign in' and 'Pair with someone'
+  ///
+  /// In en, this message translates to:
+  /// **'Share something'**
+  String get syncGuideSetupShareTodo;
+
+  /// Screen-reader hint on the sharing setup row in the sync guide's hub while paired: its tap opens the Sharing page
+  ///
+  /// In en, this message translates to:
+  /// **'Opens Sharing'**
+  String get syncGuideSetupOpensSharing;
+
+  /// Tooltip of the help button in the bar of Sync & sharing and of the Sharing page: opens the guide's book on sync and sharing
+  ///
+  /// In en, this message translates to:
+  /// **'How sync and sharing work'**
+  String get syncGuideHowSyncWorks;
+
+  /// Caption under the sharing setup row in the sync guide's hub while the open database is bound to another account, so its sync is paused
+  ///
+  /// In en, this message translates to:
+  /// **'Sync is paused'**
+  String get syncGuideSetupSyncPausedFirst;
 
   /// The bare $! chip's text in the preview when no $! target stands above it, shown in place of an amount
   ///
@@ -16570,42 +17801,6 @@ abstract class AppLocalizations {
     String shortcutMoneySpan,
   );
 
-  /// No description provided for @appGuideSyncStopTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Stopping'**
-  String get appGuideSyncStopTitle;
-
-  /// No description provided for @appGuideSyncStopBody.
-  ///
-  /// In en, this message translates to:
-  /// **'“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.'**
-  String appGuideSyncStopBody(String syncStop, String signOut);
-
-  /// No description provided for @appGuideSyncDeleteTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Deleting the cloud copy'**
-  String get appGuideSyncDeleteTitle;
-
-  /// No description provided for @appGuideSyncDeleteBody.
-  ///
-  /// In en, this message translates to:
-  /// **'“{delete}” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.'**
-  String appGuideSyncDeleteBody(String delete);
-
-  /// No description provided for @appGuideSyncDeleteAccountTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Deleting your account'**
-  String get appGuideSyncDeleteAccountTitle;
-
-  /// No description provided for @appGuideSyncDeleteAccountBody.
-  ///
-  /// In en, this message translates to:
-  /// **'“{deleteAccount}” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.'**
-  String appGuideSyncDeleteAccountBody(String deleteAccount);
-
   /// Header of the Sync & sharing page's section that says where data is stored
   ///
   /// In en, this message translates to:
@@ -16677,138 +17872,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'“{deleteCopy}” removes a database\'s copy from the cloud; “{deleteAccount}” removes everything your account keeps there. Neither deletes anything on this device.'**
   String dataNoticeRemove(String deleteCopy, String deleteAccount);
-
-  /// Body of the app guide's row about where synced data is stored; its title is dataNoticeTitle
-  ///
-  /// In en, this message translates to:
-  /// **'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “{dataNotice}” on the same page says where it is kept and how to remove it.'**
-  String appGuideSyncDataBody(String dataNotice);
-
-  /// No description provided for @appGuidePageSharing.
-  ///
-  /// In en, this message translates to:
-  /// **'Sharing with your partner'**
-  String get appGuidePageSharing;
-
-  /// No description provided for @appGuidePageSharingCaption.
-  ///
-  /// In en, this message translates to:
-  /// **'A category or an event, read-only on their phone'**
-  String get appGuidePageSharingCaption;
-
-  /// No description provided for @appGuideSharingLead.
-  ///
-  /// In en, this message translates to:
-  /// **'Pair with one person and choose what they see. Nothing is shared until you switch it on; your partner reads and never changes it; switch it off and it leaves their phone.'**
-  String get appGuideSharingLead;
-
-  /// No description provided for @appGuideSharingPairTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Pair first'**
-  String get appGuideSharingPairTitle;
-
-  /// Body of the app guide's row about pairing before sharing; the placeholders are the app's own labels
-  ///
-  /// In en, this message translates to:
-  /// **'“{pairingSection}” in “{sharingSettings}” links you with one person through a code. Pairing alone shares nothing. Both phones need “{syncThisDatabase}” on — what you share travels with sync.'**
-  String appGuideSharingPairBody(
-    String pairingSection,
-    String sharingSettings,
-    String syncThisDatabase,
-  );
-
-  /// No description provided for @appGuideSharingCategoryTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Share a category'**
-  String get appGuideSharingCategoryTitle;
-
-  /// Body of the app guide's row about sharing a category; shareWith is the switch's label with the stand-in partner name, sharingPage the Sharing page's title
-  ///
-  /// In en, this message translates to:
-  /// **'In a category\'s editor, “{shareWith}” shares every event in it, and every event you add to it later. The ⋮ menu on the “{calendarCategories}” page does the same; “{sharingPage}”, behind the pairing row, ticks several at once.'**
-  String appGuideSharingCategoryBody(
-    String shareWith,
-    String calendarCategories,
-    String sharingPage,
-  );
-
-  /// No description provided for @appGuideSharingEventTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Share one event'**
-  String get appGuideSharingEventTitle;
-
-  /// Body of the app guide's row about sharing one event
-  ///
-  /// In en, this message translates to:
-  /// **'The same switch, “{shareWith}”, in an event\'s editor shares that event alone. An event in a shared category is shared already; its switch says so.'**
-  String appGuideSharingEventBody(String shareWith);
-
-  /// No description provided for @appGuideSharingReadOnlyTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Read-only for them'**
-  String get appGuideSharingReadOnlyTitle;
-
-  /// Body of the app guide's row saying a share is read-only and that a copy stays; copy is the read sheet's Copy to my calendar label
-  ///
-  /// In en, this message translates to:
-  /// **'Your partner sees what you share and cannot change it, so a list cannot be ticked off by both of you. “{copy}” gives them an event of their own; your later changes do not reach that copy, and it stays when you stop sharing.'**
-  String appGuideSharingReadOnlyBody(String copy);
-
-  /// No description provided for @appGuideSharingTheirsTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'What your partner shares'**
-  String get appGuideSharingTheirsTitle;
-
-  /// Body of the app guide's row about what the partner shares with this person
-  ///
-  /// In en, this message translates to:
-  /// **'Their events open a sheet you can read, not edit. On “{sharingPage}” you choose which of their categories show on your calendar and how their events are told apart from yours. Reports, goals and attendance count only your own events.'**
-  String appGuideSharingTheirsBody(String sharingPage);
-
-  /// No description provided for @appGuideSharingAlertsTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Alerts'**
-  String get appGuideSharingAlertsTitle;
-
-  /// Body of the app guide's row about alerts on shared events; the placeholders are the Sharing page's own labels
-  ///
-  /// In en, this message translates to:
-  /// **'Your partner\'s alerts never ring on your phone, nor yours on theirs. Add an alert of your own to a shared event from its sheet. “{shareAlerts}” on the same page can silence them all (“{alertsOff}”) or let shared events follow your own category alerts (“{alertsCategory}”).'**
-  String appGuideSharingAlertsBody(
-    String shareAlerts,
-    String alertsOff,
-    String alertsCategory,
-  );
-
-  /// No description provided for @appGuideSharingStopTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Stopping'**
-  String get appGuideSharingStopTitle;
-
-  /// Body of the app guide's row about stopping a share, everything, or the pair
-  ///
-  /// In en, this message translates to:
-  /// **'Switch a share off and it leaves your partner\'s phone the next time it syncs. “{stopAll}” takes everything back and keeps you paired; “{unpair}” ends sharing both ways.'**
-  String appGuideSharingStopBody(String stopAll, String unpair);
-
-  /// No description provided for @appGuideSharingPrivateTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'What is never shared'**
-  String get appGuideSharingPrivateTitle;
-
-  /// No description provided for @appGuideSharingPrivateBody.
-  ///
-  /// In en, this message translates to:
-  /// **'Your counters, alerts, attendance marks, templates and settings stay on your side whatever you share.'**
-  String get appGuideSharingPrivateBody;
 
   /// Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it
   ///
@@ -16923,22 +17986,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Notes shared with you'**
   String get shareNoteLook;
-
-  /// Title of the app guide's row about sharing a folder
-  ///
-  /// In en, this message translates to:
-  /// **'Share a folder'**
-  String get appGuideSharingFolderTitle;
-
-  /// Body of the app guide's row about sharing a folder; the placeholders are the folder menu's share entry, the Sharing page's 'Share a folder' row and the Sharing page's title
-  ///
-  /// In en, this message translates to:
-  /// **'“{shareWith}” in a folder\'s ⋮ menu shares it; “{addFolder}” on “{sharingPage}” does the same. Your partner reads its notes and cannot change them; a note you add later is shared too.'**
-  String appGuideSharingFolderBody(
-    String shareWith,
-    String addFolder,
-    String sharingPage,
-  );
 
   /// Description of a Sharing page entry with nothing in it, and the empty line of the partner's single-events list
   ///
@@ -17437,18 +18484,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Only {name} can change this event. Your alerts follow its changes, even while ANTA is closed.'**
   String sharedEventCaptionFresh(String name);
-
-  /// Sentence closing the app guide's row about alerts on shared events, on Android
-  ///
-  /// In en, this message translates to:
-  /// **'An alert of yours follows your partner\'s changes to the event, even while ANTA is closed.'**
-  String get appGuideSharingAlertsFresh;
-
-  /// Sentence closing the app guide's row about alerts on shared events, where the app cannot check while it is closed
-  ///
-  /// In en, this message translates to:
-  /// **'An alert of yours follows what this phone last received.'**
-  String get appGuideSharingAlertsLastReceived;
 
   /// Snackbar when one new thing from the partner arrived, with a View action
   ///

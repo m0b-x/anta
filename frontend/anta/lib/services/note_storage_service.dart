@@ -460,10 +460,14 @@ class NoteStorageService {
     return metadataOf(best, shares);
   }
 
+  /// The note picker's page. [ownOnly] leaves the partner's notes out, on
+  /// the list and on a search alike — an event's linked note: its money
+  /// would reach my report — where the counters' picker may take one.
   Future<PaginatedNotes> loadNotePickerPage({
     String query = '',
     int page = 1,
     int pageSize = AppConstants.notePickerPageSize,
+    bool ownOnly = false,
   }) async {
     await initialize();
 
@@ -472,10 +476,15 @@ class NoteStorageService {
         page: page,
         pageSize: pageSize,
         sortOrder: NotesSortOrder.updatedDesc,
+        ownOnly: ownOnly,
       );
     }
 
-    final totalCount = await _repository.searchNotesCount(query);
+    final notOwnedBy = ownOnly ? (await _shares()).owner : null;
+    final totalCount = await _repository.searchNotesCount(
+      query,
+      notOwnedBy: notOwnedBy,
+    );
     final totalPages = (totalCount / pageSize).ceil().clamp(
       1,
       double.maxFinite.toInt(),
@@ -483,6 +492,7 @@ class NoteStorageService {
     final offset = (page - 1) * pageSize;
     final notes = await _repository.searchNotesPaginated(
       query,
+      notOwnedBy: notOwnedBy,
       limit: pageSize,
       offset: offset,
     );

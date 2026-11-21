@@ -866,6 +866,140 @@ void main() {
       },
     );
 
+    group('stored without its parent (review A7)', () {
+      test('a skipped day goes as the day text does, the person\'s own day '
+          'rows under that id stay, and what went is announced and counted '
+          'as known and not held', () async {
+        Future<void> ownAll(String? owner) => db.sharedRowDao.writing(
+          () => db.customStatement(
+            'UPDATE calendar_event_skips SET owner_id = ? '
+            "WHERE event_id = 'lone' AND owner_id IS NULL",
+            [owner],
+          ),
+        );
+        // The partner's, a row of the person's own from before the bind
+        // (the account's uid), and one written since (no owner).
+        await db.eventSkipDao.markSkipped('lone', day);
+        await ownAll(partner);
+        await db.eventSkipDao.markSkipped('lone', DateTime.utc(2026, 6, 8));
+        await ownAll('my-account');
+        await db.eventSkipDao.markSkipped('lone', DateTime.utc(2026, 6, 15));
+
+        final removed = await db.sharedRowDao.evict('calendar_events', [
+          'lone',
+        ]);
+
+        final gone = removed.keysOf('calendar_event_skips');
+        expect(gone, hasLength(1), reason: 'announced as gone');
+        expect(
+          await one<int>(
+            'SELECT COUNT(*) FROM calendar_event_skips '
+            "WHERE event_id = 'lone' AND (owner_id IS NULL "
+            "OR owner_id = 'my-account')",
+          ),
+          2,
+          reason: 'the person\'s own two stay',
+        );
+        expect(
+          await one<int>(
+            'SELECT COUNT(*) FROM calendar_event_skips '
+            "WHERE event_id = 'lone'",
+          ),
+          2,
+        );
+        expect(
+          await db.syncDao.getValue(
+            SyncDao.keySharedRefused('calendar_event_skips', gone.single),
+          ),
+          'u',
+          reason: 'still the partner\'s document: known, not held',
+        );
+      });
+
+      test('a day text under an event id held by nobody goes when an event '
+          'of the person\'s own is made room for under that id, and the '
+          'person\'s own text of that day is then stored', () async {
+        // As the reader stores one when no row at all stands under its
+        // event's id: both people restored one backup.
+        await db.sharedRowDao.writing(() async {
+          await db.eventOccurrenceDao.upsert(
+            EventOccurrenceDescriptionsCompanion.insert(
+              eventId: 'lone',
+              day: day,
+              description: 'The owner\'s text',
+              createdAt: day,
+              updatedAt: day,
+            ),
+          );
+          await db.customStatement(
+            'UPDATE calendar_event_occurrences SET owner_id = ? '
+            "WHERE event_id = 'lone'",
+            [partner],
+          );
+        });
+
+        await db.sharedRowDao.evict('calendar_events', ['lone']);
+        await event('lone');
+
+        expect(
+          await one<int>(
+            'SELECT COUNT(*) FROM calendar_event_occurrences '
+            "WHERE event_id = 'lone'",
+          ),
+          0,
+        );
+        await db.eventOccurrenceDao.upsert(
+          EventOccurrenceDescriptionsCompanion.insert(
+            eventId: 'lone',
+            day: day,
+            description: 'mine',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+        expect(
+          await one<String>(
+            'SELECT description FROM calendar_event_occurrences '
+            "WHERE event_id = 'lone'",
+          ),
+          'mine',
+        );
+        expect(
+          await db.sharedRowDao.isShared('calendar_events', 'lone'),
+          isFalse,
+        );
+      });
+
+      test('a note under a folder id held by nobody goes, text and all, '
+          'when a folder of the person\'s own is made room for', () async {
+        final gone = (await db.folderDao.createFolder(name: 'Gone')).id;
+        final lone = (await db.noteDao.createNote(
+          folderId: gone,
+          title: 'Their note',
+          preview: 'Their words',
+          content: 'Their words',
+        )).id;
+        await db.sharedRowDao.writing(
+          () => db.customStatement(
+            'UPDATE notes SET owner_id = ? WHERE id = ?',
+            [partner, lone],
+          ),
+        );
+        await db.customStatement('DELETE FROM folders WHERE id = ?', [gone]);
+
+        await db.sharedRowDao.evict('folders', [gone]);
+
+        expect(await db.noteDao.getByIdsIncludingDeleted([lone]), isEmpty);
+        expect(
+          await one<int>(
+            'SELECT COUNT(*) FROM content_chunks WHERE note_id = ?',
+            [lone],
+          ),
+          0,
+        );
+      });
+    });
+
     test(
       'is taken out by an import that carries an event of the person\'s '
       'own under its id, day rows and all: the replace would have removed '

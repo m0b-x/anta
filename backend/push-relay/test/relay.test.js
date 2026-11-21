@@ -366,10 +366,20 @@ test('a poke wakes the partner’s fresh devices with the exact message', async 
 
   assert.equal(response.status, 204);
   assert.equal(w.calls.firestore.length, 1);
+  const read = new URL(w.calls.firestore[0].url);
   assert.equal(
-    w.calls.firestore[0].url,
+    read.origin + read.pathname,
     `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/pairs/${PAIR}`,
   );
+  // The four fields a poke is decided by and no other: the pair's names,
+  // photo addresses, permissions and invite code never leave Firestore.
+  assert.deepEqual(read.searchParams.getAll('mask.fieldPaths'), [
+    'members',
+    'status',
+    'endedAt',
+    'push',
+  ]);
+  assert.deepEqual([...read.searchParams.keys()].filter((key) => key !== 'mask.fieldPaths'), []);
   assert.equal(w.calls.firestore[0].headers.get('Authorization'), `Bearer ${token}`);
   assert.deepEqual(w.sentTo(), [PARTNER_PHONE, PARTNER_TABLET].sort());
   for (const call of w.calls.fcm) {

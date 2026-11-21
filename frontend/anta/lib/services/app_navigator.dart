@@ -466,6 +466,16 @@ abstract final class AppNavigator {
     return routes.isNotEmpty && _isStamped(routes.last, kind);
   }
 
+  /// Whether [context]'s route is the top live page of its navigator — a
+  /// sheet or a dialog over it does not count, another page does. What a
+  /// page asks before it pushes on its own, unasked, over whatever the
+  /// person went on to open. With no page known it answers yes, as
+  /// [servesSharingRequest] does.
+  static bool isTopPage(BuildContext context) {
+    final routes = _livePageRoutes(Navigator.of(context));
+    return routes.isEmpty || identical(routes.last, ModalRoute.of(context));
+  }
+
   static Future<void> toDatabaseSettings(BuildContext context) {
     if (_isOnTop(context, NavDestinationKind.databaseSettings)) {
       return Future<void>.value();
@@ -520,11 +530,30 @@ abstract final class AppNavigator {
   /// [openSharing] is a share notice's View, which always ends on the
   /// Sharing page over the one Sync & sharing page ([_toSharing]); without
   /// it, a Sync & sharing page already in front stays as it is.
+  ///
+  /// [goBack] is the sync guide's setup rows, whose hub may have been opened
+  /// from a Sync & sharing page's help: when nothing but its Sharing page
+  /// and guide pages stands above the last one, that page is gone back to,
+  /// they closed, rather than a second one stacked over the guide. Any
+  /// other page above — the guide opened from the drawer over the calendar
+  /// or a note — is never closed for it: a new one is pushed instead.
   static Future<void> toSyncSettings(
     BuildContext context, {
     bool openSharing = false,
+    bool goBack = false,
   }) {
     if (openSharing) return _toSharing(context);
+    if (goBack) {
+      final navigator = Navigator.of(context);
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere(
+        (route) => _isStamped(route, NavDestinationKind.syncSettings),
+      );
+      if (index >= 0 && _onlyGuideAbove(routes, index)) {
+        _clearAbove(navigator, routes, index);
+        return Future<void>.value();
+      }
+    }
     if (_isOnTop(context, NavDestinationKind.syncSettings)) {
       return Future<void>.value();
     }
@@ -534,6 +563,30 @@ abstract final class AppNavigator {
       destination: const NavDestination(NavDestinationKind.syncSettings),
     );
   }
+
+  /// Whether every page above `routes[index]` is the Sharing page directly
+  /// over it or a guide page, by stamp. A guide's topic page is unstamped
+  /// and opens no page, so it never stands between.
+  static bool _onlyGuideAbove(List<Route<dynamic>> routes, int index) {
+    for (var i = index + 1; i < routes.length; i++) {
+      final route = routes[i];
+      if (i == index + 1 && route.settings.name == sharingRouteName) continue;
+      final destination = route.settings.arguments;
+      if (destination is! NavDestination ||
+          !_guideKinds.contains(destination.kind)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static const Set<NavDestinationKind> _guideKinds = {
+    NavDestinationKind.guideHub,
+    NavDestinationKind.calendarGuide,
+    NavDestinationKind.notesGuide,
+    NavDestinationKind.appGuide,
+    NavDestinationKind.syncGuide,
+  };
 
   /// The Sharing page, exactly once: already directly over the last Sync &
   /// sharing page, everything above it goes; a Sync & sharing page with no
@@ -851,6 +904,7 @@ abstract final class AppNavigator {
     final kind = switch (book) {
       GuideBook.calendar => null,
       GuideBook.notes => NavDestinationKind.notesGuide,
+      GuideBook.sync => NavDestinationKind.syncGuide,
       GuideBook.app => NavDestinationKind.appGuide,
     };
     if (kind == null) return toCalendarGuide(context);
@@ -1569,6 +1623,7 @@ abstract final class AppNavigator {
         book: GuideBook.notes,
       ),
       NavDestinationKind.appGuide => const GuideBookPage(book: GuideBook.app),
+      NavDestinationKind.syncGuide => const GuideBookPage(book: GuideBook.sync),
     };
   }
 }

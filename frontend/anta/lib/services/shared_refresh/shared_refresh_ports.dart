@@ -369,8 +369,10 @@ class SharedRefreshRunPort {
   /// left the first holding the database under no name, and a launch then
   /// waited only for the newer one (review item 6). The holder is pinged.
   /// One that answers is a live run: it is asked to end and waited for, at
-  /// most [kSharedRefreshYieldTimeout]. One that does not is a run killed
-  /// with its engine, and its name is removed.
+  /// most [kSharedRefreshYieldTimeout]. One that does not is taken for a run
+  /// killed with its engine: it is still sent the yield, without waiting —
+  /// it may only have been busy past the pings, and a yield to a dead port
+  /// is lost harmlessly — and its name is removed (review A8).
   ///
   /// False when a live run still holds the name after that — this one must
   /// not go on beside it.
@@ -397,6 +399,12 @@ class SharedRefreshRunPort {
           );
           if (_registry.lookup(kSharedRefreshRunPort) == held) break;
         } else if (_registry.lookup(kSharedRefreshRunPort) == held) {
+          // Told to end before its name goes, unanswered: a dead port drops
+          // it, and a run that was only busy hears it at its next turn
+          // instead of going on beside this one (review A8).
+          final unheard = ReceivePort();
+          held.send([SharedRefreshWire.giveWayToRun, unheard.sendPort]);
+          unheard.close();
           _registry.remove(kSharedRefreshRunPort);
         }
       }

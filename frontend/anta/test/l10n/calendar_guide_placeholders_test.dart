@@ -14,13 +14,14 @@ void main() {
           as Map<String, dynamic>;
 
   final english = read('en');
-  // Every guide's keys (D6 of docs/guide-hub-roadmap.md): the hub and the
-  // notes and app books quote the app the same way.
+  // Every guide's keys (D6, D50 of docs/guide-hub-roadmap.md): the hub and
+  // the notes, sync and app books quote the app the same way.
   const prefixes = [
     'calendarGuide',
     'guideHub',
     'guideBook',
     'notesGuide',
+    'syncGuide',
     'appGuide',
   ];
   final guideKeys = [

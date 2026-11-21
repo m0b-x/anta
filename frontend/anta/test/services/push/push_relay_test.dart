@@ -444,6 +444,22 @@ void main() {
       expect(flushed, isTrue);
     });
 
+    test('a flush waits for a poke already under way too: what an end asked '
+        'for is answered before its pair is removed', () async {
+      final relay = await relayOver(known);
+      hold = Completer<void>();
+      relay.poke('pair-a', urgent: true);
+      var flushed = false;
+      final flushing = relay.flush().then((_) => flushed = true);
+      await pumpEventQueue();
+      expect(posts, hasLength(1));
+      expect(flushed, isFalse, reason: 'the poke sent at once has no answer');
+
+      hold!.complete();
+      await flushing;
+      expect(flushed, isTrue);
+    });
+
     test('the first after a quiet minute goes at once; those within it wait '
         'for its end, one per pair, urgent when any merged was', () {
       fakeAsync((async) {

@@ -10,13 +10,20 @@ import '../models/note_metadata.dart';
 import '../services/app_navigator.dart';
 import '../services/note_storage_service.dart';
 
-Future<NoteMetadata?> showNotePickerDialog(BuildContext context) {
+/// [ownOnly] offers the person's own notes alone — an event's linked note,
+/// whose money reaches my report; the counters' picker may take a
+/// partner's note, its counters being personal.
+Future<NoteMetadata?> showNotePickerDialog(
+  BuildContext context, {
+  bool ownOnly = false,
+}) {
   return showDialog<NoteMetadata>(
     context: context,
     builder: (_) => BlocProvider(
-      create: (_) =>
-          NotePickerBloc(storageService: GetIt.I<NoteStorageService>())
-            ..add(const NotePickerOpened()),
+      create: (_) => NotePickerBloc(
+        storageService: GetIt.I<NoteStorageService>(),
+        ownOnly: ownOnly,
+      )..add(const NotePickerOpened()),
       child: const _NotePickerDialog(),
     ),
   );

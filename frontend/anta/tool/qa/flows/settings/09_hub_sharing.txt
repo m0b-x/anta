@@ -4,8 +4,10 @@
 # does not allow it), so the page reads SyncUnavailable and opens on Not
 # available on this platform: on the first visit its list shows that
 # disabled row under its own id (S7), and the Sync section its disabled
-# "Sync this database" row. A QA build with cloud allowed would open signed
-# out, on sharing-sign-in; the `sync` suite covers that build.
+# "Sync this database" row; the help button in the page's bar opens the
+# sync guide's hub and comes back (D49). A QA build with cloud
+# allowed would open signed out, on sharing-sign-in; the `sync` suite covers
+# that build.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -14,6 +16,10 @@ wait id:settings-bar-hub
 tap id:settings-hub-row-syncSettings
 wait id:settings-bar-sharing
 expect id:sharing-list id:sharing-unavailable id:sharing-sync
+tap id:sharing-sync-how
+wait id:guide-sync
+key back
+wait id:settings-bar-sharing
 tap id:nav-back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-sharing

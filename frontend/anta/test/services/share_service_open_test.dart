@@ -29,6 +29,9 @@ class _GatedSyncSource implements ShareSyncSource {
   }
 
   @override
+  Future<bool> boundToAnotherAccount() async => false;
+
+  @override
   Future<bool> offline() async => false;
 
   @override

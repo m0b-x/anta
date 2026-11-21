@@ -56,8 +56,10 @@ class _FailingShareService extends FakeShareService {
   _FailingShareService({super.availability});
 
   @override
-  Future<ShareChange> setCategoriesShared(Set<String> ids) async =>
-      throw StateError('the write failed');
+  Future<ShareChange> changeCategoriesShared({
+    Set<String> shared = const {},
+    Set<String> unshared = const {},
+  }) async => throw StateError('the write failed');
 }
 
 /// An undo that throws, the way to the failure said after the page left.
@@ -67,6 +69,45 @@ class _FailingUndoShareService extends FakeShareService {
   @override
   Future<ShareChange> undo(ShareChange change) async =>
       throw StateError('the undo failed');
+}
+
+/// The category marks as the service stores them, listed on every read: a
+/// change touches only its own ids. A write waits on [hold] before it
+/// lands, as the fake's own do.
+class _MarkingShareService extends FakeShareService {
+  _MarkingShareService(this.catalogue, this.marks, {super.availability});
+
+  final List<CalendarCategory> catalogue;
+  final Set<String> marks;
+
+  Future<void> _landing() async {
+    final parked = hold;
+    hold = null;
+    if (parked != null) await parked.future;
+  }
+
+  @override
+  Future<ShareOverview> overview({bool withCounts = false}) async {
+    await super.overview(withCounts: withCounts);
+    return ShareOverview(
+      categories: [
+        for (final category in catalogue)
+          if (marks.contains(category.id)) category,
+      ],
+    );
+  }
+
+  @override
+  Future<ShareChange> changeCategoriesShared({
+    Set<String> shared = const {},
+    Set<String> unshared = const {},
+  }) async {
+    await _landing();
+    marks
+      ..addAll(shared)
+      ..removeAll(unshared);
+    return ShareChange.none;
+  }
 }
 
 /// A first read that throws: the page's load fails.
@@ -680,7 +721,7 @@ void main() {
 
   group('the tick sheet', () {
     testWidgets('Categories opens it titled and captioned, each row with its '
-        'event count from the overview, ticked as shared; Done sends the set '
+        'event count from the overview, ticked as shared; Done sends the change '
         'and the snackbar says what stopped, with Undo', (tester) async {
       CalendarCategories.updateCache([work, travel, gym]);
       await boot(
@@ -732,9 +773,8 @@ void main() {
       await tester.tap(byId(SemanticsIds.categoryPickDone));
       await settle(tester);
 
-      expect(share.categorySets, [
-        {'travel'},
-      ]);
+      expect(share.categoryChanges.single.shared, isEmpty);
+      expect(share.categoryChanges.single.unshared, {'work'});
       final message = l10n.shareStoppedSomeStay('Work', 2);
       expect(
         message,
@@ -763,11 +803,117 @@ void main() {
       await tester.tap(byId(SemanticsIds.categoryPickClose));
       await settle(tester);
 
-      expect(share.categorySets, isEmpty);
+      expect(share.categoryChanges, isEmpty);
       expect(find.byType(SnackBar), findsNothing);
 
       await close(tester);
     });
+
+    // Review A5: the sheet reopened before the last Done's state arrived
+    // ticked what that Done had un-ticked, and its own Done shared it again.
+    testWidgets('while a Done\'s write is unanswered Categories does not '
+        'open again, and the next Done never shares back what was un-ticked', (
+      tester,
+    ) async {
+      CalendarCategories.updateCache([work, travel, gym]);
+      final marking = _MarkingShareService(
+        [work, travel, gym],
+        {'work', 'travel'},
+        availability: const ShareReady(maria),
+      );
+      await boot(service: marking);
+      await open(tester);
+      final hold = marking.hold = Completer<void>();
+
+      await tester.tap(byId(SemanticsIds.sharingMineCategories));
+      await settle(tester);
+      await tester.tap(tick('work'));
+      await tester.pump();
+      await tester.tap(byId(SemanticsIds.categoryPickDone));
+      await settle(tester);
+      await tester.tap(byId(SemanticsIds.sharingMineCategories));
+      await settle(tester);
+
+      expect(byId(SemanticsIds.shareCategoriesSheet), findsNothing);
+
+      hold.complete();
+      await settle(tester);
+      await tester.tap(byId(SemanticsIds.sharingMineCategories));
+      await settle(tester);
+      expect(
+        tester
+            .widget<FormCheckRow>(find.widgetWithText(FormCheckRow, 'Work'))
+            .checked,
+        isFalse,
+      );
+      await tester.tap(tick('gym'));
+      await tester.pump();
+      await tester.tap(byId(SemanticsIds.categoryPickDone));
+      await settle(tester);
+
+      expect(marking.marks, {'travel', 'gym'});
+
+      await close(tester);
+    }, timeout: const Timeout(Duration(seconds: 250)));
+
+    testWidgets(
+      'a Done whose write failed lets Categories open again',
+      (tester) async {
+        CalendarCategories.updateCache([work, travel, gym]);
+        final marking = _MarkingShareService(
+          [work, travel, gym],
+          {'work', 'travel'},
+          availability: const ShareReady(maria),
+        );
+        await boot(service: marking);
+        await open(tester);
+        final hold = marking.hold = Completer<void>();
+
+        await tester.tap(byId(SemanticsIds.sharingMineCategories));
+        await settle(tester);
+        await tester.tap(tick('work'));
+        await tester.pump();
+        await tester.tap(byId(SemanticsIds.categoryPickDone));
+        await settle(tester);
+        hold.completeError(StateError('the write failed'));
+        await settle(tester);
+
+        expect(marking.marks, {'work', 'travel'}, reason: 'nothing written');
+        await tester.tap(byId(SemanticsIds.sharingMineCategories));
+        await settle(tester);
+        expect(byId(SemanticsIds.shareCategoriesSheet), findsOneWidget);
+        await tester.tap(byId(SemanticsIds.categoryPickClose));
+        await settle(tester);
+
+        await close(tester);
+      },
+      timeout: const Timeout(Duration(seconds: 250)),
+    );
+
+    testWidgets('a category shared elsewhere while the sheet is up stays '
+        'shared after a Done that only ticked another', (tester) async {
+      CalendarCategories.updateCache([work, travel, gym]);
+      final marking = _MarkingShareService(
+        [work, travel, gym],
+        {'work'},
+        availability: const ShareReady(maria),
+      );
+      await boot(service: marking);
+      await open(tester);
+
+      await tester.tap(byId(SemanticsIds.sharingMineCategories));
+      await settle(tester);
+      // Another phone of mine, or the shared reader, marks Travel now.
+      marking.marks.add('travel');
+      await tester.tap(tick('gym'));
+      await tester.pump();
+      await tester.tap(byId(SemanticsIds.categoryPickDone));
+      await settle(tester);
+
+      expect(marking.marks, {'work', 'travel', 'gym'});
+
+      await close(tester);
+    }, timeout: const Timeout(Duration(seconds: 250)));
 
     testWidgets('sharing says "Sharing Work, Travel with Maria" and stopping '
         '"No longer shared: Gym", each with Undo', (tester) async {
@@ -819,7 +965,7 @@ void main() {
       await tester.tap(byId(SemanticsIds.categoryPickDone));
       await settle(tester);
 
-      expect(share.categorySets, isEmpty);
+      expect(share.categoryChanges, isEmpty);
       expect(
         find.descendant(
           of: find.byType(SnackBar),
@@ -1062,6 +1208,78 @@ void main() {
   });
 
   group('the last group', () {
+    /// The help is the bar's button, a 48 dp target under the shared
+    /// tooltip; the list holds no help row and no "How it works" header,
+    /// and ends with the Pairing section and its Unpair (D49).
+    void expectHelpInBar(WidgetTester tester) {
+      final button = find.descendant(
+        of: byId(SemanticsIds.sharingPageHow),
+        matching: find.byType(IconButton),
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: button),
+        findsOneWidget,
+      );
+      final size = tester.getSize(button);
+      expect(size.width, greaterThanOrEqualTo(48));
+      expect(size.height, greaterThanOrEqualTo(48));
+      expect(
+        tester.widget<IconButton>(button).tooltip,
+        l10n.syncGuideHowSyncWorks,
+      );
+
+      final sections = tester
+          .widget<SettingsSectionList>(find.byType(SettingsSectionList))
+          .sections;
+      for (final section in sections) {
+        expect(section.title, isNot(l10n.calendarGuideHowItWorks));
+        for (final entry in section.entries) {
+          expect(entry.identifier, isNot(SemanticsIds.sharingPageHow));
+        }
+      }
+      expect(
+        find.text(l10n.calendarGuideHowItWorks.toUpperCase()),
+        findsNothing,
+      );
+      expect(sections.last.title, l10n.pairingSection);
+      expect(sections.last.entries.last.identifier, SemanticsIds.sharingUnpair);
+    }
+
+    testWidgets('the help is a button in the bar, not a row of the list; '
+        'it opens the sync book\'s hub (D49)', (tester) async {
+      await boot(overview: sharing);
+      await open(tester);
+
+      expectHelpInBar(tester);
+      await tester.tap(byId(SemanticsIds.sharingPageHow));
+      await settle(tester);
+      expect(byId(SemanticsIds.guideBook('sync')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await close(tester);
+    });
+
+    testWidgets('the bar keeps the help when the load fails', (tester) async {
+      await boot(
+        service: _UnreadableShareService(availability: const ShareReady(maria)),
+      );
+      await open(tester);
+      expect(find.text(l10n.shareLoadFailed), findsOneWidget);
+      expectHelpInBar(tester);
+
+      await close(tester);
+    });
+
+    testWidgets('the bar keeps the help when the pair is another '
+        'account\'s', (tester) async {
+      await boot(availability: const ShareNotPaired(), overview: sharing);
+      await open(tester);
+      expect(byId(SemanticsIds.sharingMineCategories), findsNothing);
+      expectHelpInBar(tester);
+
+      await close(tester);
+    });
+
     testWidgets('Stop sharing everything asks first; cancel sends nothing, '
         'confirm clears every mark', (tester) async {
       await boot(overview: sharing);
@@ -1298,7 +1516,7 @@ void main() {
       expect(byId(SemanticsIds.shareCategoriesSheet), findsNothing);
       expect(byId(SemanticsIds.sharingPage), findsNothing);
       expect(find.text('host'), findsOneWidget);
-      expect(share.categorySets, isEmpty);
+      expect(share.categoryChanges, isEmpty);
       expect(tester.takeException(), isNull);
 
       await close(tester);

@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 
 import '../../models/share_overview.dart';
 import '../../models/share_settings.dart';
+import 'share_state.dart' show ShareFailure;
 
 sealed class ShareEvent extends Equatable {
   const ShareEvent();
@@ -25,9 +26,10 @@ final class ShareLoadRequested extends ShareEvent {
   const ShareLoadRequested();
 }
 
-/// An intent that writes marks. The bloc runs these one at a time, in the
-/// order they came: two that overtook each other would leave the older
-/// outcome on the page, and two category sets would interleave.
+/// An intent that writes marks. Its write starts when it is added, and the
+/// service writes them in that order; the bloc says their outcomes one at a
+/// time, in the same order: two that overtook each other would leave the
+/// older outcome on the page.
 sealed class ShareActEvent extends ShareEvent {
   /// The surface that asked, handed back on the act's [ShareOutcome]: a
   /// list sheet answers for the acts it started and for no other — one
@@ -36,24 +38,40 @@ sealed class ShareActEvent extends ShareEvent {
   /// by identity, never part of [props].
   final Object? asker;
 
-  const ShareActEvent({this.asker});
+  /// How this act's failure is said when its bloc closed before saying it —
+  /// the write failed once the bloc had gone, or before a handler the close
+  /// kept from running (`ShareBloc.close`): on the app's messenger the
+  /// surface captured (`shareFailurePastSurface`), since neither the bloc
+  /// nor, often, the surface is left to say it. Null leaves the failure to
+  /// the log. Never part of [props].
+  final void Function(ShareFailure failure)? failedPastBloc;
+
+  const ShareActEvent({this.asker, this.failedPastBloc});
 }
 
-/// The tick sheet's Done: exactly [ids] of the person's categories shared.
+/// The tick sheet's Done: what the person changed against the ticks the
+/// sheet opened with — [shared] newly ticked, [unshared] un-ticked — and
+/// nothing of the categories they left alone, whose marks may have moved
+/// since the sheet read them (`ShareService.changeCategoriesShared`).
 final class ShareCategoriesSet extends ShareActEvent {
-  final Set<String> ids;
+  final Set<String> shared;
+  final Set<String> unshared;
 
-  const ShareCategoriesSet(this.ids);
+  const ShareCategoriesSet({
+    this.shared = const {},
+    this.unshared = const {},
+    super.failedPastBloc,
+  });
 
   @override
-  List<Object?> get props => [ids];
+  List<Object?> get props => [shared, unshared];
 }
 
 /// A row's ✕ on the Single events sheet: the event's own mark taken away.
 final class ShareEventUnshared extends ShareActEvent {
   final String eventId;
 
-  const ShareEventUnshared(this.eventId, {super.asker});
+  const ShareEventUnshared(this.eventId, {super.asker, super.failedPastBloc});
 
   @override
   List<Object?> get props => [eventId];
@@ -64,7 +82,7 @@ final class ShareEventUnshared extends ShareActEvent {
 final class ShareFolderShared extends ShareActEvent {
   final String folderId;
 
-  const ShareFolderShared(this.folderId, {super.asker});
+  const ShareFolderShared(this.folderId, {super.asker, super.failedPastBloc});
 
   @override
   List<Object?> get props => [folderId];
@@ -74,7 +92,7 @@ final class ShareFolderShared extends ShareActEvent {
 final class ShareFolderUnshared extends ShareActEvent {
   final String folderId;
 
-  const ShareFolderUnshared(this.folderId, {super.asker});
+  const ShareFolderUnshared(this.folderId, {super.asker, super.failedPastBloc});
 
   @override
   List<Object?> get props => [folderId];
@@ -82,20 +100,18 @@ final class ShareFolderUnshared extends ShareActEvent {
 
 /// "Stop sharing everything", confirmed.
 final class ShareStopAllRequested extends ShareActEvent {
-  const ShareStopAllRequested();
+  const ShareStopAllRequested({super.failedPastBloc});
 }
 
 /// A snackbar's Undo of [change].
 final class ShareUndoRequested extends ShareActEvent {
   final ShareChange change;
 
-  /// How the surface that offered the Undo writes it once its bloc has
-  /// gone (`undoSharePastBloc`, its failure said on the app's messenger):
-  /// an Undo still queued behind a running act when the bloc closes is
-  /// handed to it rather than lost. Null writes through the service alone.
-  final FutureOr<void> Function(ShareChange change)? pastBloc;
-
-  const ShareUndoRequested(this.change, {this.pastBloc, super.asker});
+  const ShareUndoRequested(
+    this.change, {
+    super.asker,
+    super.failedPastBloc,
+  });
 
   @override
   List<Object?> get props => [change];

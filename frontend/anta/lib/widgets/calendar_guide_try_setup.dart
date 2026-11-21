@@ -165,9 +165,10 @@ class GuideSetupDemo extends GuideCardDemo {
   );
 
   /// Whether every word of [labels] fits a segment [segmentWidth] wide on
-  /// one line — `_choiceWordsFit` in `settings_page.dart`, the settings
-  /// kit's rule for a choice row: a segment never moves a word to the next
-  /// segment, so a word wider than its third would break mid-word.
+  /// one line — `settingsChoiceWordsFit` in `settings_section_list.dart`,
+  /// the settings kit's rule for a choice row: a segment never moves a word
+  /// to the next segment, so a word wider than its third would break
+  /// mid-word.
   static bool _wordsFit(
     BuildContext context,
     Iterable<String> labels,

@@ -4,12 +4,17 @@ import '../l10n/app_localizations.dart';
 import 'app_guide_content.dart';
 import 'guide_content.dart';
 import 'notes_guide_content.dart';
+import 'sync_guide_content.dart';
 
 /// The guides the "How to use ANTA" hub lists (§3.1 of
 /// `docs/guide-hub-roadmap.md`), in its order.
 enum GuideBook {
   calendar('calendar', Icons.calendar_month_rounded),
   notes('notes', Icons.edit_note_rounded),
+
+  /// Sync and sharing, a book of its own since §11 (D39): ten pages do not
+  /// fit inside the app book's "How do I…".
+  sync('sync', Icons.cloud_sync_rounded),
   app('app', Icons.phone_android_rounded);
 
   /// Frozen: the hub row's id and the book's own ids are built on it (D8).
@@ -21,12 +26,14 @@ enum GuideBook {
   String title(AppLocalizations l10n) => switch (this) {
     calendar => l10n.calendarGuideTitle,
     notes => l10n.guideBookNotesTitle,
+    sync => l10n.guideBookSyncTitle,
     app => l10n.guideBookAppTitle,
   };
 
   String caption(AppLocalizations l10n) => switch (this) {
     calendar => l10n.guideBookCalendarCaption,
     notes => l10n.guideBookNotesCaption,
+    sync => l10n.guideBookSyncCaption,
     app => l10n.guideBookAppCaption,
   };
 
@@ -34,6 +41,7 @@ enum GuideBook {
   String intro(AppLocalizations l10n) => switch (this) {
     calendar => l10n.calendarGuideIntro,
     notes => l10n.notesGuideIntro,
+    sync => l10n.syncGuideIntro,
     app => l10n.appGuideIntro,
   };
 
@@ -43,6 +51,7 @@ enum GuideBook {
   List<GuideTopic> get topics => switch (this) {
     calendar => const [],
     notes => NotesGuideTopic.values,
+    sync => SyncGuideTopic.values,
     app => AppGuideTopic.values,
   };
 
@@ -55,6 +64,7 @@ enum GuideBook {
       NotesGuideTopic.editor,
       NotesGuideTopic.safe,
     ],
+    sync => const [SyncGuideTopic.sync, SyncGuideTopic.pair],
     app => const [AppGuideTopic.menu, AppGuideTopic.settings],
   };
 }

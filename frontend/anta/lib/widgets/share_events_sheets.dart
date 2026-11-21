@@ -77,8 +77,23 @@ class MySharedEventsSheet extends StatefulWidget {
 class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   /// Rows whose ✕ was tapped and that the overview still lists: hidden at
   /// once, so the row leaves under the finger rather than when the reload
-  /// lands, and shown again by an Undo that was written or a ✕ that failed.
+  /// lands, and shown again by its own ✕ that failed, an Undo that was
+  /// written, or a newer read that lists the event once its ✕ was written
+  /// ([_unlisting]) — shared again elsewhere.
   final Set<String> _leaving = {};
+
+  /// The events whose ✕ the bloc was asked for, oldest first, each
+  /// answered by the next un-share outcome of this sheet's.
+  final List<String> _unsharing = [];
+
+  /// Rows whose ✕ was written while the state that said so still listed
+  /// them — a reload that failed carries the last read — each with that
+  /// read's number ([ShareLoaded.read]): kept hidden while a state carries
+  /// the same read, let go at the first newer one. Listed by it, the event
+  /// was shared again since; a row hidden until some state stopped listing
+  /// it would stay hidden for the sheet's life once it was shared again
+  /// before that.
+  final Map<String, int> _unlisting = {};
 
   /// The rows whose Undo the bloc was asked for, oldest first. The bloc runs
   /// its acts in order and this sheet hears only the outcomes of the acts it
@@ -140,8 +155,15 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     final generation = ShareService.databaseGeneration;
     final event = shared.event;
     setState(() => _leaving.add(event.id));
+    _unsharing.add(event.id);
     _pending++;
-    bloc.add(ShareEventUnshared(event.id, asker: this));
+    bloc.add(
+      ShareEventUnshared(
+        event.id,
+        asker: this,
+        failedPastBloc: shareFailurePastSurface(messenger, l10n),
+      ),
+    );
     // Said at the tap, as every share switch says it (D6): the reload that
     // drops the row may land after the finger has moved on.
     final category = CalendarCategories.byId(event.categoryId);
@@ -171,7 +193,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   /// The snackbar's Undo of [event]'s ✕, which may be tapped after this
   /// sheet and the page that owns [bloc] are gone, so it reads nothing of
   /// the sheet's but [mounted]. While [bloc] is open the undo goes through
-  /// it, queued behind the ✕, and the row comes back on its outcome. Once
+  /// it, written after the ✕, and the row comes back on its outcome. Once
   /// it is closed the undo writes through [undoSharePastBloc].
   ///
   /// [generation] is the database's when the bar was shown: tapped under
@@ -188,12 +210,6 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   }) {
     if (ShareService.databaseGeneration != generation) return;
     final change = ShareChange(unsharedEvents: [event]);
-    Future<void> pastBloc(ShareChange change) => undoSharePastBloc(
-      change,
-      shareService: shareService,
-      messenger: messenger,
-      l10n: l10n,
-    );
     if (!bloc.isClosed) {
       // Tapped once the sheet has gone, the Undo is no one's: the page says
       // how it ended.
@@ -202,18 +218,40 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
         _undoing.add(event.id);
         _pending++;
       }
-      bloc.add(ShareUndoRequested(change, pastBloc: pastBloc, asker: asker));
+      bloc.add(
+        ShareUndoRequested(
+          change,
+          asker: asker,
+          failedPastBloc: shareFailurePastSurface(messenger, l10n),
+        ),
+      );
       return;
     }
-    unawaited(pastBloc(change));
+    unawaited(
+      undoSharePastBloc(
+        change,
+        shareService: shareService,
+        messenger: messenger,
+        l10n: l10n,
+      ),
+    );
   }
 
-  /// A ✕ the service refused or failed brings its rows back and says why;
-  /// a success needs nothing — the overview stops listing the event. An
-  /// Undo's row comes back once its undo was written, and stays out, said
-  /// over the sheet, when it was not.
+  /// A ✕ the service refused or failed brings its own row back and says
+  /// why — the rows of the ✕s still queued stay out; a success lets its row
+  /// go at the first read newer than its own, so a share of it again lists
+  /// it. An Undo's row comes back once its undo was written, and stays out,
+  /// said over the sheet, when it was not.
   void _onState(BuildContext context, ShareState state) {
     if (state is! ShareLoaded) return;
+    final listed = {
+      for (final shared in state.overview.events) shared.event.id,
+    };
+    _unlisting.removeWhere((id, read) {
+      if (read == state.read) return false;
+      _leaving.remove(id);
+      return true;
+    });
     final outcome = state.outcome;
     if (outcome == null || outcome.sequence == _seenOutcome) return;
     _seenOutcome = outcome.sequence;
@@ -224,12 +262,22 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     final failure = outcome.failure;
     switch (outcome.act) {
       case ShareAct.eventUnshared:
-        if (failure == null || _leaving.isEmpty) return;
-        setState(_leaving.clear);
+        if (_unsharing.isEmpty) return;
+        final id = _unsharing.removeAt(0);
+        if (failure == null) {
+          if (listed.contains(id)) {
+            _unlisting[id] = state.read;
+          } else {
+            _leaving.remove(id);
+          }
+          return;
+        }
+        setState(() => _leaving.remove(id));
       case ShareAct.undo:
         if (_undoing.isEmpty) return;
         final id = _undoing.removeAt(0);
         if (failure == null) {
+          _unlisting.remove(id);
           setState(() => _leaving.remove(id));
           return;
         }

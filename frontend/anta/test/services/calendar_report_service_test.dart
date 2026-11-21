@@ -983,8 +983,27 @@ void main() {
         reason: 'no ledger service, no money',
       );
       NoteMoneyLedgerService.seedForTesting({
-        'n1': (balance: 0, net: -1500, title: 'Shop'),
+        'n1': (balance: 0, net: -1500, title: 'Shop', fromPartner: false),
       });
+      expect(CalendarReportService.sampleInput(augustAsked(events)).money, {
+        'shop': -1500,
+      });
+      final measures = CalendarReportService().report(augustAsked(events));
+      expect(measures.measures['other']!.spentCents, 1500);
+    });
+
+    // Review A11: a link an event of mine made to a partner's note before
+    // the picker left them out counted their lines in my report.
+    test('money leaves out a linked note that is the partner\'s', () {
+      final events = [
+        ev('shop', 'other', day(2026, 8, 3)).copyWith(noteId: 'n1'),
+        ev('dinner', 'other', day(2026, 8, 4)).copyWith(noteId: 'theirs'),
+      ];
+      NoteMoneyLedgerService.seedForTesting({
+        'n1': (balance: 0, net: -1500, title: 'Shop', fromPartner: false),
+        'theirs': (balance: 0, net: 10000, title: 'Dinner', fromPartner: true),
+      });
+
       expect(CalendarReportService.sampleInput(augustAsked(events)).money, {
         'shop': -1500,
       });
@@ -1445,7 +1464,7 @@ void main() {
       );
 
       NoteMoneyLedgerService.seedForTesting({
-        'n1': (balance: 0, net: -1200, title: 'Rent'),
+        'n1': (balance: 0, net: -1200, title: 'Rent', fromPartner: false),
       });
       final reports = CalendarReportService();
       final august = reports.report(augustAsked(events));

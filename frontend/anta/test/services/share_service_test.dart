@@ -14,6 +14,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/share_notice.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/models/share_settings.dart';
+import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/pairing_service.dart';
@@ -57,6 +58,9 @@ class _FakeSyncSource implements ShareSyncSource {
     parked.add(answer);
     return answer.future;
   }
+
+  @override
+  Future<bool> boundToAnotherAccount() async => false;
 
   @override
   Stream<void> get changes => _changes.stream;
@@ -121,6 +125,7 @@ void main() {
   Future<ShareService> open({
     FakePairingGateway? gateway,
     AppUser? user = const AppUser(uid: 'me'),
+    ShareSyncSource? source,
   }) async {
     categories = await CategoryService.forTesting(db);
     events = await CalendarEventService.forTesting(db);
@@ -133,7 +138,7 @@ void main() {
       db: db,
       settings: settings,
       pairing: pairing,
-      sync: sync,
+      sync: source ?? sync,
       markEvent: (id, pairId) {
         eventMarks.add((id, pairId));
         return db.calendarEventDao.setSharedPair(id, pairId);
@@ -506,6 +511,104 @@ void main() {
       ])).single;
       expect(row.sharedPair, 'pair-1');
     });
+
+    group('in the order asked (review A4, third leg)', () {
+      /// Answers the availability asks the sync source holds, the newest
+      /// first, until none is left: writes that did not wait their turn
+      /// would each be parked there, and land in reverse.
+      Future<void> answerNewestFirst() async {
+        for (var round = 0; round < 20; round++) {
+          await pumpEventQueue();
+          final parked = sync.gate!;
+          if (parked.isEmpty) return;
+          parked.removeLast().complete(true);
+        }
+      }
+
+      test('three writes asked in a row while the first is held land in '
+          'the order asked', () async {
+        await pairWith();
+        final share = await open();
+        await event('e1');
+        await event('e2');
+        sync.gate = [];
+
+        final writes = [
+          share.setEventShared('e1', true),
+          share.setEventShared('e1', false),
+          share.setEventShared('e2', true),
+        ];
+        await pumpEventQueue();
+        expect(sync.gate, hasLength(1), reason: 'the later two wait');
+        await answerNewestFirst();
+        await Future.wait(writes);
+
+        expect(eventMarks, [
+          ('e1', 'pair-1'),
+          ('e1', null),
+          ('e2', 'pair-1'),
+        ]);
+        expect(cached('e1').markedShared, isFalse);
+        expect(cached('e2').markedShared, isTrue);
+      });
+
+      test('a write that throws does not hold the one asked after it', () async {
+        await pairWith();
+        final share = await open();
+        final trips = (await db.folderDao.createFolder(name: 'Trips')).id;
+        final notes = (await db.folderDao.createFolder(name: 'Notes')).id;
+        failingFolderWrite = 1;
+
+        final failing = share.setFolderShared(trips, true);
+        final next = share.setFolderShared(notes, true);
+
+        await expectLater(failing, throwsA(isA<StateError>()));
+        expect((await next).sharedFolders.single.id, notes);
+        expect(await marks(), {'folders/$notes'});
+      });
+
+      test('a write whose turn comes after a database switch writes nothing '
+          'and fails', () async {
+        await pairWith();
+        final share = await open();
+        final trips = (await db.folderDao.createFolder(name: 'Trips')).id;
+        final notes = (await db.folderDao.createFolder(name: 'Notes')).id;
+        sync.gate = [];
+
+        final first = share.setFolderShared(trips, true);
+        final second = share.setFolderShared(notes, true);
+        await pumpEventQueue();
+        expect(sync.gate, hasLength(1), reason: 'the second waits');
+        DatabaseLifecycle.notifyDatabaseSwitching();
+        sync.gate!.single.complete(true);
+
+        await expectLater(second, throwsA(isA<ShareDatabaseSwitched>()));
+        await first.then<void>((_) {}, onError: (Object _) {});
+        expect([for (final (id, _) in folderMarks) id], isNot(contains(notes)));
+      });
+
+      test('the service built after a switch starts clean: a write held on '
+          'the old one holds none of its own', () async {
+        await pairWith();
+        final old = await open();
+        final trips = (await db.folderDao.createFolder(name: 'Trips')).id;
+        final notes = (await db.folderDao.createFolder(name: 'Notes')).id;
+        sync.gate = [];
+        final held = old.setFolderShared(trips, true);
+        await pumpEventQueue();
+
+        DatabaseLifecycle.notifyDatabaseSwitching();
+        final fresh = await open(source: _FakeSyncSource());
+
+        expect(identical(fresh, old), isFalse);
+        final change = await fresh
+            .setFolderShared(notes, true)
+            .timeout(const Duration(seconds: 5));
+        expect(change.sharedFolders.single.id, notes);
+        sync.gate!.single.complete(true);
+        await held.then<void>((_) {}, onError: (Object _) {});
+      });
+    });
   });
 
   group('what I share', () {
@@ -609,6 +712,69 @@ void main() {
         )).unsharedCategories.map((c) => c.id),
         unorderedEquals([work, travel]),
       );
+    });
+
+    // Review A5: the sheet's whole set, read at its open, un-shared what
+    // another phone or the shared reader had marked since.
+    test('the tick sheet\'s change writes only what it names, over the marks '
+        'as they stand: one set elsewhere since stays', () async {
+      await pairWith();
+      final share = await open();
+      final work = await custom('Work');
+      final travel = await custom('Travel');
+      await share.setCategoriesShared({work});
+      // Marked while the sheet, opened on {work}, was up.
+      await share.setCategoryShared(travel, true);
+      categoryMarks.clear();
+
+      final change = await share.changeCategoriesShared(
+        shared: {'gym', work},
+        unshared: {'other'},
+      );
+
+      expect(categoryMarks.toSet(), {
+        ('gym', 'pair-1'),
+        (work, 'pair-1'),
+        ('other', null),
+      });
+      expect(change.sharedCategories.map((c) => c.id), ['gym']);
+      expect(change.unsharedCategories, isEmpty);
+      expect(await marks(), {
+        'calendar_categories/$work',
+        'calendar_categories/$travel',
+        'calendar_categories/gym',
+      });
+    });
+
+    test('the tick sheet\'s change handed a partner\'s category and a deleted '
+        'one writes nothing and names nothing', () async {
+      await pairWith();
+      final share = await open();
+      final gone = await custom('Gone');
+      await categories.deleteCategory(gone);
+      await db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: 'p1',
+          name: 'Their trips',
+          colorValue: 0xFF336699,
+          iconKey: 'event',
+          isBuiltIn: const Value(false),
+          createdAt: day,
+          updatedAt: day,
+        ),
+      );
+      await db.customStatement(
+        "UPDATE calendar_categories SET owner_id = 'partner' WHERE id = 'p1'",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      await db.syncOutboxDao.clear();
+
+      final change = await share.changeCategoriesShared(shared: {'p1', gone});
+
+      expect(change.sharedCategories, isEmpty);
+      expect(change.unsharedCategories, isEmpty);
+      expect(await marks(), isEmpty);
+      expect(await queued(), isEmpty);
     });
 
     test('undo writes back exactly what the change wrote', () async {
@@ -725,6 +891,44 @@ void main() {
       expect(await share.stopAll(), 1);
       expect(await marks(), isEmpty);
       expect(await queued(), contains('calendar_events/e1'));
+    });
+
+    test('on a database bound to another account than the one signed in, '
+        'the overview lists nothing of mine and stopAll writes nothing — '
+        'the marks are that account\'s (A1)', () async {
+      await settings.setSyncBinding(
+        const SyncBinding(spaceId: 'space-me', ownerUid: 'me', accountUid: 'me'),
+      );
+      await pairWith();
+      final folder = await db.folderDao.createFolder(name: 'Shelf');
+      await db.folderDao.setSharedPair(folder.id, 'pair-1');
+      // The second account signs in on this phone and adopts its own pair.
+      await settings.setPairingSettings(
+        const PairingSettings(
+          pairId: 'pair-b',
+          accountUid: 'b',
+          partnerUid: 'ana-uid',
+          partnerName: 'Ana',
+        ),
+      );
+      const signedIn = AppUser(uid: 'b');
+      final share = await open(
+        user: signedIn,
+        source: BindingShareSyncSource(
+          currentUser: () => signedIn,
+          authChanges: const Stream.empty(),
+          binding: settings.getSyncBinding,
+          bindingChanges: () => const Stream.empty(),
+          offline: () async => false,
+          activity: () => const Stream.empty(),
+        ),
+      );
+      await db.syncOutboxDao.clear();
+
+      expect((await share.overview(withCounts: true)).sharesAnything, isFalse);
+      expect(await share.stopAll(), 0);
+      expect(await marks(), {'folders/${folder.id}'});
+      expect(await queued(), isEmpty);
     });
 
     test('a switch-off that writes nothing but mends a flag the cache held '
@@ -1421,6 +1625,32 @@ void main() {
       await pumpEventQueue();
       expect(runs, 0);
       expect(sharedReads, 0);
+    });
+
+    // Review A1, closing review: the binding is asked after the pairing.
+    test('an account that never paired reads no binding for the overview, '
+        'over the app\'s own sync source', () async {
+      var bindingReads = 0;
+      final share = await open(
+        source: BindingShareSyncSource(
+          currentUser: () => const AppUser(uid: 'me'),
+          authChanges: const Stream<AppUser?>.empty(),
+          binding: () async {
+            bindingReads++;
+            return settings.getSyncBinding();
+          },
+          bindingChanges: () => const Stream<Object?>.empty(),
+          offline: () async => false,
+          activity: () => const Stream<SyncActivity>.empty(),
+        ),
+      );
+      counter.reset();
+
+      expect(await share.overview(), ShareOverview.empty);
+      expect(await share.overview(withCounts: true), ShareOverview.empty);
+
+      expect(bindingReads, 0);
+      expect(counter.captured, isEmpty);
     });
 
     test('refreshShared asks for one shared read while ready, none '

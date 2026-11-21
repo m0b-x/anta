@@ -435,6 +435,67 @@ class FakeSyncGateway implements SyncGateway {
     _signalOf(space).add(record.signal);
   }
 
+  /// Every key [unshareRows] was asked for, as `<table>/<key>`, in order.
+  final List<String> unshared = [];
+
+  /// When set, the next [unshareRows] throws it and changes nothing — the
+  /// clearing's own script, so one aimed at a push by [failNextWith] is
+  /// never spent on a clearing.
+  SyncGatewayException? failNextUnshare;
+
+  /// Run inside [unshareRows] once its documents are written and before it
+  /// returns, so a test can halt the run in the window after the call.
+  Future<void> Function()? onUnshareRows;
+
+  /// As the Firestore gateway's field update: a document that names a pair
+  /// loses the pair and its wire and lands anew, with its row as it was; a
+  /// key with no document and a private one are left alone. Keyed as a push
+  /// keys a document ([SyncEnvelope.rowKey]). Never refused by a [refuse]:
+  /// the rules judge the merged document, which the update keeps valid.
+  @override
+  Future<void> unshareRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys, {
+    required String pushedBy,
+  }) async {
+    _ensureOwner(space.ownerUid);
+    final failure = failNextUnshare;
+    if (failure != null) {
+      failNextUnshare = null;
+      throw failure;
+    }
+    calls.add('unshare:$table');
+    if (rowKeys.length > maxBatch) {
+      throw ArgumentError.value(rowKeys.length, 'rowKeys', 'over limit');
+    }
+    unshared.addAll([for (final key in rowKeys) '$table/$key']);
+    final rows = _store[space]?[table];
+    if (rows == null) return;
+    final sequences = _sequences.putIfAbsent(space, () => {});
+    final now = _tick();
+    for (final key in rowKeys) {
+      final stored = rows[key]?.envelope;
+      if (stored == null || stored.sharedPair == null) continue;
+      rows[key] = _Arrival(
+        SyncEnvelope(
+          table: stored.table,
+          rowKey: stored.rowKey,
+          hlc: stored.hlc,
+          deviceId: stored.deviceId,
+          version: stored.version,
+          op: stored.op,
+          ownerId: stored.ownerId,
+          data: stored.data,
+        ),
+        sequences[table] = (sequences[table] ?? 0) + 1,
+        now,
+        pushedBy,
+      );
+    }
+    await onUnshareRows?.call();
+  }
+
   @override
   Future<SyncPullPage> pullPage(
     SyncSpaceRef space,

@@ -12,11 +12,17 @@ EventTransformer<T> _debounce<T>(Duration duration) {
 
 class NotePickerBloc extends Bloc<NotePickerEvent, NotePickerState> {
   final NoteStorageService _storageService;
+
+  /// Lists the person's own notes alone (`loadNotePickerPage`'s `ownOnly`).
+  final bool _ownOnly;
   String _currentQuery = '';
 
-  NotePickerBloc({required NoteStorageService storageService})
-    : _storageService = storageService,
-      super(const NotePickerInitial()) {
+  NotePickerBloc({
+    required NoteStorageService storageService,
+    bool ownOnly = false,
+  }) : _storageService = storageService,
+       _ownOnly = ownOnly,
+       super(const NotePickerInitial()) {
     on<NotePickerOpened>(_onOpened);
     on<NotePickerPageChanged>(_onPageChanged);
     on<NotePickerQueryChanged>(
@@ -58,6 +64,7 @@ class NotePickerBloc extends Bloc<NotePickerEvent, NotePickerState> {
         query: query,
         page: page,
         pageSize: AppConstants.notePickerPageSize,
+        ownOnly: _ownOnly,
       );
       emit(NotePickerLoaded(paginatedNotes: result, query: query));
     } catch (e) {

@@ -497,8 +497,9 @@ class SyncBindingService {
   }
 
   /// The cursors, the `pull_seen` and settled marks, the stored pull and
-  /// push parks, the initial-merge switch, the server time seen, and the
-  /// quota pause and last-run times — they describe the previous space (F7).
+  /// push parks with the grants taken off under them, the initial-merge
+  /// switch, the server time seen, and the quota pause and last-run times —
+  /// they describe the previous space (F7).
   Future<void> _deletePullState() async {
     await _db.syncDao.deleteByPrefix(SyncDao.pullCursorPrefix);
     await _db.syncDao.deleteByPrefix(SyncDao.pullSeenPrefix);
@@ -507,6 +508,7 @@ class SyncBindingService {
     await _db.syncDao.deleteValue(SyncDao.keyPullParkedBuild);
     await _db.syncDao.deleteByPrefix(SyncDao.pushParkedPrefix);
     await _db.syncDao.deleteValue(SyncDao.keyPushParkedBuild);
+    await _db.syncDao.deleteByPrefix(SyncDao.shareClearedPrefix);
     await _db.syncDao.deleteValue(SyncDao.keyBindMergePending);
     await _db.syncDao.deleteValue(SyncDao.keyQuotaPausedAt);
     await _db.syncDao.deleteValue(SyncDao.keyLastPullAt);

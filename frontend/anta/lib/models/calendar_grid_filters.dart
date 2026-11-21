@@ -231,10 +231,12 @@ class CalendarGridFilters extends Equatable {
       return false;
     }
     if (linkedNotesOnly || moneyOnly) {
-      final noteId = event.noteId;
-      if (noteId == null) return false;
+      if (event.noteId == null) return false;
+      // By the rule the cell draws its money by: an event of mine linked to
+      // a partner's note has none.
       if (moneyOnly &&
-          NoteMoneyLedgerService.instanceOrNull?.ledgerFor(noteId) == null) {
+          NoteMoneyLedgerService.instanceOrNull?.ledgerForEvent(event) ==
+              null) {
         return false;
       }
     }

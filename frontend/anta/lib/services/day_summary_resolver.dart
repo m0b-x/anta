@@ -310,9 +310,10 @@ class MoneyDaySummaryProvider implements DaySummaryProvider {
       if (DateTime.utc(startUtc.year, startUtc.month, startUtc.day) != key) {
         continue;
       }
-      if (!seen.add(noteId)) continue;
-      final ledger = service.ledgerFor(noteId);
+      // The rule before the dedup, as the day bars apply it.
+      final ledger = service.ledgerForEvent(event);
       if (ledger == null) continue;
+      if (!seen.add(noteId)) continue;
       sum += ledger.net;
       titles.add(ledger.title);
     }

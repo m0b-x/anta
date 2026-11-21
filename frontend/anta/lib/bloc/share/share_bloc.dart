@@ -16,7 +16,14 @@ export 'share_state.dart';
 
 /// The Sharing page's bloc (`docs/cloud-share-surfaces-roadmap.md` §6.1):
 /// it routes the page's intents to [ShareService] and holds the overview
-/// the service reads. Every rule is the service's.
+/// the service reads. Every rule is the service's, the order of the share
+/// writes too.
+///
+/// An act's write starts when the act is added ([add]); its handler, one
+/// at a time, waits for it and says how it ended. So two quick ✕ are both
+/// on their way before the page can close, and a close drops nothing: a
+/// write ends on its own, and one that fails once the bloc has gone is said
+/// by its surface's [ShareActEvent.failedPastBloc].
 class ShareBloc extends Bloc<ShareEvent, ShareState> {
   final Future<ShareService> Function() _resolveService;
   final Stream<Object?> _calendarChanges;
@@ -55,45 +62,16 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       return _reload(emit);
     });
     on<ShareSourcesChanged>((_, emit) => _reload(emit));
-    on<ShareActEvent>(
-      (event, emit) => switch (event) {
-        ShareCategoriesSet(:final ids) => _act(
-          emit,
-          ShareAct.categoriesSet,
-          (service) => service.setCategoriesShared(ids),
-        ),
-        ShareEventUnshared(:final eventId) => _act(
-          emit,
-          ShareAct.eventUnshared,
-          (service) => service.setEventShared(eventId, false),
-          asker: event.asker,
-        ),
-        ShareFolderShared(:final folderId) => _act(
-          emit,
-          ShareAct.folderShared,
-          (service) => service.setFolderShared(folderId, true),
-          asker: event.asker,
-        ),
-        ShareFolderUnshared(:final folderId) => _act(
-          emit,
-          ShareAct.folderUnshared,
-          (service) => service.setFolderShared(folderId, false),
-          asker: event.asker,
-        ),
-        // One the close handed over is written there, never twice.
-        ShareUndoRequested(:final change) =>
-          _queuedUndos.remove(event)
-              ? _act(
-                  emit,
-                  ShareAct.undo,
-                  (service) => service.undo(change),
-                  asker: event.asker,
-                )
-              : Future<void>.value(),
-        ShareStopAllRequested() => _onStopAll(emit),
-      },
-      transformer: oneAtATime,
-    );
+    on<ShareActEvent>((event, emit) {
+      // The first of the acts started for this event whose handler has not
+      // run: an act added twice is two writes, in the order added.
+      for (final started in _started) {
+        if (started.handled || !identical(started.event, event)) continue;
+        started.handled = true;
+        return _run(started, emit);
+      }
+      return Future<void>.value();
+    }, transformer: oneAtATime);
     on<ShareCategoryShownSet>(
       (event, emit) => _set(
         emit,
@@ -148,6 +126,38 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     on<SharePartnerEventHeldRequested>(_onEventHeld);
   }
 
+  Future<void> _run(_StartedAct started, Emitter<ShareState> emit) {
+    final event = started.event;
+    return switch (event) {
+      ShareCategoriesSet() => _act(emit, ShareAct.categoriesSet, started),
+      ShareEventUnshared() => _act(
+        emit,
+        ShareAct.eventUnshared,
+        started,
+        asker: event.asker,
+      ),
+      ShareFolderShared() => _act(
+        emit,
+        ShareAct.folderShared,
+        started,
+        asker: event.asker,
+      ),
+      ShareFolderUnshared() => _act(
+        emit,
+        ShareAct.folderUnshared,
+        started,
+        asker: event.asker,
+      ),
+      ShareUndoRequested() => _act(
+        emit,
+        ShareAct.undo,
+        started,
+        asker: event.asker,
+      ),
+      ShareStopAllRequested() => _onStopAll(emit, started),
+    };
+  }
+
   Future<void> _onEventHeld(
     SharePartnerEventHeldRequested event,
     Emitter<ShareState> emit,
@@ -189,6 +199,11 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
   /// falls back to these, so a value never stored is not drawn as if it
   /// were once its write has given up.
   ShareOverview? _readOverview;
+
+  /// The overview reads that answered, counted, and the number of the one
+  /// [_readOverview] holds ([ShareLoaded.read]).
+  int _reads = 0;
+  int _lastRead = 0;
   ShareLook _readLook = const ShareLook();
   ShareAlerts _readAlerts = ShareAlerts.own;
 
@@ -251,23 +266,26 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     if (!isClosed) await _reload(emit);
   }
 
-  Future<void> _onStopAll(Emitter<ShareState> emit) async {
+  Future<void> _onStopAll(Emitter<ShareState> emit, _StartedAct started) async {
     final sequence = ++_outcomes;
+    ShareOutcome outcome;
     try {
-      final cleared = await (await _resolve()).stopAll();
-      _outcome = ShareOutcome(
+      final cleared = await started.write as int;
+      outcome = ShareOutcome(
         sequence: sequence,
         act: ShareAct.stopAll,
         cleared: cleared,
       );
-    } catch (e, st) {
-      debugPrint('[ShareBloc] stop all failed: $e\n$st');
-      _outcome = ShareOutcome(
+    } catch (_) {
+      // Logged where the write started ([add]).
+      outcome = ShareOutcome(
         sequence: sequence,
         act: ShareAct.stopAll,
         failure: ShareFailure.failed,
       );
     }
+    if (!_answers(started)) return;
+    _outcome = outcome;
     await _reload(emit);
     _carryOutcome(emit, sequence);
   }
@@ -275,36 +293,50 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
   Future<void> _act(
     Emitter<ShareState> emit,
     ShareAct act,
-    Future<ShareChange> Function(ShareService service) write, {
+    _StartedAct started, {
     Object? asker,
   }) async {
     final sequence = ++_outcomes;
+    ShareOutcome outcome;
     try {
-      final change = await write(await _resolve());
-      _outcome = ShareOutcome(
+      final change = await started.write as ShareChange;
+      outcome = ShareOutcome(
         sequence: sequence,
         act: act,
         change: change,
         asker: asker,
       );
     } on ShareRefused {
-      _outcome = ShareOutcome(
+      outcome = ShareOutcome(
         sequence: sequence,
         act: act,
         failure: ShareFailure.refused,
         asker: asker,
       );
-    } catch (e, st) {
-      debugPrint('[ShareBloc] ${act.name} failed: $e\n$st');
-      _outcome = ShareOutcome(
+    } catch (_) {
+      // Logged where the write started ([add]).
+      outcome = ShareOutcome(
         sequence: sequence,
         act: act,
         failure: ShareFailure.failed,
         asker: asker,
       );
     }
+    if (!_answers(started)) return;
+    _outcome = outcome;
     await _reload(emit);
     _carryOutcome(emit, sequence);
+  }
+
+  /// Whether [started]'s handler says how its write ended: not once the
+  /// bloc is closing, where a failure is said past it instead
+  /// ([_sayPastBloc]) — by [close] when it had already failed, by the
+  /// write's own end otherwise.
+  bool _answers(_StartedAct started) {
+    _started.remove(started);
+    if (_closing) return false;
+    started.said = true;
+    return true;
   }
 
   /// The act [sequence] answered is said whatever the reload after it did:
@@ -324,6 +356,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         look: shown.look,
         alerts: shown.alerts,
         outcome: outcome,
+        read: shown.read,
       ),
     );
   }
@@ -341,10 +374,15 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       return;
     }
     ShareOverview overview;
+    int read;
     try {
       overview = await service.overview(withCounts: _opened);
+      read = ++_reads;
       // A read a newer load overtook is not the last one read.
-      if (load == _loads) _readOverview = overview;
+      if (load == _loads) {
+        _readOverview = overview;
+        _lastRead = read;
+      }
     } catch (e, st) {
       // The page keeps what was last read; the next change reads again.
       // With nothing read yet, "None" would be a claim the read never made.
@@ -352,6 +390,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       final last = _readOverview;
       if (last != null) {
         overview = last;
+        read = _lastRead;
       } else {
         if (load == _loads) emit(const ShareLoadFailed());
         return;
@@ -377,6 +416,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       look: _readLook,
       alerts: _readAlerts,
       outcome: _outcome,
+      read: read,
     );
     for (final shows in _pending) {
       next = shows(next);
@@ -408,43 +448,120 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     );
   }
 
-  /// The Undos added and not yet started, oldest first: the acts run one at
-  /// a time, and an Undo queued behind a running one would be dropped with
-  /// the queue when the bloc closes.
-  final List<ShareUndoRequested> _queuedUndos = [];
+  /// The acts whose writes have started and whose end is not yet said by
+  /// their handler, oldest first: the handlers run one at a time, and those
+  /// that have not run when the bloc closes never will.
+  final List<_StartedAct> _started = [];
 
+  /// Set first thing in [close]: [isClosed] turns true only at its end, and
+  /// an act added in between would be refused by the closed event stream —
+  /// lost, and thrown at its asker. From here on a write's failure is said
+  /// past the bloc.
+  bool _closing = false;
+
+  /// Starts an act's write at once — the service writes in the order it is
+  /// asked, so acts added in order land in order, and before any later
+  /// write a surface or a reopened page asks for — and hands the act to its
+  /// handler, which waits for that write. Added while the bloc is closing
+  /// or closed, it is written all the same, and only a failure is said.
   @override
   void add(ShareEvent event) {
-    if (event is ShareUndoRequested && !isClosed) _queuedUndos.add(event);
+    if (event is! ShareActEvent) return super.add(event);
+    final started = _StartedAct(event);
+    started.write = _write(event);
+    unawaited(
+      started.write.then<void>(
+        (_) {},
+        onError: (Object e, StackTrace st) {
+          if (e is! ShareRefused) {
+            debugPrint('[ShareBloc] ${event.runtimeType} failed: $e\n$st');
+          }
+          started.failure = e is ShareRefused
+              ? ShareFailure.refused
+              : ShareFailure.failed;
+          if (_closing) _sayPastBloc(started);
+        },
+      ),
+    );
+    if (_closing) return;
+    _started.add(started);
     super.add(event);
   }
 
-  /// An Undo still queued is written the way an Undo tapped after its bloc
-  /// has gone is — through the surface's own road when it gave one, which
-  /// says a failure on the app's messenger, else through the service.
+  /// [event]'s write, asked of the service through [_resolveService]: the
+  /// calls resolve in the order they were made, so they reach the service
+  /// in the order the acts were added.
+  Future<Object> _write(ShareActEvent event) async {
+    final generation = ShareService.databaseGeneration;
+    final service = await _resolveService();
+    // A switch while the service resolved hands back the new database's,
+    // which must not take an act asked under the old one.
+    if (ShareService.databaseGeneration != generation) {
+      throw const ShareDatabaseSwitched();
+    }
+    return switch (event) {
+      ShareCategoriesSet(:final shared, :final unshared) =>
+        service.changeCategoriesShared(shared: shared, unshared: unshared),
+      ShareEventUnshared(:final eventId) => service.setEventShared(
+        eventId,
+        false,
+      ),
+      ShareFolderShared(:final folderId) => service.setFolderShared(
+        folderId,
+        true,
+      ),
+      ShareFolderUnshared(:final folderId) => service.setFolderShared(
+        folderId,
+        false,
+      ),
+      ShareUndoRequested(:final change) => service.undo(change),
+      ShareStopAllRequested() => service.stopAll(),
+    };
+  }
+
+  /// A failure its handler will not say, said once by the road its surface
+  /// gave: neither the bloc nor, often, the surface is left to say it.
+  void _sayPastBloc(_StartedAct started) {
+    final failure = started.failure;
+    if (started.said || failure == null) return;
+    started.said = true;
+    started.event.failedPastBloc?.call(failure);
+  }
+
+  /// Drops nothing: every act added has its write on its way. One that
+  /// already failed and waits for a handler that will not run now is said
+  /// past the bloc here; one still writing, when it ends ([add]).
   @override
   Future<void> close() {
+    _closing = true;
     _availabilitySubscription?.cancel();
     _calendarSubscription?.cancel();
     _runsSubscription?.cancel();
-    final orphaned = List.of(_queuedUndos);
-    _queuedUndos.clear();
-    for (final undo in orphaned) {
-      unawaited(_writeOrphaned(undo));
+    for (final started in _started) {
+      _sayPastBloc(started);
     }
+    _started.clear();
     return super.close();
   }
+}
 
-  Future<void> _writeOrphaned(ShareUndoRequested undo) async {
-    try {
-      final pastBloc = undo.pastBloc;
-      if (pastBloc != null) {
-        await pastBloc(undo.change);
-      } else {
-        await (await _resolveService()).undo(undo.change);
-      }
-    } catch (e, st) {
-      debugPrint('[ShareBloc] queued undo not written: $e\n$st');
-    }
-  }
+/// An act whose write [ShareBloc.add] started, until its handler or the
+/// bloc's close has said how it ended.
+final class _StartedAct {
+  _StartedAct(this.event);
+
+  final ShareActEvent event;
+
+  /// The service's answer: a [ShareChange], or the count "Stop sharing
+  /// everything" cleared.
+  late final Future<Object> write;
+
+  /// Its handler has started.
+  bool handled = false;
+
+  /// How its write failed, once it has.
+  ShareFailure? failure;
+
+  /// Its end has been said — by its outcome, or past the bloc.
+  bool said = false;
 }

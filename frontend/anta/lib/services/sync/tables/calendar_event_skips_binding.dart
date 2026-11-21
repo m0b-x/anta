@@ -26,6 +26,9 @@ final class CalendarEventSkipsBinding extends SyncTableBinding<EventSkipRow> {
   @override
   String rowKeyOf(EventSkipRow row) => dayRowKey(row.eventId, row.day);
 
+  @override
+  String documentKeyOf(String rowKey) => dayDocumentKeyOf(rowKey);
+
   /// A skipped day is shared as its event is.
   @override
   Future<Map<String, String>> sharedPairs(

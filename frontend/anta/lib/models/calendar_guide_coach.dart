@@ -59,11 +59,14 @@ class GuideCoach {
   bool hasDone(String action) => _done.contains(action);
 
   /// [action] — one of [steps] — happened: its step is done. The stage
-  /// shows what it did (D49), so the line goes back to an instruction.
-  void did(String action) {
+  /// shows what it did (D49), so the line goes back to an instruction —
+  /// unless [keepReport]: a step the stage marked by itself, no act of
+  /// hers (a two-phone card's beat landing), leaves the report of her last
+  /// act standing.
+  void did(String action, {bool keepReport = false}) {
     assert(hasStep(action), action);
     _done.add(action);
-    _report = null;
+    if (!keepReport) _report = null;
     _cursor = null;
   }
 

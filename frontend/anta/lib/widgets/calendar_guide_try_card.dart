@@ -88,6 +88,20 @@ abstract class GuideCardDemo extends ChangeNotifier {
   /// sits at its top edge as the real bar sits under the status bar.
   bool get stageFlush => false;
 
+  /// The stage starts at its top hairline and keeps its padding below and
+  /// at the sides (`docs/guide-hub-roadmap.md` §11.8 A): a two-phone stage,
+  /// whose phone bar sits on that hairline as a real bar sits under the
+  /// status bar. Unlike [stageFlush], the rows below keep their air.
+  bool get stageTopFlush => false;
+
+  /// Drawn on the card between the coach line and the stage, inside the
+  /// card's inset and clamped with the coach line (§11.8 A, B): the
+  /// two-phone flip, which would read as one of the app's controls inside
+  /// the stage. Null — every stage that is one picture — draws nothing and
+  /// keeps the card exactly as it was. What it returns reads its text scale
+  /// in its own build, under that clamp.
+  Widget? buildAboveStage(BuildContext context) => null;
+
   /// The coach line now: one clause (D49) — the next instruction, or the
   /// report of an action the stage cannot show.
   String line(AppLocalizations l10n) => _coach.line(l10n);
@@ -128,11 +142,20 @@ abstract class GuideCardDemo extends ChangeNotifier {
   }
 
   /// [action] — a coach step's — just happened; the stage shows what it
-  /// did, so the line moves on to what is next.
+  /// did, so the line moves on to what is next. [keepReport] for a step no
+  /// act of hers marked ([GuideCoach.did]).
   @protected
-  void did(String action) {
+  void did(String action, {bool keepReport = false}) {
     if (_disposed) return;
-    _coach.did(action);
+    _coach.did(action, keepReport: keepReport);
+    notifyListeners();
+  }
+
+  /// Redraws the card and leaves the line as it is, for a change no act of
+  /// hers made; dropped once the page has disposed the demo.
+  @protected
+  void redraw() {
+    if (_disposed) return;
     notifyListeners();
   }
 
@@ -294,6 +317,7 @@ class CalendarGuideTryCard extends StatelessWidget {
             ? null
             : BorderRadius.circular(GuideMetrics.stageRadius);
         final reading = demo.reading;
+        final above = demo.buildAboveStage(context);
         final ink = colorScheme.onSurfaceVariant;
         final disabledInk = ink.withValues(alpha: FormMetrics.disabledOpacity);
         return Padding(
@@ -372,6 +396,13 @@ class CalendarGuideTryCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: GuideMetrics.coachToStage),
+              if (above != null) ...[
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: GuideMetrics.flipMaxTextScale,
+                  child: Padding(padding: inset, child: above),
+                ),
+                const SizedBox(height: GuideMetrics.flipToStage),
+              ],
               Padding(
                 padding: fullBleed ? EdgeInsets.zero : inset,
                 // The stage draws the real calendar's widgets as the calendar
@@ -399,13 +430,14 @@ class CalendarGuideTryCard extends StatelessWidget {
                               child: demo.buildStage(context),
                             )
                           : Padding(
-                              padding: fullBleed
-                                  ? const EdgeInsets.symmetric(
-                                      vertical: GuideMetrics.stagePadding,
-                                    )
-                                  : const EdgeInsets.all(
-                                      GuideMetrics.stagePadding,
-                                    ),
+                              padding: EdgeInsets.fromLTRB(
+                                fullBleed ? 0 : GuideMetrics.stagePadding,
+                                demo.stageTopFlush
+                                    ? 0
+                                    : GuideMetrics.stagePadding,
+                                fullBleed ? 0 : GuideMetrics.stagePadding,
+                                GuideMetrics.stagePadding,
+                              ),
                               child: demo.buildStage(context),
                             ),
                     ),

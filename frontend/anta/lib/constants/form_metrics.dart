@@ -271,6 +271,12 @@ abstract final class FormMetrics {
   /// the name of the category it joins (slice D §0).
   static const int receivedCaptionMaxLines = 4;
 
+  /// The lines a field's inline refusal may take under it — the pairing
+  /// sheet's "That code is not valid any more. Ask for a new one.": the
+  /// decorator's one line cut it on a 360 phone at 1.0, and German at 2.0
+  /// runs it to four. The sheet grows by the lines it shows.
+  static const int fieldErrorMaxLines = 4;
+
   /// A caption line that belongs to the row above it (the next occurrences
   /// after "Next occurrence", the adherence lines under the presence chips):
   /// the pair's own 6 dp already separates it from the value, so only the
@@ -383,6 +389,11 @@ abstract final class FormMetrics {
   static const double chipFontSize = 14;
   static const double chipTapTarget = 48;
   static const EdgeInsets chipPadding = EdgeInsets.symmetric(horizontal: 14);
+
+  /// A chip's leading glyph (`FormChip.glyph`) and its air to the label:
+  /// Material's chip avatar size and gap.
+  static const double chipGlyphSize = 18;
+  static const double chipGlyphGap = 8;
   static const EdgeInsets chipRowPadding = EdgeInsets.fromLTRB(
     subRowInset,
     8,

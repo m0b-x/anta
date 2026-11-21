@@ -15,15 +15,17 @@ import 'settings_service.dart';
 /// notes.
 ///
 /// For every note linked from a calendar event this stores the folded
-/// ledger balance, the net change contributed by arithmetic ops, and the
-/// note title, so the calendar's day-bar / day-summary providers and the
-/// month header can stay pure and synchronous. Nothing is persisted — the
-/// cache is a pure function of note content, rebuilt by [refresh] and
-/// invalidated per note by the [NoteRepository.noteChanges] stream.
+/// ledger balance, the net change contributed by arithmetic ops, the note
+/// title and whether the note is the partner's, so the calendar's day-bar /
+/// day-summary providers and the month header can stay pure and
+/// synchronous. Nothing is persisted — the cache is a pure function of note
+/// content, rebuilt by [refresh] and invalidated per note by the
+/// [NoteRepository.noteChanges] stream.
 class NoteMoneyLedgerService {
   static NoteMoneyLedgerService? _instance;
 
-  final Map<String, ({int balance, int net, String title})> _ledgers = {};
+  final Map<String, ({int balance, int net, String title, bool fromPartner})>
+  _ledgers = {};
   StreamSubscription<NoteChange>? _changeSub;
 
   /// Cached notes changed since their last fold, refolded together once
@@ -67,7 +69,8 @@ class NoteMoneyLedgerService {
   /// [instanceOrNull] and need no database. [reset] removes it.
   @visibleForTesting
   static NoteMoneyLedgerService seedForTesting(
-    Map<String, ({int balance, int net, String title})> ledgers,
+    Map<String, ({int balance, int net, String title, bool fromPartner})>
+    ledgers,
   ) {
     final service = _instance ?? NoteMoneyLedgerService._();
     service._ledgers
@@ -112,6 +115,9 @@ class NoteMoneyLedgerService {
     if (linked.isEmpty) return;
 
     final repository = GetIt.I<NoteRepository>();
+    // Whose each note is, said on its entry: a partner's event shows its
+    // own note's money on my day bars, while a report never counts it.
+    final shares = await repository.shareCensus.read();
     final notes = await repository.getNotesByIds(linked.toList());
     // Two statements for the whole set, not two per linked note: every
     // event create and every event edit re-runs this refresh.
@@ -138,6 +144,7 @@ class NoteMoneyLedgerService {
           balance: folded.balance,
           net: folded.net,
           title: note.title,
+          fromPartner: shares.isPartner(note.ownerId),
         );
       } catch (e) {
         debugPrint('[NoteMoneyLedgerService] Refresh error for ${note.id}: $e');
@@ -148,8 +155,28 @@ class NoteMoneyLedgerService {
 
   /// Ledger summary for [noteId], or `null` when the note is not cached.
   /// Pure map read — safe to call per cell per rebuild.
-  ({int balance, int net, String title})? ledgerFor(String noteId) =>
-      _ledgers[noteId];
+  ({int balance, int net, String title, bool fromPartner})? ledgerFor(
+    String noteId,
+  ) => _ledgers[noteId];
+
+  /// The ledger of [event]'s linked note as it counts for [event], or
+  /// `null` when it counts for none — the one rule the day bars, the day
+  /// summary, the month header and the report share: a note counts when it
+  /// is mine or the event is the partner's too. An event of mine linked to
+  /// a partner's note (a link made before the picker listed my notes
+  /// alone) never brings the partner's money into mine; the partner's own
+  /// event keeps its money. Pure map read, like [ledgerFor].
+  ({int balance, int net, String title, bool fromPartner})? ledgerForEvent(
+    CalendarEvent event,
+  ) {
+    final noteId = event.noteId;
+    if (noteId == null) return null;
+    final entry = _ledgers[noteId];
+    if (entry == null || (entry.fromPartner && !event.fromPartner)) {
+      return null;
+    }
+    return entry;
+  }
 
   /// Bumped on every mutation of [_ledgers]. Callers that memoize a
   /// derived sum (the calendar header's month net) store this alongside
@@ -255,11 +282,13 @@ class NoteMoneyLedgerService {
         return;
       }
       final content = await repository.loadContent(noteId);
+      final shares = await repository.shareCensus.read();
       final folded = _fold(content);
       _ledgers[noteId] = (
         balance: folded.balance,
         net: folded.net,
         title: notes.first.title,
+        fromPartner: shares.isPartner(notes.first.ownerId),
       );
       _revision++;
     } catch (e) {

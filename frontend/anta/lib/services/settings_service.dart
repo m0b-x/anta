@@ -2616,25 +2616,57 @@ class SettingsService {
   /// in every list of the app's own until then — seconds, or as long as
   /// the phone was offline. A database with no mark pays the one statement
   /// that says so. Returns how many marks were cleared.
-  Future<int> setPairingSettings(
+  ///
+  /// What a write costs past its eight rows: one that stores no pair,
+  /// nothing; one that stores a pair, one read of the last pair, and one
+  /// read of the binding ([boundToAnotherAccount]) only when a step must
+  /// know whose the database's sharing is — a mark exists to clear,
+  /// an alert reset is asked, or the last pair would change. The same pair
+  /// adopted again on a database with no mark reads the last pair alone.
+  ///
+  /// Only when the marks are the adopting account's
+  /// ([PairingSettings.accountUid]) to take away (D39's amendment): the
+  /// database is bound to no space, or to that account's. One bound to
+  /// another account keeps them — that account's sign-in on this phone
+  /// would drain their clearing under its own binding, and its partner
+  /// would lose everything it shared to someone else's pair.
+  ///
+  /// The same holds for the rest of the binding owner's sharing state: on
+  /// a database bound to another account, a pair stored neither resets the
+  /// alert choice nor is remembered as the last pair — remembered, it would
+  /// read as another pair at the owner's return and reset the choice then.
+  ///
+  /// Answers how many marks were cleared, and whether [startAlertsAt] was
+  /// stored — the alert pass that follows a reset is owed only then.
+  Future<({int marksCleared, bool alertsReset})> setPairingSettings(
     PairingSettings settings, {
     ShareAlerts? startAlertsAt,
     bool clearMarksOfOtherPairs = false,
   }) async {
     var cleared = 0;
+    var alertsReset = false;
     await _db.transaction(() async {
+      // Read once, and only when a step below needs to know.
+      bool? owners;
+      Future<bool> owns() async => owners ??=
+          settings.pairId == null ||
+          !await boundToAnotherAccount(settings.accountUid);
       if (clearMarksOfOtherPairs &&
           settings.pairId != null &&
-          await _db.syncDao.anyShareMark()) {
+          await _db.syncDao.anyShareMark() &&
+          await owns()) {
         cleared = await _db.folderDao.clearSharesExcept(settings.pairId);
       }
-      if (startAlertsAt != null) {
+      if (startAlertsAt != null && await owns()) {
         await _db.userSettingsDao.setValue(
           SettingsKeys.shareAlerts,
           startAlertsAt.name,
         );
+        alertsReset = true;
       }
-      if (settings.pairId != null) {
+      if (settings.pairId != null &&
+          await getLastPairId() != settings.pairId &&
+          await owns()) {
         await _write(SettingsKeys.pairingLastPair, settings.pairId);
       }
       await _write(SettingsKeys.pairingPairId, settings.pairId);
@@ -2652,8 +2684,26 @@ class SettingsService {
       );
       await _write(SettingsKeys.pairingEndedPair, settings.endedPairId);
     });
-    if (startAlertsAt != null) EventAlerts.configureShareAlerts(startAlertsAt);
-    return cleared;
+    if (alertsReset) EventAlerts.configureShareAlerts(startAlertsAt);
+    return (marksCleared: cleared, alertsReset: alertsReset);
+  }
+
+  /// Whether this database is bound to a space by another account than
+  /// [accountUid] — the one signed in, or the one a write is for. What such
+  /// a database shares is that account's: nobody else may change it here.
+  /// False for a database bound to no space.
+  ///
+  /// True for a null [accountUid] on a bound database, on purpose. Its one
+  /// caller is [setPairingSettings], with the account of the pairing it
+  /// stores — null only for a pair stored with no account named, which no
+  /// one can show is the binding's owner, so the owner's marks, alert
+  /// choice and last pair are kept. The screens' own question
+  /// (`ShareSyncSource.boundToAnotherAccount`) answers false with nobody
+  /// signed in, on purpose too: it decides what a screen lists and
+  /// clears, and with nobody signed in there is nothing to list.
+  Future<bool> boundToAnotherAccount(String? accountUid) async {
+    final binding = await getSyncBinding();
+    return binding != null && binding.accountUid != accountUid;
   }
 
   /// The last pair this database was in, standing or ended; null when it

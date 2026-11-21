@@ -440,10 +440,12 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
               () => AppNavigator.toCalendarGuide(context),
             ),
           ),
-          // The two books beside the calendar's guide (D10 of
-          // docs/guide-hub-roadmap.md), found by their pages' titles.
+          // The books beside the calendar's guide (D10, D51 of
+          // docs/guide-hub-roadmap.md), in the hub's order, found by their
+          // pages' titles.
           for (final (kind, book) in const [
             ('notesGuide', GuideBook.notes),
+            ('syncGuide', GuideBook.sync),
             ('appGuide', GuideBook.app),
           ])
             SettingsEntry(

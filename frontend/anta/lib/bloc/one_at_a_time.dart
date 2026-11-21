@@ -16,7 +16,7 @@ import 'dart:async';
 /// close completes at once: the running handler is never cancelled — it
 /// ends on its own, its later emits dropped by the bloc — and the events
 /// that have not started yet never run. A bloc that must not lose such an
-/// event hands it over in its own `close` (`ShareBloc`'s queued Undo).
+/// event's work starts it when the event is added (`ShareBloc`'s acts).
 Stream<E> oneAtATime<E>(Stream<E> events, Stream<E> Function(E) mapper) {
   StreamSubscription<E>? source;
   var tail = Future<void>.value();

@@ -626,8 +626,16 @@ class NoteRepository {
     return _noteDao.searchNotes(query, folderId: folderId);
   }
 
-  Future<int> searchNotesCount(String query, {String? folderId}) {
-    return _noteDao.searchNotesCount(query, folderId: folderId);
+  Future<int> searchNotesCount(
+    String query, {
+    String? folderId,
+    String? notOwnedBy,
+  }) {
+    return _noteDao.searchNotesCount(
+      query,
+      folderId: folderId,
+      notOwnedBy: notOwnedBy,
+    );
   }
 
   /// Indexed uniqueness check. Always hits the database (no cache) because
@@ -657,12 +665,14 @@ class NoteRepository {
   Future<List<Note>> searchNotesPaginated(
     String query, {
     String? folderId,
+    String? notOwnedBy,
     required int limit,
     required int offset,
   }) {
     return _noteDao.searchNotesPaginated(
       query,
       folderId: folderId,
+      notOwnedBy: notOwnedBy,
       limit: limit,
       offset: offset,
     );

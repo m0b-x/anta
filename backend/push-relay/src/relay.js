@@ -36,6 +36,8 @@ const ENDED_PAIR_SERVED_MS = DAY;
 const DEVICE_FRESH_MS = 60 * DAY;
 const DEVICE_FUTURE_MS = 5 * MINUTE;
 const DEVICE_KINDS = ['fid', 'token'];
+/** What `readPair` asks Firestore for; every other field of a pair stays there. */
+const PAIR_FIELDS = ['members', 'status', 'endedAt', 'push'];
 const MAX_TARGETS = 5;
 const MAX_DEVICE_ID_CHARS = 4096;
 const ACCESS_TOKEN_LIFETIME_S = 3600;
@@ -332,10 +334,15 @@ export function createRelay({
 
   // Firestore's rules answer 200 only to a member (and "not found" for a
   // missing pair), so a 200 here is the proof the caller may wake the other.
+  //
+  // Masked to the four fields a poke is decided by: without the mask the
+  // answer also carries both members' names and photo addresses, their
+  // permissions and the invite code, and the relay is to read no user data.
   async function readPair(pairId, idToken) {
     const url =
       `https://firestore.googleapis.com/v1/projects/${projectId}` +
-      `/databases/(default)/documents/pairs/${pairId}`;
+      `/databases/(default)/documents/pairs/${pairId}` +
+      `?${PAIR_FIELDS.map((field) => `mask.fieldPaths=${field}`).join('&')}`;
     let response;
     try {
       response = await fetch(url, {

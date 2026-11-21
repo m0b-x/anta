@@ -142,12 +142,110 @@ void main() {
     );
   });
 
-  test('with no pairing stored, what is owed is sent as it was owed: the '
-      'relay refuses a pair this account is not in (C4)', () async {
+  test('with no pairing stored — a second database on the phone, whose '
+      'pairing rows were never written — the pair the shared read holds as '
+      'active is still poked (C4, A13)', () async {
     await sharedAndSettled('e1');
-    // This phone's own record names no pair — the server's answer has not
-    // reached it — while a mark of its own still shares the event.
+    // This database's own record names no pair, while a mark of its own
+    // still shares the event and its reader holds the pair.
     pair.partners.local.clear();
+    await rename('e1', 'Night shift');
+
+    await pair.owner.sync();
+
+    expect(relay.pokes, [(pair: sharePairId, urgent: true)]);
+  });
+
+  /// The pokes owed, as `pair: urgency`.
+  Future<Map<String, String>> owedPokes() async => {
+    for (final (key, value) in await db().syncDao.valuesByPrefix(
+      SyncDao.sharePokeOwedPrefix,
+    ))
+      key.substring(SyncDao.sharePokeOwedPrefix.length): value,
+  };
+
+  /// Leaves the owner's database with no pairing stored and a reader that
+  /// found its pair ended, owing that pair a poke the relay never had: an
+  /// un-share whose poke could not go yet, the relay's address not known.
+  Future<void> endedOwingAPoke() async {
+    await sharedAndSettled('e1');
+    final address = relay.address;
+    relay.address = null;
+    await db().calendarEventDao.setSharedPair('e1', null);
+    await pair.owner.sync();
+    relay.address = address;
+    pair.end();
+    pair.partners.local.clear();
+    // The shared read meets the end before the run pokes.
+    await pair.owner.sync();
+  }
+
+  test(
+    'with no pairing stored, a poke owed while the shared read holds no '
+    'pair after its pair ended is neither sent nor dropped: an ended pair '
+    'still holds this account, and the relay serves it for a day (A13)',
+    () async {
+      await endedOwingAPoke();
+
+      expect(relay.pokes, isEmpty);
+      expect((await owedPokes()).keys, [sharePairId], reason: 'kept');
+
+      // A run that only drains judges nothing either.
+      await db().syncDao.oweSharePoke(pairId: 'pair-2', urgent: false);
+      await pair.owner.engine.pushNow();
+      await pair.owner.settle();
+      expect(relay.pokes, isEmpty);
+      expect(
+        (await owedPokes()).keys,
+        unorderedEquals([sharePairId, 'pair-2']),
+      );
+    },
+  );
+
+  test('what was kept is judged once the shared read holds a pair: the new '
+      'pair\'s poke is sent, the ended pair\'s dropped (A13)', () async {
+    await endedOwingAPoke();
+    // Urgent, where what the run below owes is not: the poke sent is the
+    // one kept.
+    await db().syncDao.oweSharePoke(pairId: 'pair-2', urgent: true);
+    await pair.owner.engine.pushNow();
+    await pair.owner.settle();
+
+    // A new pair, which this database's own record does not store: a mark
+    // of it sends the reader to the server.
+    pair.join(pairId: 'pair-2');
+    pair.partners.local.clear();
+    final shelf = await db().folderDao.createFolder(name: 'Shelf');
+    await db().folderDao.setSharedPair(shelf.id, 'pair-2');
+    await pair.owner.sync();
+
+    expect(relay.pokes, [(pair: 'pair-2', urgent: true)]);
+    expect(await owedPokes(), isEmpty);
+  });
+
+  test('with no pairing stored and a shared read that never met a partner, '
+      'what is owed is sent as owed (A13)', () async {
+    // The server cannot be asked, so the reader never begins a partner.
+    pair.partners
+      ..local.clear()
+      ..failure = const SyncGatewayException(
+        SyncGatewayFailure.offline,
+        'scripted',
+      );
+    await event('e1');
+    await db().calendarEventDao.setSharedPair('e1', sharePairId);
+
+    await pair.owner.sync();
+
+    expect(await db().syncDao.getValue(SyncDao.keySharedEverHeld), isNull);
+    expect(relay.pokes, [(pair: sharePairId, urgent: true)]);
+  });
+
+  test('with no pairing stored, a poke owed to another pair than the one '
+      'the shared read holds is dropped; that one\'s is sent (A13)', () async {
+    await sharedAndSettled('e1');
+    pair.partners.local.clear();
+    await db().syncDao.oweSharePoke(pairId: 'pair-old', urgent: false);
     await rename('e1', 'Night shift');
 
     await pair.owner.sync();

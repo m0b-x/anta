@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
+import '../controllers/guide_setup_reader.dart';
 import '../l10n/app_localizations.dart';
 import '../models/guide_book.dart';
 import '../models/guide_content.dart';
@@ -10,17 +13,20 @@ import '../services/app_navigator.dart';
 import '../utils/settings_search.dart';
 import '../widgets/calendar_guide_rows.dart';
 import '../widgets/guide_hub_list.dart';
+import '../widgets/guide_setup_card.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// The hub row that opens [topic]'s page of [book], for the book's own hub
 /// and the "How to use ANTA" hub's search (D2): found by its read rows, by
 /// its examples' captions and sources, and by its editor cards' coach lines.
+/// [opening] runs just before the page is pushed.
 GuideHubItem guideTopicHubItem(
   AppLocalizations l10n,
   GuideBook book,
-  GuideTopic topic,
-) {
+  GuideTopic topic, {
+  VoidCallback? opening,
+}) {
   final entries = topic.entries(l10n);
   return GuideHubItem(
     slug: topic.slug,
@@ -44,15 +50,20 @@ GuideHubItem guideTopicHubItem(
     ],
     rowIdentifier: (slug) => SemanticsIds.guideBookRow(book.slug, slug),
     identifier: SemanticsIds.guideBookPage(book.slug, topic.slug),
-    open: (context) => AppNavigator.toGuideTopic(context, book, topic),
+    open: (context) {
+      opening?.call();
+      unawaited(AppNavigator.toGuideTopic(context, book, topic));
+    },
   );
 }
 
-/// One guide book's hub — the notes or the app book (D3): the calendar
-/// guide's shape, with "Start here" and "How do I…" cards over the book's
-/// pages and a search that reaches into every one of them.
+/// One guide book's hub — the notes, the sync or the app book (D3): the
+/// calendar guide's shape, with "Start here" and "How do I…" cards over the
+/// book's pages and a search that reaches into every one of them.
 ///
-/// It reads nothing and writes nothing.
+/// It writes nothing. The sync book's hub alone reads: its "Your setup"
+/// card (D48), from this phone's state through a [GuideSetupReader], read
+/// again each time the hub comes back to the front.
 class GuideBookPage extends StatefulWidget {
   const GuideBookPage({super.key, required this.book})
     : assert(book != GuideBook.calendar);
@@ -66,9 +77,23 @@ class GuideBookPage extends StatefulWidget {
   State<GuideBookPage> createState() => _GuideBookPageState();
 }
 
-class _GuideBookPageState extends State<GuideBookPage> {
+class _GuideBookPageState extends State<GuideBookPage> with RouteAware {
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
+
+  /// The sync book's setup facts; null on every other book's hub.
+  GuideSetupReader? _setup;
+
+  /// Set as the hub opens one of its own pages, which shares nothing, so
+  /// the count stands across it. Any other page over the hub — a share
+  /// notice's View, an alert opening the calendar — may share something.
+  bool _openingTopic = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.book == GuideBook.sync) _setup = GuideSetupReader()..start();
+  }
 
   /// The hub's cards, built once per locale: the search reads every page's
   /// rows on every keystroke, and they can only change with the language.
@@ -78,6 +103,10 @@ class _GuideBookPageState extends State<GuideBookPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (_setup != null && route is PageRoute) {
+      AppNavigator.routeObserver.subscribe(this, route);
+    }
     final locale = Localizations.localeOf(context);
     if (locale == _sectionsLocale) return;
     _sectionsLocale = locale;
@@ -89,7 +118,7 @@ class _GuideBookPageState extends State<GuideBookPage> {
         title: l10n.calendarGuideStartHere,
         items: [
           for (final topic in book.startHere)
-            guideTopicHubItem(l10n, book, topic),
+            guideTopicHubItem(l10n, book, topic, opening: _topicOpening),
         ],
       ),
       GuideHubSection(
@@ -98,14 +127,29 @@ class _GuideBookPageState extends State<GuideBookPage> {
         items: [
           for (final topic in book.topics)
             if (!book.startHere.contains(topic))
-              guideTopicHubItem(l10n, book, topic),
+              guideTopicHubItem(l10n, book, topic, opening: _topicOpening),
         ],
       ),
     ];
   }
 
+  /// She comes back from the screen a setup row opened, perhaps with the
+  /// step taken.
+  @override
+  void didPopNext() => unawaited(_setup?.refresh());
+
+  void _topicOpening() => _openingTopic = true;
+
+  @override
+  void didPushNext() {
+    if (!_openingTopic) _setup?.stepOpened();
+    _openingTopic = false;
+  }
+
   @override
   void dispose() {
+    AppNavigator.routeObserver.unsubscribe(this);
+    _setup?.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -136,6 +180,10 @@ class _GuideBookPageState extends State<GuideBookPage> {
               child: GuideHubList(
                 query: _query,
                 sections: _sections,
+                leading: [
+                  if (_setup case final setup?)
+                    guideSetupSection(l10n, setup, opening: setup.stepOpened),
+                ],
                 listIdentifier: SemanticsIds.guideBook(book.slug),
                 header: [
                   Padding(

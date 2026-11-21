@@ -41,6 +41,9 @@ class FirestoreSyncGateway implements SyncGateway {
   /// sends the run to the engine's back-off (A8 review R97).
   static const int _writeAttempts = 5;
 
+  /// How many documents [unshareRows] reads at once inside its transaction.
+  static const int _unshareReads = 50;
+
   final FirebaseFirestore? _injected;
 
   FirestoreSyncGateway({FirebaseFirestore? firestore}) : _injected = firestore;
@@ -146,6 +149,50 @@ class FirestoreSyncGateway implements SyncGateway {
       );
     }),
   );
+
+  /// A read-write transaction, unlike [_writeOnly]: `update` on a document
+  /// that does not exist fails the whole commit, and a `set` would create
+  /// one, so each document is read first and only one that names a pair is
+  /// updated. Field by field — `validEnvelope` holds of the merged document.
+  /// The reads go [_unshareReads] at a time: one after another, a whole
+  /// batch of them could outlast [_timeout] at every drain.
+  @override
+  Future<void> unshareRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys, {
+    required String pushedBy,
+  }) async {
+    if (rowKeys.length > maxBatch) {
+      throw ArgumentError.value(rowKeys.length, 'rowKeys', 'over $maxBatch');
+    }
+    if (rowKeys.isEmpty) return;
+    final rows = _space(space).collection(table);
+    await _guard(
+      () => _db.runTransaction<void>((transaction) async {
+        final named = <DocumentReference<Map<String, dynamic>>>[];
+        for (var from = 0; from < rowKeys.length; from += _unshareReads) {
+          final slice = rowKeys.skip(from).take(_unshareReads);
+          final snapshots = await Future.wait([
+            for (final key in slice) transaction.get(rows.doc(key)),
+          ]);
+          for (final snapshot in snapshots) {
+            if (snapshot.data()?[sharedPairKey] != null) {
+              named.add(snapshot.reference);
+            }
+          }
+        }
+        for (final document in named) {
+          transaction.update(document, {
+            sharedPairKey: FieldValue.delete(),
+            FirestoreSyncWire.wireKey: FieldValue.delete(),
+            'pushedAt': FieldValue.serverTimestamp(),
+            'pushedBy': pushedBy,
+          });
+        }
+      }, maxAttempts: _writeAttempts),
+    );
+  }
 
   /// Commits [write]'s sets as one write-only transaction, never a
   /// `WriteBatch`: the SDK queues a batch in memory while offline even with

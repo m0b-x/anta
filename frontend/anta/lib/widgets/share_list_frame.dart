@@ -18,16 +18,27 @@ import 'form_rows.dart';
 /// [ShareService.undo] itself, the one place a sharing surface acts past
 /// its bloc, since nothing is left to act through. A failure is said on
 /// [messenger] ([sayShareFailurePastSurface]).
+///
+/// Written in its turn by the service, which writes its share writes in the
+/// order asked: the act it undoes, still writing, lands first. A database
+/// switched before the service answered, or before the Undo's turn came,
+/// is not the one it was tapped in, so it then writes nothing and says
+/// nothing, as a tap after a switch does.
 Future<void> undoSharePastBloc(
   ShareChange change, {
   required Future<ShareService> Function() shareService,
   required ScaffoldMessengerState? messenger,
   required AppLocalizations l10n,
 }) async {
+  final generation = ShareService.databaseGeneration;
   try {
-    await (await shareService()).undo(change);
+    final service = await shareService();
+    if (ShareService.databaseGeneration != generation) return;
+    await service.undo(change);
   } on ShareRefused {
     sayShareFailurePastSurface(messenger, l10n.shareNeedsSync);
+  } on ShareDatabaseSwitched {
+    return;
   } catch (e, st) {
     debugPrint('[undoSharePastBloc] undo failed: $e\n$st');
     sayShareFailurePastSurface(messenger, l10n.shareChangeFailed);
@@ -57,6 +68,21 @@ void sayShareFailurePastSurface(
       ),
     );
 }
+
+/// How a share act's failure is said once its bloc closed before the act
+/// started and wrote it past itself (`ShareActEvent.failedPastBloc`): on
+/// [messenger], the app's own captured at the tap, in the words the
+/// surface would have used.
+void Function(ShareFailure failure) shareFailurePastSurface(
+  ScaffoldMessengerState? messenger,
+  AppLocalizations l10n,
+) =>
+    (failure) => sayShareFailurePastSurface(
+      messenger,
+      failure == ShareFailure.refused
+          ? l10n.shareNeedsSync
+          : l10n.shareChangeFailed,
+    );
 
 /// A list sheet dismissed while [pending] acts it asked for — those whose
 /// `ShareActEvent.asker` is [asker] — had not answered: their outcomes are

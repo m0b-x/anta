@@ -1,12 +1,17 @@
 import 'dart:async';
+import 'dart:ui' show Locale;
 
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/share/share_bloc.dart';
+import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/share_service.dart';
+import 'package:anta/widgets/share_list_frame.dart' show undoSharePastBloc;
 
 import '../support/fake_share_service.dart';
 
@@ -94,6 +99,13 @@ void main() {
     return bloc.state as ShareLoaded;
   }
 
+  /// Each category change written, as `[shared, unshared]`: a record's
+  /// sets compare by identity.
+  List<List<Set<String>>> changes() => [
+    for (final change in share.categoryChanges)
+      [change.shared, change.unshared],
+  ];
+
   test('opening loads the overview and asks for one shared read', () async {
     bloc.add(const ShareOpened());
 
@@ -162,17 +174,21 @@ void main() {
     expect((loaded.state as ShareLoaded).overview, overview);
   });
 
-  test('the tick sheet\'s set goes to the service whole, and what it '
-      'changed comes back for the snackbar', () async {
+  test('the tick sheet\'s change goes to the service as made — what was '
+      'ticked and what was un-ticked — and what it changed comes back for '
+      'the snackbar', () async {
     bloc.add(const ShareOpened());
     await settled();
     share.nextChange = change;
 
-    bloc.add(const ShareCategoriesSet({'travel'}));
+    bloc.add(const ShareCategoriesSet(shared: {'travel'}, unshared: {'work'}));
 
     final state = await settled();
-    expect(share.categorySets, [
-      {'travel'},
+    expect(changes(), [
+      [
+        {'travel'},
+        {'work'},
+      ],
     ]);
     expect(state.outcome!.act, ShareAct.categoriesSet);
     expect(state.outcome!.change, change);
@@ -224,10 +240,10 @@ void main() {
     share.emit(const ShareNotSyncing(audience));
     await settled();
 
-    bloc.add(const ShareCategoriesSet({'travel'}));
+    bloc.add(const ShareCategoriesSet(shared: {'travel'}));
 
     final state = await settled();
-    expect(share.categorySets, isEmpty);
+    expect(share.categoryChanges, isEmpty);
     expect(state.outcome!.failure, ShareFailure.refused);
     expect(state.availability, const ShareNotSyncing(audience));
   });
@@ -246,7 +262,7 @@ void main() {
     share.nextChange = change;
     final hold = share.hold = Completer<void>();
 
-    acting.add(const ShareCategoriesSet({'travel'}));
+    acting.add(const ShareCategoriesSet(shared: {'travel'}));
     await pumpEventQueue();
     reachable = false;
     hold.complete();
@@ -262,7 +278,7 @@ void main() {
     bloc.add(const ShareOpened());
     await settled();
     final hold = share.hold = Completer<void>();
-    bloc.add(const ShareCategoriesSet({'travel'}));
+    bloc.add(const ShareCategoriesSet(shared: {'travel'}));
     await pumpEventQueue();
 
     var closed = false;
@@ -272,27 +288,318 @@ void main() {
     expect(closed, isTrue);
     hold.complete();
     await pumpEventQueue();
-    expect(share.categorySets, [
-      {'travel'},
+    expect(changes(), [
+      [
+        {'travel'},
+        <String>{},
+      ],
     ]);
   });
 
-  test('an Undo still queued behind a running act when the bloc closes is '
-      'written through the road an Undo takes past its bloc', () async {
+  test('an Undo added behind a running act is written once, by the service, '
+      'when the bloc closes before its turn', () async {
+    share.inTurn = true;
     bloc.add(const ShareOpened());
     await settled();
     final hold = share.hold = Completer<void>();
-    bloc.add(const ShareCategoriesSet({'travel'}));
+    bloc.add(const ShareCategoriesSet(shared: {'travel'}));
     await pumpEventQueue();
-    final orphaned = <ShareChange>[];
-    bloc.add(ShareUndoRequested(change, pastBloc: orphaned.add));
+    bloc.add(const ShareUndoRequested(change));
 
     await bloc.close();
     hold.complete();
     await pumpEventQueue();
 
-    expect(orphaned, [change]);
-    expect(share.undone, isEmpty, reason: 'written once, by that road');
+    expect(share.writes, ['categories', 'undo']);
+    expect(share.undone, [change]);
+  });
+
+  // Review A4: a ✕ behind a running one, the sheet and the page left
+  // before the first ended — the sheet had said "No longer shared".
+  test('every act added behind a running one is written in order after it, '
+      'the bloc closed before their turn', () async {
+    share.inTurn = true;
+    bloc.add(const ShareOpened());
+    await settled();
+    final hold = share.hold = Completer<void>();
+    bloc.add(const ShareFolderUnshared('a'));
+    await pumpEventQueue();
+    bloc
+      ..add(const ShareFolderUnshared('b'))
+      ..add(const ShareFolderShared('c'))
+      ..add(const ShareEventUnshared('e1'))
+      ..add(const ShareStopAllRequested());
+
+    await bloc.close();
+    await pumpEventQueue();
+    expect(share.writes, isEmpty, reason: 'none before the running one');
+    hold.complete();
+    await pumpEventQueue();
+
+    expect(share.writes, ['a:false', 'b:false', 'c:true', 'e1:false', 'stop']);
+  });
+
+  test('two ✕ added and the bloc closed at once are both written, in '
+      'order', () async {
+    share.inTurn = true;
+    bloc.add(const ShareOpened());
+    await settled();
+
+    bloc
+      ..add(const ShareFolderUnshared('a'))
+      ..add(const ShareFolderUnshared('b'));
+    await bloc.close();
+    await pumpEventQueue();
+
+    expect(share.writes, ['a:false', 'b:false']);
+  });
+
+  test('a category change queued behind a running act when the bloc closes '
+      'is still written', () async {
+    bloc.add(const ShareOpened());
+    await settled();
+    final hold = share.hold = Completer<void>();
+    bloc.add(const ShareFolderUnshared('a'));
+    await pumpEventQueue();
+    bloc.add(const ShareCategoriesSet(unshared: {'travel'}));
+
+    await bloc.close();
+    hold.complete();
+    await pumpEventQueue();
+
+    expect(changes(), [
+      [
+        <String>{},
+        {'travel'},
+      ],
+    ]);
+  });
+
+  test('an act behind a running one that fails once its bloc has closed is '
+      'said once, by the road its surface gave; one whose turn comes under a '
+      'switched database is not written', () async {
+    share.inTurn = true;
+    bloc.add(const ShareOpened());
+    await settled();
+    final hold = share.hold = Completer<void>();
+    bloc.add(const ShareFolderUnshared('a'));
+    await pumpEventQueue();
+    final said = <ShareFailure>[];
+    bloc.add(ShareFolderUnshared('b', failedPastBloc: said.add));
+
+    await bloc.close();
+    share.emit(const ShareNotSyncing(audience));
+    hold.complete();
+    await pumpEventQueue();
+
+    expect(share.folderShares, [('a', false)]);
+    expect(said, [ShareFailure.refused]);
+
+    final switching = ShareBloc(
+      service: () async => share,
+      calendarChanges: const Stream.empty(),
+    );
+    share.emit(const ShareReady(audience));
+    switching.add(const ShareOpened());
+    await pumpEventQueue();
+    final held = share.hold = Completer<void>();
+    switching.add(const ShareFolderUnshared('c'));
+    await pumpEventQueue();
+    switching.add(ShareFolderUnshared('d', failedPastBloc: said.add));
+    // Asked of the service before the switch: its turn comes after it.
+    await pumpEventQueue();
+    DatabaseLifecycle.notifyDatabaseSwitching();
+
+    await switching.close();
+    held.complete();
+    await pumpEventQueue();
+
+    expect(share.folderShares, [('a', false), ('c', false)]);
+    expect(said, [
+      ShareFailure.refused,
+      ShareFailure.failed,
+    ], reason: 'the skipped act is said once, as not written');
+  });
+
+  // Review A4, third leg: the order is the service's, and an act's write
+  // starts at its add — whichever surface asks, a write asked earlier lands
+  // earlier. The fake writes in turn and records at the write, so a write
+  // that overtook another would show.
+  group('one order for every share write, whoever asks', () {
+    ShareBloc opened() {
+      final opened = ShareBloc(
+        service: () async => share,
+        calendarChanges: const Stream.empty(),
+      )..add(const ShareOpened());
+      addTearDown(opened.close);
+      return opened;
+    }
+
+    setUp(() => share.inTurn = true);
+
+    test('an Undo tapped past its bloc lands after the running un-share it '
+        'answers: the event ends shared', () async {
+      final first = opened();
+      await pumpEventQueue();
+      final hold = share.hold = Completer<void>();
+      first.add(const ShareEventUnshared('b'));
+      await pumpEventQueue();
+      await first.close();
+
+      // The bar's Undo of b, tapped once the sheet and the page have gone.
+      final undo = undoSharePastBloc(
+        ShareChange(
+          unsharedEvents: [
+            CalendarEvent(
+              id: 'b',
+              title: 'b',
+              categoryId: 'general',
+              startDate: DateTime.utc(2026, 6, 1),
+            ),
+          ],
+        ),
+        shareService: () async => share,
+        messenger: null,
+        l10n: lookupAppLocalizations(const Locale('en')),
+      );
+      hold.complete();
+      await undo;
+      await pumpEventQueue();
+
+      expect(share.writes, ['b:false', 'undo']);
+    });
+
+    test('a page opened again: its share of a folder the old page\'s held '
+        'un-share names lands after it', () async {
+      final first = opened();
+      await pumpEventQueue();
+      final hold = share.hold = Completer<void>();
+      first.add(const ShareFolderUnshared('b'));
+      await pumpEventQueue();
+      await first.close();
+
+      final second = opened();
+      await pumpEventQueue();
+      second.add(const ShareFolderShared('b'));
+      await pumpEventQueue();
+      hold.complete();
+      await pumpEventQueue();
+
+      expect(share.writes, ['b:false', 'b:true']);
+    });
+
+    test('a surface\'s own write — the browser\'s, the calendar\'s — asked '
+        'after a bloc\'s acts lands after every one of them', () async {
+      final page = opened();
+      await pumpEventQueue();
+      final hold = share.hold = Completer<void>();
+      page
+        ..add(const ShareFolderUnshared('a'))
+        ..add(const ShareFolderUnshared('b'));
+      await pumpEventQueue();
+
+      // As the folder page writes: straight to the service.
+      final direct = share.setFolderShared('c', true);
+      hold.complete();
+      await direct;
+      await pumpEventQueue();
+
+      expect(share.writes, ['a:false', 'b:false', 'c:true']);
+    });
+
+    test('a running act that fails once its bloc has closed is said once, '
+        'past the bloc; one that succeeds says nothing', () async {
+      // The service the act's write reaches fails once the page has gone.
+      Completer<void>? failing;
+      final page = ShareBloc(
+        service: () async {
+          final gate = failing;
+          if (gate == null) return share;
+          await gate.future;
+          throw StateError('the database closed');
+        },
+        calendarChanges: const Stream.empty(),
+      )..add(const ShareOpened());
+      addTearDown(page.close);
+      await pumpEventQueue();
+      final said = <ShareFailure>[];
+      final gate = failing = Completer<void>();
+      page.add(ShareFolderUnshared('a', failedPastBloc: said.add));
+      await pumpEventQueue();
+      await page.close();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(said, [ShareFailure.failed]);
+
+      final other = opened();
+      await pumpEventQueue();
+      final held = share.hold = Completer<void>();
+      other.add(ShareFolderUnshared('b', failedPastBloc: said.add));
+      await pumpEventQueue();
+      await other.close();
+      held.complete();
+      await pumpEventQueue();
+
+      expect(share.writes, ['b:false']);
+      expect(said, [ShareFailure.failed]);
+    });
+
+    test('an act that fails while its bloc lives is said by its outcome '
+        'alone, never again past the bloc', () async {
+      share.inTurn = false;
+      final page = opened();
+      await pumpEventQueue();
+      final said = <ShareFailure>[];
+      share.emit(const ShareNotSyncing(audience));
+      await pumpEventQueue();
+
+      page.add(ShareFolderUnshared('a', failedPastBloc: said.add));
+      await pumpEventQueue();
+      expect((page.state as ShareLoaded).outcome?.failure, ShareFailure.refused);
+      await page.close();
+      await pumpEventQueue();
+
+      expect(said, isEmpty);
+    });
+
+    test('an act that failed while its bloc lived, closed before its outcome '
+        'was said, is said once past the bloc', () async {
+      share.inTurn = false;
+      final page = opened();
+      await pumpEventQueue();
+      final said = <ShareFailure>[];
+      final hold = share.hold = Completer<void>();
+      page.add(const ShareFolderUnshared('a'));
+      await pumpEventQueue();
+      share.emit(const ShareNotSyncing(audience));
+      page.add(ShareFolderUnshared('b', failedPastBloc: said.add));
+      await pumpEventQueue();
+      expect(said, isEmpty, reason: 'its outcome is still to come');
+
+      await page.close();
+      hold.complete();
+      await pumpEventQueue();
+
+      expect(said, [ShareFailure.refused]);
+    });
+  });
+
+  test('an act added while the bloc is closing is written past it, after '
+      'the running act, never lost to a closed queue', () async {
+    bloc.add(const ShareOpened());
+    await settled();
+    final hold = share.hold = Completer<void>();
+    bloc.add(const ShareFolderUnshared('a'));
+    await pumpEventQueue();
+
+    final closing = bloc.close();
+    bloc.add(const ShareFolderUnshared('z'));
+    await closing;
+    hold.complete();
+    await pumpEventQueue();
+
+    expect(share.folderShares, [('a', false), ('z', false)]);
   });
 
   test('a change of availability and a change of the calendar each read '
@@ -826,6 +1133,7 @@ void main() {
 
     test('folder acts join the one ordered queue: one held act keeps the '
         'next waiting, and the last outcome is the last act\'s', () async {
+      share.inTurn = true;
       bloc.add(const ShareOpened());
       await settled();
       final gate = Completer<void>();
@@ -839,8 +1147,7 @@ void main() {
       bloc.add(const ShareFolderUnshared('trips'));
       bloc.add(const ShareEventUnshared('e1'));
       await pumpEventQueue();
-      expect(share.folderShares, [('trips', true)]);
-      expect(share.eventShares, isEmpty);
+      expect(share.writes, isEmpty, reason: 'the first still writing');
 
       gate.complete();
       final state = await settled();

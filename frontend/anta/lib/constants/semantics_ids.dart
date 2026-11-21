@@ -322,6 +322,18 @@ abstract final class SemanticsIds {
   static const String pairingCodeField = 'pairing-code-field';
   static const String pairingConnect = 'pairing-connect';
 
+  /// The pairing sheet's help button, which opens the sync guide's `pair`
+  /// page over the sheet (`docs/guide-hub-roadmap.md` D49).
+  static const String pairingHow = 'pairing-how';
+
+  /// The help button in the page's bar of Sync & sharing (D49): it opens
+  /// the sync book's hub.
+  static const String sharingSyncHow = 'sharing-sync-how';
+
+  /// The help button in the page's bar of the Sharing page: the sync book's
+  /// hub, as on Sync & sharing.
+  static const String sharingPageHow = 'sharing-page-how';
+
   /// The Sharing page's Sync section: unbound it is the one [sharingSync]
   /// row, bound the status row, Sync now and the stop row — so a flow tells
   /// the two apart by which ids it finds. [sharingSyncStopConfirm] is the
@@ -544,6 +556,28 @@ abstract final class SemanticsIds {
   /// button writes. A flow and the suite find it by this.
   static String guideBookTryMaker(String book, String slug) =>
       'guide-$book-try-$slug-maker';
+
+  /// A two-phone card's stage, the phone in view (`docs/guide-hub-roadmap.md`
+  /// D51): a container the suites measure and a flow shoots.
+  static String guideBookTryStage(String book, String slug) =>
+      'guide-$book-try-$slug-stage';
+
+  /// One segment of a two-phone card's flip (D51): `here` is the phone in
+  /// her hand, `there` the other — Sam's, or her other phone on a sync card.
+  static String guideBookTryPhone(String book, String slug, String phone) =>
+      'guide-$book-try-$slug-phone-$phone';
+
+  /// A control on a two-phone card's stage — the share switch, a row by its
+  /// demo id — under the card's own id, where a flow taps it.
+  static String guideBookTryControl(String book, String slug, String control) =>
+      'guide-$book-try-$slug-$control';
+
+  /// The sync book hub's "Your setup" section (`docs/guide-hub-roadmap.md`
+  /// D48, D51), and its rows by the fact each reads — `account`, `sync`,
+  /// `pair`, `share`, or `unavailable`, the one line of a build without sync
+  /// — so a flow taps a row whatever state it words.
+  static const String guideSyncSetup = 'guide-sync-setup';
+  static String guideSyncSetupRow(String row) => 'guide-sync-setup-$row';
 
   /// The calendar guide's list: a flow waits on the page and scrolls inside
   /// it without depending on the guide's wording or the locale.

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,10 +8,15 @@ import 'package:share_plus/share_plus.dart';
 import '../bloc/pairing/pairing_bloc.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/guide_book.dart';
+import '../models/sync_guide_content.dart';
+import '../services/app_navigator.dart';
 import '../services/pairing_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
 import 'automation_id.dart';
+import 'form_rows.dart';
+import 'pairing_sheet_parts.dart';
 
 /// Opens the pairing flow over an existing [PairingBloc]. The sheet exists so
 /// the Sharing page keeps one scannable row: a countdown, copy/share/cancel and
@@ -21,9 +25,17 @@ Future<void> showPairingSheet(BuildContext context, PairingBloc bloc) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => BlocProvider<PairingBloc>.value(
-      value: bloc,
-      child: const _PairingSheet(),
+    // The body scrolls, so the sheet can grow to the screen's height: its
+    // handle and header stay below the status bar.
+    useSafeArea: true,
+    // The guide's page on pairing opens over the sheet from its header: the
+    // sheet's nodes are read again once that page has gone, or a screen
+    // reader aims at where its controls stood while the page slid away.
+    builder: (_) => FormSheetSemanticsRefresh(
+      child: BlocProvider<PairingBloc>.value(
+        value: bloc,
+        child: const _PairingSheet(),
+      ),
     ),
   );
 }
@@ -37,11 +49,6 @@ class _PairingSheet extends StatefulWidget {
 
 class _PairingSheetState extends State<_PairingSheet> {
   final TextEditingController _codeController = TextEditingController();
-
-  /// Mirrors the field so Connect can disable itself until a whole code is
-  /// present — an enabled button that silently does nothing is worse than a
-  /// disabled one that explains itself by being disabled.
-  String _typedCode = '';
 
   /// Whether the sheet already closed itself. "Paired" arrives more than
   /// once — first with the partner's uid alone, then with the name they
@@ -59,6 +66,15 @@ class _PairingSheetState extends State<_PairingSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
+    // Keyboard when it is up, gesture bar when it is not: without the
+    // viewPadding the Connect button sits under the home indicator. The
+    // larger of the two, never their sum — the keyboard inset already
+    // reaches down to the screen edge, so adding the system inset to it
+    // floats the sheet a navigation bar above the keys.
+    final clearance = math.max(
+      MediaQuery.viewInsetsOf(context).bottom,
+      MediaQuery.viewPaddingOf(context).bottom,
+    );
 
     return BlocConsumer<PairingBloc, PairingState>(
       listenWhen: (previous, current) =>
@@ -66,72 +82,89 @@ class _PairingSheetState extends State<_PairingSheet> {
       listener: (context, state) {
         if (_closed) return;
         _closed = true;
+        // Under the guide's page the sheet goes from beneath it: a pop
+        // would take the page she is reading instead.
+        final route = ModalRoute.of(context);
+        if (route != null && !route.isCurrent) {
+          Navigator.of(context).removeRoute(route);
+          return;
+        }
         Navigator.of(context).maybePop();
       },
       builder: (context, state) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            12,
-            24,
-            // Keyboard when it is up, gesture bar when it is not: without the
-            // viewPadding the Connect button sits under the home indicator.
-            // The larger of the two, never their sum — the keyboard inset
-            // already reaches down to the screen edge, so adding the system
-            // inset to it floats the sheet a navigation bar above the keys.
-            24 +
-                math.max(
-                  MediaQuery.viewInsetsOf(context).bottom,
-                  MediaQuery.viewPaddingOf(context).bottom,
-                ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.4,
-                    ),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const FormSheetHandle(),
+            // Live: a code is made and a pair is entered at once, so the ✕
+            // only closes.
+            FormSheetHeader(
+              leadingIcon: Icons.close_rounded,
+              leadingTooltip: l10n.close,
+              onLeading: () => Navigator.of(context).maybePop(),
+              title: l10n.pairingTitle,
+              stackTitleAtLargeText: true,
+              trailingInset: FormMetrics.headerActionInset,
+              trailing: AutomationId(
+                identifier: SemanticsIds.pairingHow,
+                child: IconButton(
+                  icon: const Icon(Icons.help_outline_rounded),
+                  tooltip: l10n.syncGuideHowPairingWorks,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  onPressed: () => _openGuide(context),
                 ),
               ),
-              const SizedBox(height: 20),
-              Text(l10n.pairingTitle, style: theme.textTheme.titleMedium),
-              const SizedBox(height: 20),
-              ..._inviteSection(context, l10n, theme, state),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  const Expanded(child: Divider()),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(
-                      l10n.pairingOr,
-                      style: theme.textTheme.bodySmall,
+            ),
+            // Everything under the header scrolls: at large text the stacked
+            // header and the body together are taller than the screen above
+            // the keys, and the field and Connect have to be reachable.
+            Flexible(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + clearance),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ..._inviteSection(context, l10n, state),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        const Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            l10n.pairingOr,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                        const Expanded(child: Divider()),
+                      ],
                     ),
-                  ),
-                  const Expanded(child: Divider()),
-                ],
+                    const SizedBox(height: 20),
+                    _redeemSection(context, l10n, state, clearance),
+                  ],
+                ),
               ),
-              const SizedBox(height: 20),
-              ..._redeemSection(context, l10n, state),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
   }
 
+  /// The guide's page on pairing, over the sheet (D49): back returns here
+  /// with the code made and anything typed as they were, since the sheet
+  /// stays under the page. Focus drops first, or the return re-raises the
+  /// keyboard.
+  void _openGuide(BuildContext context) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    AppNavigator.toGuideTopic(context, GuideBook.sync, SyncGuideTopic.pair);
+  }
+
   List<Widget> _inviteSection(
     BuildContext context,
     AppLocalizations l10n,
-    ThemeData theme,
     PairingState state,
   ) {
     final failure = _failureOf(state);
@@ -143,60 +176,22 @@ class _PairingSheetState extends State<_PairingSheet> {
         : null;
 
     if (state is! PairingInviting) {
-      final busy = _busy(state);
       return [
-        AutomationId(
-          identifier: SemanticsIds.pairingGenerate,
-          child: FilledButton.icon(
-            onPressed: busy
-                ? null
-                : () => context.read<PairingBloc>().add(
-                    const GenerateInviteRequested(),
-                  ),
-            icon: busy
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.add_link_rounded),
-            label: Text(l10n.pairingGenerateCode),
-          ),
+        PairingCreateCodeButton(
+          busy: _busy(state),
+          onPressed: () =>
+              context.read<PairingBloc>().add(const GenerateInviteRequested()),
         ),
         ?inviteError,
       ];
     }
 
     return [
-      Text(
-        l10n.pairingCodeIntro,
-        style: theme.textTheme.bodySmall,
-        textAlign: TextAlign.center,
-      ),
-      const SizedBox(height: 12),
-      AutomationId(
-        identifier: SemanticsIds.pairingCode,
-        child: SelectableText(
-          PairingService.formatCode(state.code),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontFamily: 'monospace',
-            letterSpacing: 4,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      const SizedBox(height: 4),
-      _Countdown(expiresAt: state.expiresAt),
-      const SizedBox(height: 12),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          TextButton.icon(
-            onPressed: () => _copy(context, l10n, state.code),
-            icon: const Icon(Icons.copy_rounded, size: 18),
-            label: Text(l10n.copy),
-          ),
+      PairingCodeView(
+        code: state.code,
+        expiresAt: state.expiresAt,
+        onCopy: () => _copy(context, l10n, state.code),
+        actions: [
           TextButton.icon(
             onPressed: () => SharePlus.instance.share(
               ShareParams(
@@ -223,63 +218,26 @@ class _PairingSheetState extends State<_PairingSheet> {
     ];
   }
 
-  List<Widget> _redeemSection(
+  /// [clearance] is what the keys cover of the scroll view: the field is
+  /// brought above it when it takes focus, since the viewport itself runs
+  /// on under the keys.
+  Widget _redeemSection(
     BuildContext context,
     AppLocalizations l10n,
     PairingState state,
+    double clearance,
   ) {
     final failure = _failureOf(state);
-    final busy = _busy(state);
-    final complete =
-        PairingService.normalizeCode(_typedCode).length ==
-        PairingService.codeLength;
-
-    return [
-      AutomationId(
-        identifier: SemanticsIds.pairingCodeField,
-        child: TextField(
-          controller: _codeController,
-          autocorrect: false,
-          enableSuggestions: false,
-          textCapitalization: TextCapitalization.characters,
-          maxLength: PairingService.codeLength + 1,
-          style: const TextStyle(fontFamily: 'monospace', letterSpacing: 3),
-          decoration: InputDecoration(
-            labelText: l10n.pairingEnterCode,
-            hintText: l10n.pairingCodeHint,
-            border: const OutlineInputBorder(),
-            counterText: '',
-            // Inline, not a snackbar: the user is mid-correction and needs
-            // the message to stay next to the field they are fixing. Only a
-            // redemption failure belongs here — a failed "create a code"
-            // must not put a red border on a field they never touched.
-            errorText: failure == null || !failure.belongsToCodeField
-                ? null
-                : PairingErrorMessages.of(l10n).resolve(failure.error),
-          ),
-          onChanged: (value) => setState(() => _typedCode = value),
-          onSubmitted: busy || !complete
-              ? null
-              : (value) => _redeem(context, value),
-        ),
-      ),
-      const SizedBox(height: 12),
-      AutomationId(
-        identifier: SemanticsIds.pairingConnect,
-        child: FilledButton(
-          onPressed: busy || !complete
-              ? null
-              : () => _redeem(context, _codeController.text),
-          child: busy
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(l10n.pairingConnect),
-        ),
-      ),
-    ];
+    return PairingCodeEntry(
+      controller: _codeController,
+      busy: _busy(state),
+      errorText: failure == null || !failure.belongsToCodeField
+          ? null
+          : PairingErrorMessages.of(l10n).resolve(failure.error),
+      errorMaxLines: FormMetrics.fieldErrorMaxLines,
+      revealBelow: clearance,
+      onSubmit: (value) => _redeem(context, value),
+    );
   }
 
   PairingFailure? _failureOf(PairingState state) => switch (state) {
@@ -329,74 +287,4 @@ class _PairingSheetState extends State<_PairingSheet> {
     PairingPaired(:final busy) => busy,
     _ => false,
   };
-}
-
-/// Owns its own ticker so the per-second rebuild is scoped to this one line of
-/// text, instead of rebuilding the sheet's `TextField` under the user's cursor
-/// once a second. Stops itself at expiry.
-class _Countdown extends StatefulWidget {
-  const _Countdown({required this.expiresAt});
-
-  final DateTime expiresAt;
-
-  @override
-  State<_Countdown> createState() => _CountdownState();
-}
-
-class _CountdownState extends State<_Countdown> {
-  Timer? _ticker;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-  }
-
-  @override
-  void didUpdateWidget(_Countdown oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.expiresAt != widget.expiresAt) _start();
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
-  void _start() {
-    _ticker?.cancel();
-    if (_remaining().isNegative) return;
-    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      setState(() {});
-      if (_remaining().isNegative) timer.cancel();
-    });
-  }
-
-  Duration _remaining() => widget.expiresAt.difference(DateTime.now().toUtc());
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final remaining = _remaining();
-    final expired = remaining.isNegative || remaining == Duration.zero;
-    final minutes = remaining.inMinutes;
-    final seconds = remaining.inSeconds % 60;
-
-    return Text(
-      expired
-          ? l10n.pairingCodeExpired
-          : l10n.pairingCodeExpiresIn(
-              '$minutes:${seconds.toString().padLeft(2, '0')}',
-            ),
-      textAlign: TextAlign.center,
-      style: theme.textTheme.bodySmall?.copyWith(
-        color: expired
-            ? theme.colorScheme.error
-            : theme.colorScheme.onSurfaceVariant,
-      ),
-    );
-  }
 }

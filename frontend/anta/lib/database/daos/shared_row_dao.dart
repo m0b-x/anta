@@ -254,12 +254,17 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// comes first. The shared one is then simply not shown, as when the own
   /// row was here first (`SharedRowRefused`).
   ///
-  /// What hung under a removed row goes with it — an event's shared day
-  /// rows, the shared notes directly inside a folder: under a row that is
-  /// the person's own now they are what the reader refuses to store, and a
-  /// partner's skipped day would show on the person's own event. A shared
-  /// folder under a removed one is still shared, and stands at the top
-  /// level ([placeFolders]).
+  /// What hangs under the keys goes too — an event's shared day rows, the
+  /// shared notes directly inside a folder: under a row that is the
+  /// person's own now they are what the reader refuses to store, and a
+  /// partner's skipped day would show on the person's own event. Whatever
+  /// stood under the keys themselves (review A7): the reader stores a day
+  /// row or a note under a parent id no row holds — with ids that meet, the
+  /// partner's event or folder was skipped, removed first or is still
+  /// waiting — and an edit of that day on the person's own event was
+  /// stamped, queued and silently dropped by the fence. A shared folder
+  /// under a removed one is still shared, and stands at the top level
+  /// ([placeFolders]).
   ///
   /// The same call makes room under a parent: a note, a folder or a day row
   /// of the person's own that names a folder or an event held here as
@@ -271,38 +276,33 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// reader meets its documents again.
   ///
   /// One statement, the read of whose rows are shared, for a database that
-  /// holds none; nothing at all for no keys.
+  /// holds none; nothing at all for no keys. With a shared owner, the read of
+  /// what hangs under the keys costs one statement more per hanging table —
+  /// two for events, one for folders — whatever stood under them.
   Future<SharedRemovals> evict(String table, List<String> keys) async {
     if (keys.isEmpty) return SharedRemovals.none;
     final owner = await this.owner();
     if (owner == null) return SharedRemovals.none;
     final taken = await _sharedOf(table, owner, keys);
-    if (taken.isEmpty) return SharedRemovals.none;
+    final hanging = <String, List<String>>{
+      for (final (child, column)
+          in _hangingUnder[table] ?? const <(String, String)>[])
+        child: await _under(child, column, owner, keys),
+    };
+    if (taken.isEmpty && hanging.values.every((under) => under.isEmpty)) {
+      return SharedRemovals.none;
+    }
     return writing(() async {
       final gone = <String, List<SharedRemoval>>{
         table: await _remove(_shared(table), owner, taken),
+        for (final MapEntry(key: child, value: under) in hanging.entries)
+          child: await _remove(_shared(child), owner, under),
       };
-      var placed = const <String>[];
-      switch (table) {
-        case 'calendar_events':
-          for (final days in const [
-            'calendar_event_occurrences',
-            'calendar_event_skips',
-          ]) {
-            gone[days] = await _remove(
-              _shared(days),
-              owner,
-              await _under(days, 'event_id', owner, taken),
-            );
-          }
-        case 'folders':
-          gone['notes'] = await _remove(
-            _shared('notes'),
-            owner,
-            await _under('notes', 'folder_id', owner, taken),
-          );
-          placed = await placeFolders(owner);
-      }
+      // A shared folder under a removed one is still shared, and stands at
+      // the top level.
+      final placed = table == 'folders'
+          ? await placeFolders(owner)
+          : const <String>[];
       // Their documents are still shared: counted as known and not held, or
       // the leave of another row would hide behind them until a read from
       // the start met them again (share surfaces P3).
@@ -312,6 +312,16 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       return SharedRemovals(gone, placed);
     });
   }
+
+  /// The shared rows [evict] takes along with a parent's key: each child
+  /// table, and the column that names the parent.
+  static const Map<String, List<(String, String)>> _hangingUnder = {
+    'calendar_events': [
+      ('calendar_event_occurrences', 'event_id'),
+      ('calendar_event_skips', 'event_id'),
+    ],
+    'folders': [('notes', 'folder_id')],
+  };
 
   /// The keys of the rows of [table] that [owner] owns and whose [column]
   /// names one of [parents].

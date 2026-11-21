@@ -7,12 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/pairing_limits.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/pair_record.dart';
 import 'package:anta/models/share_settings.dart';
+import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/pairing_service.dart';
@@ -39,6 +41,7 @@ Future<_Device> _boot({
   required FakeAuthService auth,
   AppDatabase? database,
   Future<void> Function()? reconcileAlerts,
+  Timer Function(Duration, void Function())? timer,
 }) async {
   DatabaseLifecycle.notifyDatabaseSwitching();
   SettingsService.reset();
@@ -50,9 +53,43 @@ Future<_Device> _boot({
     gateway: gateway,
     settings: settings,
     reconcileAlerts: reconcileAlerts ?? () async {},
+    timer: timer,
   );
   return _Device(db, auth, gateway, service);
 }
+
+/// A timer that runs only when the test [fire]s it: the waits a service
+/// asks for, without the waiting.
+class _HeldTimer implements Timer {
+  _HeldTimer(this.wait, this._run);
+
+  final Duration wait;
+  final void Function() _run;
+  bool cancelled = false;
+  bool _fired = false;
+
+  void fire() {
+    _fired = true;
+    _run();
+  }
+
+  @override
+  bool get isActive => !cancelled && !_fired;
+
+  @override
+  int get tick => _fired ? 1 : 0;
+
+  @override
+  void cancel() => cancelled = true;
+}
+
+/// A timer factory that holds each timer asked of it in [timers].
+Timer Function(Duration, void Function()) _holdIn(List<_HeldTimer> timers) =>
+    (wait, run) {
+      final timer = _HeldTimer(wait, run);
+      timers.add(timer);
+      return timer;
+    };
 
 /// A server that, while [empty], names no pair and cannot be read: a link
 /// that dropped mid-answer.
@@ -139,6 +176,88 @@ class _FailingKey extends QueryInterceptor {
   ) => armed && args.contains(key)
       ? Future.error(StateError('disk full'))
       : super.runInsert(executor, statement, args);
+}
+
+/// Runs [onWrite] as a write of the setting [key] reaches the database,
+/// inside the transaction that carries it — a write still in flight.
+class _OnKeyWrite extends QueryInterceptor {
+  _OnKeyWrite(this.key);
+
+  final String key;
+  void Function(List<Object?> args)? onWrite;
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (args.contains(key)) onWrite?.call(args);
+    return super.runInsert(executor, statement, args);
+  }
+
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (args.contains(key)) onWrite?.call(args);
+    return super.runDelete(executor, statement, args);
+  }
+}
+
+/// A gateway that counts the queries for active pairs and the listens
+/// standing now — a listen counted from its start until it is cancelled.
+class _Counting extends FakePairingGateway {
+  int activeQueries = 0;
+  int livePairListens = 0;
+  int liveInviteListens = 0;
+
+  @override
+  Future<List<PairRecord>> findActivePairs(String uid) {
+    activeQueries++;
+    return super.findActivePairs(uid);
+  }
+
+  @override
+  Stream<PairRecord?> watchPair(String pairId) => _counted(
+    super.watchPair(pairId),
+    (step) => livePairListens += step,
+  );
+
+  @override
+  Stream<InviteRecord?> watchInvite(String code) => _counted(
+    super.watchInvite(code),
+    (step) => liveInviteListens += step,
+  );
+
+  Stream<T> _counted<T>(Stream<T> inner, void Function(int) count) {
+    StreamSubscription<T>? sub;
+    late final StreamController<T> out;
+    out = StreamController<T>(
+      onListen: () {
+        count(1);
+        sub = inner.listen(out.add, onError: out.addError);
+      },
+      onCancel: () {
+        count(-1);
+        return sub?.cancel();
+      },
+    );
+    return out.stream;
+  }
+}
+
+/// Firebase's stream: a new listener first hears the account signed in now.
+class _ReplayingAuth extends FakeAuthService {
+  _ReplayingAuth({super.user});
+
+  @override
+  Stream<AppUser?> get authStateChanges async* {
+    yield currentUser;
+    yield* super.authStateChanges;
+  }
 }
 
 /// A gateway whose pair listener hears only what the test sends it — the
@@ -1212,6 +1331,31 @@ void main() {
         expect(await stored(db), 'category');
       });
 
+      test('the same pair adopted again on a database with no mark costs '
+          'its rows and one read of the last pair — the binding is never '
+          'read', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final counter = StatementCounter();
+        final db = await openTestDatabase(interceptor: counter);
+        final pair = await pairedChoosing(gateway, db, ShareAlerts.own);
+        counter.reset();
+
+        await pair.me.load();
+
+        expect(pair.me.status.pairId, pair.pairId);
+        expect([
+          for (final statement in counter.captured)
+            if (statement.args.any(
+              (arg) =>
+                  arg is String && arg.startsWith(SettingsKeys.syncSpacePrefix),
+            ))
+              statement.sql,
+        ], isEmpty);
+        expect(counter.selects.single.args, [SettingsKeys.pairingLastPair]);
+        expect(counter.captured, hasLength(9), reason: 'the read, 8 rows');
+      });
+
       test('a first pair ever, the shipped choice standing, writes nothing '
           'for it', () async {
         final gateway = FakePairingGateway();
@@ -1366,6 +1510,158 @@ void main() {
 
         expect(status.pairId, caras.pairId);
         expect(await stored(db), SettingsKeys.defaultShareAlerts);
+      });
+
+      group('the marks of other pairs go only when they are the adopting '
+          "account's to take away (A1, D39)", () {
+        const cara = AppUser(uid: 'uid-c', displayName: 'Cara');
+
+        /// A folder shared into [pairId], already sent: nothing queued.
+        Future<String> sharedFolder(AppDatabase db, String pairId) async {
+          final folder = (await db.folderDao.createFolder(name: 'Training')).id;
+          await db.folderDao.setSharedPair(folder, pairId);
+          await db.delete(db.syncOutbox).go();
+          return folder;
+        }
+
+        Future<String?> markOf(AppDatabase db, String folder) async =>
+            (await db.folderDao.getFolderById(folder))!.sharedPair;
+
+        Future<List<String>> queued(AppDatabase db) async => [
+          for (final entry in await db.syncOutboxDao.pending())
+            '${entry.syncedTable}/${entry.rowKey}',
+        ];
+
+        Future<void> bindTo(AppDatabase db, String uid) =>
+            SettingsService.forTesting(db).setSyncBinding(
+              SyncBinding(
+                spaceId: 'space-$uid',
+                ownerUid: uid,
+                accountUid: uid,
+              ),
+            );
+
+        test(
+          'nothing else of the binding owner\'s sharing state moves at '
+          'another account\'s adoption — the alert choice, the last pair, '
+          'no alert pass — and nothing moves when the owner comes back',
+          () async {
+            final gateway = FakePairingGateway();
+            addTearDown(gateway.dispose);
+            final db = await openTestDatabase();
+            final passes = <ShareAlerts?>[];
+            Future<void> pass() async => passes.add(EventAlerts.shareAlerts);
+            final pair = await pairedChoosing(
+              gateway,
+              db,
+              ShareAlerts.category,
+            );
+            await bindTo(db, userB.uid);
+            final folder = await sharedFolder(db, pair.pairId);
+            gateway.seedPair([cara.uid, 'uid-d']);
+
+            await (await _boot(
+              gateway: gateway,
+              auth: FakeAuthService(user: cara),
+              database: db,
+              reconcileAlerts: pass,
+            )).service.load();
+
+            expect(await stored(db), 'category');
+            expect(await markOf(db, folder), pair.pairId);
+            expect(
+              await db.userSettingsDao.getValue(SettingsKeys.pairingLastPair),
+              pair.pairId,
+            );
+            expect(passes, isEmpty);
+
+            final back = await (await _boot(
+              gateway: gateway,
+              auth: FakeAuthService(user: userB),
+              database: db,
+              reconcileAlerts: pass,
+            )).service.load();
+
+            expect(back.pairId, pair.pairId);
+            expect(await stored(db), 'category');
+            expect(await markOf(db, folder), pair.pairId);
+            expect(await queued(db), isNot(contains('folders/$folder')));
+            expect(passes, isEmpty);
+          },
+        );
+
+        test('whose the database\'s sharing is, asked in one place: bound to '
+            'another account than the one named, or not', () async {
+          final db = await openTestDatabase();
+          final settings = SettingsService.forTesting(db);
+          expect(await settings.boundToAnotherAccount(cara.uid), isFalse);
+
+          await bindTo(db, userB.uid);
+
+          expect(await settings.boundToAnotherAccount(userB.uid), isFalse);
+          expect(await settings.boundToAnotherAccount(cara.uid), isTrue);
+          expect(await settings.boundToAnotherAccount(null), isTrue);
+        });
+
+        test('another account signed in on a database bound to mine adopts '
+            'its own pair and takes none of my marks: they still name my '
+            'pair, and nothing is queued to send them private', () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final db = await openTestDatabase();
+          final pair = await pairedChoosing(gateway, db, ShareAlerts.own);
+          await bindTo(db, userB.uid);
+          final folder = await sharedFolder(db, pair.pairId);
+          final caras = gateway.seedPair([cara.uid, 'uid-d']);
+
+          final status = (await (await _boot(
+            gateway: gateway,
+            auth: FakeAuthService(user: cara),
+            database: db,
+          )).service.load());
+
+          expect(status.pairId, caras.pairId);
+          expect(await markOf(db, folder), pair.pairId);
+          expect(await queued(db), isNot(contains('folders/$folder')));
+        });
+
+        test(
+          'the bound account adopting another pair of its own still '
+          "clears the ended pair's marks, queued to be sent private",
+          () async {
+            final gateway = FakePairingGateway();
+            addTearDown(gateway.dispose);
+            final db = await openTestDatabase();
+            final pair = await pairedChoosing(gateway, db, ShareAlerts.own);
+            await bindTo(db, userB.uid);
+            final folder = await sharedFolder(db, pair.pairId);
+            await pair.me.unpair();
+
+            await pair.me.redeem(await inviteFromCara(gateway));
+
+            expect(await markOf(db, folder), isNull);
+            expect(await queued(db), contains('folders/$folder'));
+          },
+        );
+
+        test('a database bound to no account clears them at any adoption: '
+            'nobody else is owed them', () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final db = await openTestDatabase();
+          final pair = await pairedChoosing(gateway, db, ShareAlerts.own);
+          final folder = await sharedFolder(db, pair.pairId);
+          gateway.seedPair([cara.uid, 'uid-d']);
+
+          await (await _boot(
+            gateway: gateway,
+            auth: FakeAuthService(user: cara),
+            database: db,
+          )).service.load();
+
+          expect(await markOf(db, folder), isNull);
+          expect(await queued(db), contains('folders/$folder'));
+        });
       });
 
       test('the pair my own invite brings, adopted by its listener with no '
@@ -1740,6 +2036,468 @@ void main() {
         expect(creator.service.status.partner?.uid, userB.uid);
       },
     );
+
+    group('a refused listen (A2)', () {
+      Future<_Device> paired(
+        FakePairingGateway gateway, {
+        List<_HeldTimer>? timers,
+      }) async {
+        gateway.seedPair([userA.uid, userB.uid]);
+        final device = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+          timer: timers == null ? null : _holdIn(timers),
+        );
+        await device.service.load();
+        return device;
+      }
+
+      test('is listened again after a wait that doubles with each refusal '
+          'in a row up to its ceiling, and starts over once a snapshot is '
+          'heard', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final timers = <_HeldTimer>[];
+        final device = await paired(gateway, timers: timers);
+        gateway.failWatches = PairingError.offline;
+
+        await device.service.load();
+        await pumpEventQueue();
+        expect(timers.map((t) => t.wait), [PairingLimits.relistenFirst]);
+
+        for (var i = 0; i < 10; i++) {
+          final listens = gateway.watchPairCalls;
+          timers.last.fire();
+          await pumpEventQueue();
+          expect(gateway.watchPairCalls, listens + 1);
+        }
+        expect(timers.map((t) => t.wait), [
+          for (var i = 0; i < 8; i++) PairingLimits.relistenFirst * (1 << i),
+          for (var i = 0; i < 3; i++) PairingLimits.relistenCeiling,
+        ]);
+
+        gateway.failWatches = null;
+        timers.last.fire();
+        await pumpEventQueue();
+        await gateway.writeProfile(
+          pairId: device.service.status.pairId!,
+          profile: PairProfile.fromUser(userA),
+        );
+        await pumpEventQueue();
+        expect(timers, hasLength(11), reason: 'a live listen asks nothing');
+
+        gateway.dropPairListen(
+          device.service.status.pairId!,
+          PairingError.offline,
+        );
+        await pumpEventQueue();
+        expect(timers.last.wait, PairingLimits.relistenFirst);
+      });
+
+      test('with nobody signed in nothing listens again, and the next load '
+          'of the account attaches once more', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final timers = <_HeldTimer>[];
+        final device = await paired(gateway, timers: timers);
+        await device.auth.signOut();
+        gateway.failWatches = PairingError.permissionDenied;
+        gateway.watchPairCalls = 0;
+
+        await device.service.load();
+        await pumpEventQueue();
+
+        expect(gateway.watchPairCalls, 1);
+        expect(timers, isEmpty);
+
+        device.auth.emitAuth(userB);
+        gateway.failWatches = null;
+        await device.service.load();
+        expect(gateway.watchPairCalls, greaterThan(1));
+        expect(gateway.hasPairListener(device.service.status.pairId!), isTrue);
+      });
+
+      for (final (label, end)
+          in <(String, Future<void> Function(PairingService))>[
+            ('a database switch (reset)', (_) async => PairingService.reset()),
+            ('dispose', (service) => service.dispose()),
+          ]) {
+        test('$label takes the pending wait and the follow of the account '
+            'with the service: no listen is left to come', () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final timers = <_HeldTimer>[];
+          final device = await paired(gateway, timers: timers);
+          gateway.failWatches = PairingError.offline;
+          await device.service.load();
+          await pumpEventQueue();
+          expect(timers.single.isActive, isTrue);
+
+          await end(device.service);
+
+          expect(timers.single.cancelled, isTrue);
+          gateway.failWatches = null;
+          final listens = gateway.watchPairCalls;
+          device.auth.emitAuth(null);
+          device.auth.emitAuth(userB);
+          await pumpEventQueue();
+          expect(gateway.watchPairCalls, listens);
+        });
+      }
+
+      test('follows the signed-in account: signed out, the listeners go; '
+          'the same account back, they come back with no load; another '
+          'account, nothing listens', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final device = await paired(gateway, timers: <_HeldTimer>[]);
+        final pairId = device.service.status.pairId!;
+        expect(gateway.hasPairListener(pairId), isTrue);
+
+        device.auth.emitAuth(null);
+        await pumpEventQueue();
+        expect(gateway.hasPairListener(pairId), isFalse);
+
+        final listens = gateway.watchPairCalls;
+        device.auth.emitAuth(userB);
+        await pumpEventQueue();
+        expect(gateway.watchPairCalls, listens + 1);
+        expect(gateway.hasPairListener(pairId), isTrue);
+
+        device.auth.emitAuth(const AppUser(uid: 'uid-c', displayName: 'Cara'));
+        await pumpEventQueue();
+        expect(gateway.hasPairListener(pairId), isFalse);
+        expect(gateway.watchPairCalls, listens + 1);
+      });
+
+      test('a load starts the wait over: a page opened after a long outage '
+          'does not wait its first at the ceiling', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final timers = <_HeldTimer>[];
+        final device = await paired(gateway, timers: timers);
+        gateway.failWatches = PairingError.offline;
+        await device.service.load();
+        await pumpEventQueue();
+        for (var i = 0; i < 4; i++) {
+          timers.last.fire();
+          await pumpEventQueue();
+        }
+        expect(timers.last.wait, PairingLimits.relistenFirst * 16);
+
+        await device.service.load();
+        await pumpEventQueue();
+
+        expect(timers.last.wait, PairingLimits.relistenFirst);
+      });
+
+      test('an invite past its end is never listened to again: the wait '
+          'drops the code first, and nothing listens for it', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final db = await openTestDatabase();
+        final expiresAt = DateTime.now().toUtc().add(
+          const Duration(seconds: 1),
+        );
+        await SettingsService.forTesting(db).setPairingSettings(
+          PairingSettings(
+            accountUid: userA.uid,
+            pendingCode: 'ABCD2345',
+            pendingExpiresAt: expiresAt,
+          ),
+        );
+        final timers = <_HeldTimer>[];
+        final device = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+          database: db,
+          timer: _holdIn(timers),
+        );
+        gateway.failInviteWatches = PairingError.permissionDenied;
+        await device.service.load();
+        await pumpEventQueue();
+        expect(gateway.watchInviteCalls, 1);
+        expect(timers, hasLength(1));
+
+        await Future<void>.delayed(
+          expiresAt.difference(DateTime.now().toUtc()) +
+              const Duration(milliseconds: 50),
+        );
+        timers.single.fire();
+        await pumpEventQueue();
+
+        expect(gateway.watchInviteCalls, 1);
+        expect(device.service.status.pendingCode, isNull);
+        expect(
+          await db.userSettingsDao.getValue(SettingsKeys.pairingPendingCode),
+          isNull,
+        );
+      });
+
+      group('the wait\'s drop of a run-out code is one write in the queue, '
+          'and looks again in its turn', () {
+        /// [user]'s device on [db], holding a code of its own whose listen
+        /// was refused — a wait pending — once that code has run out.
+        Future<_Device> holdingRunOutCode(
+          FakePairingGateway gateway,
+          AppDatabase db,
+          List<_HeldTimer> timers, {
+          AppUser user = userA,
+        }) async {
+          final expiresAt = DateTime.now().toUtc().add(
+            const Duration(seconds: 1),
+          );
+          // Another device booted first left its settings built.
+          SettingsService.reset();
+          await SettingsService.forTesting(db).setPairingSettings(
+            PairingSettings(
+              accountUid: user.uid,
+              pendingCode: 'ABCD2345',
+              pendingExpiresAt: expiresAt,
+            ),
+          );
+          final device = await _boot(
+            gateway: gateway,
+            auth: FakeAuthService(user: user),
+            database: db,
+            timer: _holdIn(timers),
+          );
+          gateway.failInviteWatches = PairingError.permissionDenied;
+          await device.service.load();
+          await pumpEventQueue();
+          gateway.failInviteWatches = null;
+          await Future<void>.delayed(
+            expiresAt.difference(DateTime.now().toUtc()) +
+                const Duration(milliseconds: 50),
+          );
+          expect(timers, hasLength(1));
+          return device;
+        }
+
+        /// Ends the wait while a write of [writes]' key is under way — from
+        /// outside the database's zone, as a timer does.
+        void endWaitDuring(_OnKeyWrite writes, List<_HeldTimer> timers) {
+          writes.onWrite = (_) {
+            writes.onWrite = null;
+            Zone.root.run(timers.single.fire);
+          };
+        }
+
+        test('a code made meanwhile stays, on disk and in memory, with its '
+            'listener', () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final writes = _OnKeyWrite(SettingsKeys.pairingPendingCode);
+          final db = await openTestDatabase(interceptor: writes);
+          final timers = <_HeldTimer>[];
+          final device = await holdingRunOutCode(gateway, db, timers);
+          endWaitDuring(writes, timers);
+
+          final fresh = (await device.service.generateInvite()).pendingCode;
+          await pumpEventQueue();
+
+          expect(fresh, isNot('ABCD2345'));
+          expect(device.service.status.pendingCode, fresh);
+          expect(
+            await db.userSettingsDao.getValue(SettingsKeys.pairingPendingCode),
+            fresh,
+          );
+          expect(gateway.hasInviteListener(fresh!), isTrue);
+        });
+
+        test('a pair adopted meanwhile stays: the state from before the '
+            'adoption is never written back', () async {
+          final gateway = FakePairingGateway();
+          addTearDown(gateway.dispose);
+          final alex = await _boot(
+            gateway: gateway,
+            auth: FakeAuthService(user: userA),
+          );
+          final code = (await alex.service.generateInvite()).pendingCode!;
+          final writes = _OnKeyWrite(SettingsKeys.pairingPairId);
+          final db = await openTestDatabase(interceptor: writes);
+          final timers = <_HeldTimer>[];
+          final me = await holdingRunOutCode(
+            gateway,
+            db,
+            timers,
+            user: userB,
+          );
+          endWaitDuring(writes, timers);
+
+          final pairId = (await me.service.redeem(code)).pairId;
+          await pumpEventQueue();
+
+          expect(pairId, isNotNull);
+          expect(me.service.status.pairId, pairId);
+          expect(
+            await db.userSettingsDao.getValue(SettingsKeys.pairingPairId),
+            pairId,
+          );
+        });
+
+        test('a load landing meanwhile leaves one set of listeners '
+            'standing', () async {
+          final gateway = _Counting();
+          addTearDown(gateway.dispose);
+          final writes = _OnKeyWrite(SettingsKeys.pairingPendingCode);
+          final db = await openTestDatabase(interceptor: writes);
+          final timers = <_HeldTimer>[];
+          final device = await holdingRunOutCode(
+            gateway,
+            db,
+            timers,
+            user: userB,
+          );
+          // A pair only the load's reconcile finds.
+          final pair = gateway.seedPair([userA.uid, userB.uid]);
+          Future<PairingStatus>? load;
+          writes.onWrite = (_) {
+            writes.onWrite = null;
+            load = Zone.root.run(device.service.load);
+          };
+
+          timers.single.fire();
+          await pumpEventQueue();
+          await load;
+          await pumpEventQueue();
+
+          expect(load, isNotNull, reason: 'the load landed during the drop');
+          expect(device.service.status.pairId, pair.pairId);
+          expect(device.service.status.pendingCode, isNull);
+          expect(gateway.livePairListens, 1);
+          expect(gateway.liveInviteListens, 0);
+        });
+      });
+
+      test('is not listened again at once: listen, refused, listen would '
+          'run for the life of the process, each turn an "offline"', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final device = await paired(gateway, timers: <_HeldTimer>[]);
+        final errors = <PairingError>[];
+        final sub = device.service.errors.listen(errors.add);
+        addTearDown(sub.cancel);
+        gateway.failWatches = PairingError.permissionDenied;
+        gateway.watchPairCalls = 0;
+
+        await device.service.load();
+        await pumpEventQueue();
+
+        expect(gateway.watchPairCalls, lessThanOrEqualTo(2));
+        expect(errors, [PairingError.permissionDenied]);
+      });
+    });
+
+    group('the account followed', () {
+      /// Ben's database holding [pairId] with Alex, as its own rows say.
+      Future<AppDatabase> holdingPair(String pairId) async {
+        final db = await openTestDatabase();
+        await SettingsService.forTesting(db).setPairingSettings(
+          PairingSettings(
+            pairId: pairId,
+            accountUid: userB.uid,
+            partnerUid: userA.uid,
+          ),
+        );
+        return db;
+      }
+
+      test('the account\'s return asks the server too: a pair the '
+          'partner\'s account deletion removed while it was away is told '
+          'as a reconcile tells it', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pairId = gateway.seedPair([userA.uid, userB.uid]).pairId;
+        final device = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+        );
+        await device.service.load();
+        device.auth.emitAuth(null);
+        await pumpEventQueue();
+        await gateway.endPair(pairId: pairId, endedBy: userA.uid);
+        await gateway.deletePair(pairId);
+
+        device.auth.emitAuth(userB);
+        await pumpEventQueue();
+
+        expect(device.service.status.isPaired, isFalse);
+        expect(device.service.status.endedNoticePending, isTrue);
+        expect(
+          await device.db.userSettingsDao.getValue(
+            SettingsKeys.pairingPairId,
+          ),
+          isNull,
+        );
+      });
+
+      for (final (label, held) in [
+        ('a database that never paired', PairingSettings.empty),
+        ('one whose pair was undone', PairingSettings(accountUid: userB.uid)),
+      ]) {
+        test('$label asks nothing of the server at a sign-in', () async {
+          final gateway = _Counting();
+          addTearDown(gateway.dispose);
+          final db = await openTestDatabase();
+          await SettingsService.forTesting(db).setPairingSettings(held);
+          final device = await _boot(
+            gateway: gateway,
+            auth: FakeAuthService(),
+            database: db,
+          );
+
+          device.auth.emitAuth(userB);
+          await pumpEventQueue();
+
+          expect(gateway.activeQueries, 0);
+          expect(gateway.readPairCalls, 0);
+          expect(gateway.watchPairCalls + gateway.watchInviteCalls, 0);
+        });
+      }
+
+      test('a stream that replays the account signed in to a new listener, '
+          'as Firebase\'s does, changes nothing at the service\'s '
+          'creation', () async {
+        final gateway = _Counting();
+        addTearDown(gateway.dispose);
+        final pairId = gateway.seedPair([userA.uid, userB.uid]).pairId;
+        final db = await holdingPair(pairId);
+
+        final device = await _boot(
+          gateway: gateway,
+          auth: _ReplayingAuth(user: userB),
+          database: db,
+        );
+        await pumpEventQueue();
+
+        expect(device.service.status.pairId, pairId);
+        expect(gateway.activeQueries, 0);
+        expect(gateway.watchPairCalls, 0);
+      });
+
+      test('built while signed out, the sign-in of the account the pairing '
+          'is stored for attaches its listener', () async {
+        final gateway = _Counting();
+        addTearDown(gateway.dispose);
+        final pairId = gateway.seedPair([userA.uid, userB.uid]).pairId;
+        final db = await holdingPair(pairId);
+        final device = await _boot(
+          gateway: gateway,
+          auth: _ReplayingAuth(),
+          database: db,
+        );
+        await pumpEventQueue();
+        expect(gateway.watchPairCalls, 0);
+
+        device.auth.emitAuth(userB);
+        await pumpEventQueue();
+
+        expect(gateway.hasPairListener(pairId), isTrue);
+        expect(gateway.livePairListens, 1);
+        expect(device.service.status.pairId, pairId);
+      });
+    });
   });
 
   group('offline', () {

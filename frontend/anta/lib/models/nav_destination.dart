@@ -52,7 +52,10 @@ enum NavDestinationKind {
   /// "How to use ANTA" and its two books (`docs/guide-hub-roadmap.md` D9).
   guideHub,
   notesGuide,
-  appGuide;
+  appGuide,
+
+  /// The fourth book, "Sync and sharing" (§11, D51).
+  syncGuide;
 
   /// Whether this destination belongs to the folder/note substrate rather
   /// than to the calendar or settings layered on top. Backs the "folders and

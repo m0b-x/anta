@@ -61,6 +61,7 @@ import 'event_avatar.dart';
 import 'event_description_sheet.dart';
 import 'event_look_sheet.dart';
 import 'event_repeat_sheet.dart';
+import 'event_share_row.dart';
 import 'event_template_editor_sheet.dart';
 import 'form_rows.dart';
 import 'markdown_bar.dart';
@@ -1756,7 +1757,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   Future<void> _pickNote() async {
     _blur();
-    final picked = await showNotePickerDialog(context);
+    // A partner's note never: its money lines would count for my event.
+    final picked = await showNotePickerDialog(context, ownOnly: true);
     if (picked == null || !mounted) return;
     setState(() {
       _noteId = picked.id;
@@ -3008,50 +3010,27 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   bool get _shareRowShown =>
       !widget.sandbox && _shareAvailability is! ShareNotPaired;
 
-  /// The share switch (share surfaces §6.6): two lines in every state, the
-  /// subtitle in a slot as tall as the tallest fixed reading, and a
-  /// category's reading cut to it, so a category pick that shares the event,
-  /// or a flip, moves nothing below it.
+  /// The share switch (`EventShareRow`, the one the guide's stages draw).
   ///
   /// The category reading follows the picked category at once and uses its
   /// stored id, as `CalendarCategories.shareOf` does: an event on a missing
   /// id drawn under Other is not shared through Other.
   Widget _buildShareRow(AppLocalizations l10n) {
     final availability = _shareAvailability;
-    final name = ShareCopy.partnerName(
-      l10n,
-      availability.audience?.displayName,
-    );
-    final ready = availability is ShareReady;
     final category = CalendarCategories.byId(_categoryId);
-    final throughCategory = ready && category != null && category.sharedByMe;
-    final onLine = ShareCopy.sentence(l10n.shareEventOn(name));
-    final String subtitle;
-    if (!ready) {
-      subtitle = l10n.shareNeedsSync;
-    } else if (throughCategory) {
-      subtitle = l10n.shareThroughCategory(
-        CalendarCategories.labelOf(category, l10n),
-      );
-    } else {
-      subtitle = _markedShared ? onLine : l10n.shareEventOff;
-    }
-    return FormSwitchRow(
-      glyph: Icons.group_rounded,
-      identifier: SemanticsIds.eventShare,
-      label: l10n.shareWithPartner(name),
-      subtitle: subtitle,
-      // The fixed readings size the slot; "On for everything in {category}"
-      // is cut to it, so one long shared category name never gives every
-      // event's row a blank second line.
-      subtitleTemplates: [l10n.shareEventOff, onLine, l10n.shareNeedsSync],
-      subtitleFitsTemplates: true,
-      value: ready && (throughCategory || _markedShared),
-      onChanged: ready && !throughCategory
-          ? (value) => setState(() => _markedShared = value)
+    return EventShareRow(
+      partnerName: ShareCopy.partnerName(
+        l10n,
+        availability.audience?.displayName,
+      ),
+      ready: availability is ShareReady,
+      value: _markedShared,
+      onChanged: (value) => setState(() => _markedShared = value),
+      sharedThrough: category != null && category.sharedByMe
+          ? CalendarCategories.labelOf(category, l10n)
           : null,
-      onDisabledTap: ready ? null : _openSyncSettings,
-      onDisabledTapHint: l10n.shareOpensSyncHint,
+      identifier: SemanticsIds.eventShare,
+      onOpenSync: _openSyncSettings,
     );
   }
 

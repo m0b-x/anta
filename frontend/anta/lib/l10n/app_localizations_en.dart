@@ -9633,7 +9633,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get guideHubIntro =>
-      'Three short guides. Search here to look through all of them at once.';
+      'Four short guides. Search here to look through all of them at once.';
 
   @override
   String get guideHubSectionGuides => 'Guides';
@@ -9650,11 +9650,22 @@ class AppLocalizationsEn extends AppLocalizations {
       'Folders, writing, markdown, lists, your own shortcuts, the money ledger, autocomplete, counters';
 
   @override
-  String get guideBookAppTitle => 'Backup, sync and settings';
+  String get guideBookSyncTitle => 'Sync and sharing';
+
+  @override
+  String get guideBookSyncCaption =>
+      'Your phones in step, pairing, sharing events, categories and folders, stopping';
+
+  @override
+  String get syncGuideIntro =>
+      'Keep your phones in step, and share what you choose with one person.';
+
+  @override
+  String get guideBookAppTitle => 'Backup and settings';
 
   @override
   String get guideBookAppCaption =>
-      'The main menu, keeping a copy of your notes, syncing between phones, the settings';
+      'The main menu, keeping a copy of your notes, the settings';
 
   @override
   String get notesGuideIntro =>
@@ -10406,8 +10417,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notesGuideSafeBackupTitle => 'The way back';
 
   @override
-  String notesGuideSafeBackupBody(String guideBookAppTitle) {
-    return 'Deleting is final, and this phone holds the only copy until you keep another. The “$guideBookAppTitle” guide shows how to back up and how to sync.';
+  String notesGuideSafeBackupBody(
+    String guideBookAppTitle,
+    String guideBookSyncTitle,
+  ) {
+    return 'Deleting is final, and this phone holds the only copy until you keep another. The “$guideBookAppTitle” guide shows how to back up, and “$guideBookSyncTitle” how to sync.';
   }
 
   @override
@@ -10617,21 +10631,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get appGuidePageSync => 'Sync between phones';
+  String get syncGuidePageSync => 'Sync between your phones';
 
   @override
-  String get appGuidePageSyncCaption =>
-      'Sign in once, the same notes on every device';
+  String get syncGuidePageSyncCaption =>
+      'Sign in once, the same notes on every phone';
 
   @override
-  String get appGuideSyncLead =>
-      'Sync keeps a copy of a database in your account and sends every change to your other devices. It is off until you turn it on.';
+  String get syncGuideSyncLead =>
+      'One account, the same notes and calendar on every phone you sign in on. It is off until you turn it on.';
 
   @override
-  String get appGuideSyncSignInTitle => 'Sign in';
+  String get syncGuideSignInTitle => 'Sign in once';
 
   @override
-  String appGuideSyncSignInBody(
+  String syncGuideSignInBody(
     String sharingSettings,
     String settingsHubTitle,
     String signInWithGoogle,
@@ -10640,50 +10654,833 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get appGuideSyncOnTitle => 'Turn it on';
+  String get syncGuideOnTitle => 'Turn it on per database';
 
   @override
-  String appGuideSyncOnBody(
-    String syncThisDatabase,
-    String syncThisDatabaseDesc,
-  ) {
-    return '“$syncThisDatabase” on the same page starts syncing the database you are using. $syncThisDatabaseDesc.';
+  String syncGuideOnBody(String syncThisDatabase, String syncThisDatabaseDesc) {
+    return '“$syncThisDatabase” on the same page syncs the database you are using; each database has its own switch. $syncThisDatabaseDesc.';
   }
 
   @override
-  String get appGuideSyncStatusTitle => 'Where it stands';
+  String get syncGuideStatusTitle => 'Read the status line';
 
   @override
-  String appGuideSyncStatusBody(
+  String syncGuideStatusBody(
     String syncUpToDate,
     String syncOffline,
     String syncNow,
   ) {
-    return 'The page says “$syncUpToDate”, “$syncOffline” or how many changes are waiting; the main menu\'s top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “$syncNow” does not wait.';
+    return 'The page says “$syncUpToDate”, “$syncOffline” or how many changes are waiting; the main menu\'s top row shows when it last synced. “$syncNow” does not wait.';
   }
 
   @override
-  String get appGuideSyncCadenceTitle => 'When it syncs';
+  String get syncGuideCadenceTitle => 'How often';
 
   @override
-  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow) {
-    return '“$syncAutomatic” on the same page is on to begin with: changes sync while the app is open and when you leave it. Turn it off and nothing moves until you tap “$syncNow” — for a metered connection, or when you want to say when.';
+  String syncGuideCadenceBody(String syncAutomatic, String syncNow) {
+    return '“$syncAutomatic” is on to begin with: a change goes within a few minutes while the app is open, and when you leave it. Turn it off and nothing moves until you tap “$syncNow”.';
   }
 
   @override
-  String get appGuideSyncOtherTitle => 'On the other phone';
+  String get syncGuideOtherTitle => 'A second phone';
 
   @override
-  String appGuideSyncOtherBody(String syncThisDatabase) {
-    return 'Sign in with the same account and turn “$syncThisDatabase” on there too. ANTA lists the spaces in your account; pick yours and it is downloaded into a new database on that phone. After that, only changes travel.';
+  String syncGuideOtherBody(String syncThisDatabase) {
+    return 'Sign in there with the same account and turn “$syncThisDatabase” on. Pick your database from the list and it arrives as a database of its own; after that, only changes travel.';
   }
 
   @override
-  String get appGuideSyncConflictTitle => 'Two phones, one note';
+  String get syncGuidePagePair => 'Pair with someone';
 
   @override
-  String get appGuideSyncConflictBody =>
-      'If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.';
+  String get syncGuidePagePairCaption => 'One other person, linked by a code';
+
+  @override
+  String get syncGuidePairLead =>
+      'Sharing is between you and one other person. Pairing is how the two phones find each other.';
+
+  @override
+  String get syncGuidePairOneTitle => 'One person at a time';
+
+  @override
+  String syncGuidePairOneBody(String unpair) {
+    return 'A pair is two accounts. To pair with someone else, “$unpair” first.';
+  }
+
+  @override
+  String get syncGuidePairCodeTitle => 'The code';
+
+  @override
+  String syncGuidePairCodeBody(
+    String pairingSection,
+    String sharingSettings,
+    String createCode,
+    String enterCode,
+  ) {
+    return '“$pairingSection” in “$sharingSettings”: one of you taps “$createCode”, the other types it under “$enterCode”. A code works once, for ten minutes; make a new one if it runs out.';
+  }
+
+  @override
+  String get syncGuidePairSyncTitle => 'Both of you sync';
+
+  @override
+  String syncGuidePairSyncBody(String syncThisDatabase) {
+    return 'Each phone needs “$syncThisDatabase” on before it can share or receive: what you share travels with sync.';
+  }
+
+  @override
+  String get syncGuidePairEmptyTitle => 'Pairing shares nothing';
+
+  @override
+  String get syncGuidePairEmptyBody =>
+      'A new pair starts empty: the other person sees your name and picture, and nothing else until you share it.';
+
+  @override
+  String get syncGuidePageOffline => 'No signal, and two phones at once';
+
+  @override
+  String get syncGuidePageOfflineCaption =>
+      'Writing offline, and one note changed twice';
+
+  @override
+  String get syncGuideOfflineLead =>
+      'Nothing waits for the network. What you write is saved on the phone first.';
+
+  @override
+  String get syncGuideOfflineNormalTitle => 'Offline is normal';
+
+  @override
+  String syncGuideOfflineNormalBody(String syncOffline) {
+    return 'Every change is saved on the phone and sent once a connection is back. Meanwhile the page says “$syncOffline”.';
+  }
+
+  @override
+  String get syncGuideOfflineConflictTitle => 'Two edits of one note';
+
+  @override
+  String get syncGuideOfflineConflictBody =>
+      'If the same note changes on two phones, the later edit stays in the note and the other is filed beside it as a copy, so no text is lost. Delete whichever you do not need.';
+
+  @override
+  String get syncGuideOfflineCloseTitle => 'Closing the app';
+
+  @override
+  String get syncGuideOfflineCloseBody =>
+      'ANTA sends what is waiting when you leave it. Whatever is still waiting goes the next time the app syncs.';
+
+  @override
+  String get syncGuidePageEvent => 'Share one event';
+
+  @override
+  String get syncGuidePageEventCaption => 'One switch in the event\'s editor';
+
+  @override
+  String get syncGuideEventLead => 'One switch on the event itself.';
+
+  @override
+  String get syncGuideEventSwitchTitle => 'Where the switch is';
+
+  @override
+  String syncGuideEventSwitchBody(String shareWith) {
+    return 'In the event\'s editor: “$shareWith”. It shows once you are paired.';
+  }
+
+  @override
+  String get syncGuideEventTheirsTitle => 'What they can do';
+
+  @override
+  String get syncGuideEventTheirsBody =>
+      'See it, open it, copy it and add alerts of their own. They never change it.';
+
+  @override
+  String get syncGuideEventFollowTitle => 'It follows your changes';
+
+  @override
+  String get syncGuideEventFollowBody =>
+      'Move or rename it and what they see follows. Delete it and it leaves their phone.';
+
+  @override
+  String get syncGuideEventCopyTitle => 'Their copy is theirs';
+
+  @override
+  String syncGuideEventCopyBody(String copy) {
+    return '“$copy” gives them an event of their own. Your later changes do not reach that copy, and it stays when you stop sharing.';
+  }
+
+  @override
+  String get syncGuidePageCategory => 'Share a whole category';
+
+  @override
+  String get syncGuidePageCategoryCaption =>
+      'Every event in it, the new ones too';
+
+  @override
+  String get syncGuideCategoryLead =>
+      'Everything in the category, now and later.';
+
+  @override
+  String get syncGuideCategoryWhereTitle => 'Where the switch is';
+
+  @override
+  String syncGuideCategoryWhereBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+    String categories,
+  ) {
+    return '“$shareWith” in a category\'s editor, or in its ⋮ menu on the “$calendarCategories” page. “$sharingPage” › “$categories” ticks several at once.';
+  }
+
+  @override
+  String get syncGuideCategoryAllTitle => 'Everything in it';
+
+  @override
+  String get syncGuideCategoryAllBody =>
+      'Every event of the category is shared, and each one you add to it later.';
+
+  @override
+  String get syncGuideCategoryOutTitle => 'One event out';
+
+  @override
+  String syncGuideCategoryOutBody(String through) {
+    return 'An event in a shared category has no switch of its own: it reads “$through”. Move it to another category and its own switch decides again.';
+  }
+
+  @override
+  String get syncGuideCategoryTheirsTitle => 'On their side';
+
+  @override
+  String syncGuideCategoryTheirsBody(String calendarCategories) {
+    return 'It appears on their “$calendarCategories” page under your name. They choose whether it shows on their calendar.';
+  }
+
+  @override
+  String get syncGuidePageFolder => 'Share a folder and its notes';
+
+  @override
+  String get syncGuidePageFolderCaption =>
+      'Everything inside, read-only for them';
+
+  @override
+  String get syncGuideFolderLead => 'A folder shares everything inside it.';
+
+  @override
+  String get syncGuideFolderWhereTitle => 'Where the switch is';
+
+  @override
+  String syncGuideFolderWhereBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+    String folders,
+  ) {
+    return '“$shareWith” in a folder\'s ⋮ menu, or “$addFolder” under “$sharingPage” › “$folders”.';
+  }
+
+  @override
+  String get syncGuideFolderInsideTitle => 'What goes with it';
+
+  @override
+  String get syncGuideFolderInsideBody =>
+      'Its notes, the folders inside it and whatever you move in later. A note you move out is yours alone again.';
+
+  @override
+  String get syncGuideFolderReadOnlyTitle => 'Read only for them';
+
+  @override
+  String syncGuideFolderReadOnlyBody(String copy) {
+    return 'They read its notes and can keep one with “$copy”. They cannot write in your folder.';
+  }
+
+  @override
+  String get syncGuideFolderNoteTitle => 'A single note';
+
+  @override
+  String get syncGuideFolderNoteBody =>
+      'A note is shared by the folder it is in. To share one, put it in a shared folder.';
+
+  @override
+  String get syncGuidePageLook => 'How shared things look';
+
+  @override
+  String get syncGuidePageLookCaption => 'Telling their things from yours';
+
+  @override
+  String get syncGuideLookLead =>
+      'What your partner shares sits among your own. You choose how it is told apart.';
+
+  @override
+  String get syncGuideLookEventsTitle => 'Three looks for events';
+
+  @override
+  String syncGuideLookEventsBody(
+    String eventLook,
+    String sharingPage,
+    String outlined,
+    String avatar,
+    String plain,
+  ) {
+    return '“$eventLook” on “$sharingPage”: “$outlined”, “$avatar” or “$plain”.';
+  }
+
+  @override
+  String get syncGuideLookNotesTitle => 'Notes too';
+
+  @override
+  String syncGuideLookNotesBody(String noteLook, String avatar, String plain) {
+    return '“$noteLook” on the same page: “$avatar” or “$plain”.';
+  }
+
+  @override
+  String get syncGuideLookMarkBody =>
+      'A small sign on your categories, events and folders that your partner can see.';
+
+  @override
+  String get syncGuideLookHideTitle => 'Hide what you do not need';
+
+  @override
+  String syncGuideLookHideBody(String sharingPage, String categories) {
+    return 'On “$sharingPage”, under what they share, “$categories” switches one of theirs off: its events leave your calendar and do not ring. On this phone only; they never see it.';
+  }
+
+  @override
+  String get syncGuidePageAlerts => 'Alerts on shared things';
+
+  @override
+  String get syncGuidePageAlertsCaption => 'What rings on your phone';
+
+  @override
+  String get syncGuideAlertsLead =>
+      'Their alerts never ring on your phone. Yours ring when you say.';
+
+  @override
+  String get syncGuideAlertsChoicesTitle => 'Three choices';
+
+  @override
+  String syncGuideAlertsChoicesBody(
+    String shareAlerts,
+    String sharingPage,
+    String off,
+    String own,
+    String category,
+  ) {
+    return '“$shareAlerts” on “$sharingPage”: “$off” silences them all, “$own” rings only alerts you add, “$category” lets shared events follow your category alerts too.';
+  }
+
+  @override
+  String get syncGuideAlertsOwnTitle => 'Add your own';
+
+  @override
+  String get syncGuideAlertsOwnBody =>
+      'Open a shared event and add an alert from its sheet. It is yours alone: it never rings on their phone.';
+
+  @override
+  String get syncGuideAlertsFollowTitle => 'It follows their changes';
+
+  @override
+  String get syncGuideAlertsFollowFreshBody =>
+      'An alert of yours follows your partner\'s changes to the event, even while ANTA is closed.';
+
+  @override
+  String get syncGuideAlertsFollowLastReceivedBody =>
+      'An alert of yours follows what this phone last received.';
+
+  @override
+  String get syncGuideAlertsFromTitle => 'Who it is from';
+
+  @override
+  String get syncGuideAlertsFromBody =>
+      'The alert names your partner. You can snooze it, not skip it.';
+
+  @override
+  String get syncGuidePageStop => 'Stop sharing';
+
+  @override
+  String get syncGuidePageStopCaption => 'One thing, everything, or the pair';
+
+  @override
+  String get syncGuideStopLead =>
+      'Every way out, from one thing to everything.';
+
+  @override
+  String get syncGuideStopOneTitle => 'One thing';
+
+  @override
+  String get syncGuideStopOneBody => 'Switch it off where you switched it on.';
+
+  @override
+  String get syncGuideStopAllTitle => 'All of it';
+
+  @override
+  String syncGuideStopAllBody(String stopAll, String sharingPage) {
+    return '“$stopAll” on “$sharingPage” takes everything back and keeps you paired.';
+  }
+
+  @override
+  String syncGuideStopUnpairBody(String sharingPage) {
+    return 'On “$sharingPage”, it ends sharing both ways: each phone drops what the other shared. Your own things stay yours.';
+  }
+
+  @override
+  String get syncGuideStopWhenTitle => 'When it takes effect';
+
+  @override
+  String get syncGuideStopWhenBody =>
+      'Your phone sends the change when it next syncs, and it leaves your partner\'s phone when theirs does. Offline, the change waits like any other.';
+
+  @override
+  String get syncGuideStopSyncTitle => 'Stop syncing, or leave';
+
+  @override
+  String syncGuideStopSyncBody(
+    String syncStop,
+    String deleteCloud,
+    String deleteAccount,
+    String sharingSettings,
+  ) {
+    return '“$syncStop” keeps your own things on this phone; what your partner shares leaves it. Your partner keeps what you share as it is now, so stop sharing first. “$deleteCloud” and “$deleteAccount” on “$sharingSettings” say what they remove.';
+  }
+
+  @override
+  String get syncGuidePagePrivate => 'What stays private';
+
+  @override
+  String get syncGuidePagePrivateCaption =>
+      'What is never shared, and where it is kept';
+
+  @override
+  String get syncGuidePrivateLead =>
+      'Only what you switch on is shared. The rest never leaves your account.';
+
+  @override
+  String get syncGuidePrivateNeverTitle => 'Never shared';
+
+  @override
+  String get syncGuidePrivateNeverBody =>
+      'Your counters, alerts, attendance marks, templates and settings, and every category, event and folder you did not switch on.';
+
+  @override
+  String get syncGuidePrivateReadOnlyTitle => 'They cannot change anything';
+
+  @override
+  String get syncGuidePrivateReadOnlyBody =>
+      'Sharing is read-only both ways, so a list cannot be ticked off by both of you.';
+
+  @override
+  String get syncGuidePrivateBackupsTitle => 'Not in your backups';
+
+  @override
+  String get syncGuidePrivateBackupsBody =>
+      'Your backups and calendar exports leave out what your partner shares, and a notes export that includes something of theirs is refused. Reports, goals and attendance count only your own events.';
+
+  @override
+  String syncGuidePrivateDataBody(String dataNotice, String sharingSettings) {
+    return 'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “$dataNotice” on “$sharingSettings” says where it is kept and how to remove it.';
+  }
+
+  @override
+  String get syncGuideDemoPartner => 'Sam';
+
+  @override
+  String get syncGuideDemoYou => 'you';
+
+  @override
+  String get syncGuidePhoneYours => 'Your phone';
+
+  @override
+  String syncGuidePhoneTheirs(String name) {
+    return '$name\'s phone';
+  }
+
+  @override
+  String get syncGuidePhoneThis => 'This phone';
+
+  @override
+  String get syncGuidePhoneOther => 'Your other phone';
+
+  @override
+  String syncGuidePhoneChanged(String phone) {
+    return '$phone, changed';
+  }
+
+  @override
+  String syncGuidePhoneSyncing(String phone) {
+    return '$phone, syncing';
+  }
+
+  @override
+  String syncGuidePhoneBar(String phone, String area) {
+    return '$phone · $area';
+  }
+
+  @override
+  String get syncGuideEmptyFromYou => 'Nothing from you yet';
+
+  @override
+  String get syncGuideTryEvent => 'Try it: share an event';
+
+  @override
+  String syncGuideCoachEventShare(String shareWith) {
+    return 'Turn on “$shareWith”.';
+  }
+
+  @override
+  String syncGuideCoachEventLook(String name) {
+    return 'Open $name\'s phone.';
+  }
+
+  @override
+  String get syncGuideCoachEventOpen =>
+      'An outlined picture means it\'s from you. Tap the event there.';
+
+  @override
+  String syncGuideCoachEventUnshare(String shareWith) {
+    return 'Come back to your phone and turn “$shareWith” off.';
+  }
+
+  @override
+  String syncGuideReportEventCopy(String name) {
+    return 'The copy is $name\'s own event. Yours is still yours.';
+  }
+
+  @override
+  String syncGuideSharedEventCaption(String name) {
+    return '$name can\'t change it. Only you can.';
+  }
+
+  @override
+  String get syncGuideTryCategory => 'Try it: share a category';
+
+  @override
+  String syncGuideCoachCategoryShare(String category, String shareWith) {
+    return 'Open ⋮ on $category and choose “$shareWith”.';
+  }
+
+  @override
+  String syncGuideCoachCategoryAdd(String add) {
+    return 'An outlined picture means it\'s from you. Come back to your phone and tap “$add”.';
+  }
+
+  @override
+  String syncGuideCoachCategoryFollow(String name) {
+    return 'Open $name\'s phone again.';
+  }
+
+  @override
+  String syncGuideAddEventTo(String category) {
+    return 'Add an event to $category';
+  }
+
+  @override
+  String get syncGuideTryFolder => 'Try it: share a folder';
+
+  @override
+  String syncGuideCoachFolderShare(String folder, String shareWith) {
+    return 'Open ⋮ on $folder and choose “$shareWith”.';
+  }
+
+  @override
+  String syncGuideCoachFolderOpen(String folder) {
+    return 'Tap $folder there.';
+  }
+
+  @override
+  String syncGuideCoachFolderCopy(String copy) {
+    return 'Tap a note there and choose “$copy”.';
+  }
+
+  @override
+  String get syncGuideDemoFolderTrips => 'Trips';
+
+  @override
+  String get syncGuideDemoFolderRecipes => 'Recipes';
+
+  @override
+  String get syncGuideDemoFolderIdeas => 'Ideas';
+
+  @override
+  String get syncGuideDemoNoteLisbon => 'Lisbon in May';
+
+  @override
+  String get syncGuideDemoNotePacking => 'Packing list';
+
+  @override
+  String get syncGuideDemoNotePancakes => 'Pancakes';
+
+  @override
+  String syncGuideSharedNoteCaption(String name) {
+    return '$name can\'t change it. Only you can.';
+  }
+
+  @override
+  String syncGuideReportFolderCopy(String name, String folder) {
+    return 'The copy is in $name\'s “$folder”. Yours is unchanged.';
+  }
+
+  @override
+  String get syncGuideTryStop => 'Try it: take it back';
+
+  @override
+  String syncGuideCoachStopOne(String event) {
+    return 'Tap ✕ on $event.';
+  }
+
+  @override
+  String syncGuideCoachStopAll(String stopAll) {
+    return 'Come back to your phone and tap “$stopAll”.';
+  }
+
+  @override
+  String syncGuideCoachStopUnpair(String unpair) {
+    return 'Now tap “$unpair”.';
+  }
+
+  @override
+  String syncGuideReportStopUnpair(String name) {
+    return 'Not paired any more. What $name shared is gone from your phone too; your own things stay yours.';
+  }
+
+  @override
+  String get syncGuideTryStopNotShared => 'No longer shared';
+
+  @override
+  String get syncGuideTryStopFromYou =>
+      'An outlined picture marks an event from you.';
+
+  @override
+  String syncGuideTryStopCategoryPicker(String categories) {
+    return 'In the app, you untick a category under “$categories”.';
+  }
+
+  @override
+  String syncGuideCoachChooseNext(String choice) {
+    return 'Now choose “$choice”.';
+  }
+
+  @override
+  String get syncGuideTryLook => 'Try it: choose the look';
+
+  @override
+  String syncGuideCoachLookAvatar(String setting, String look) {
+    return 'Set “$setting” to “$look”.';
+  }
+
+  @override
+  String syncGuideCoachLookMark(String mark) {
+    return 'Turn on “$mark”.';
+  }
+
+  @override
+  String get syncGuideTryAlerts => 'Try it: choose what rings';
+
+  @override
+  String syncGuideCoachAlertsOff(String alerts, String off) {
+    return 'Tap “$alerts” and choose “$off”.';
+  }
+
+  @override
+  String get syncGuideDemoCategoryTravel => 'Travel';
+
+  @override
+  String get syncGuideRingsNothing => 'Nothing rings.';
+
+  @override
+  String get syncGuideRingsOwn => 'Your alert rings.';
+
+  @override
+  String syncGuideRingsBoth(String category) {
+    return 'Your alert and $category\'s alarm ring.';
+  }
+
+  @override
+  String syncGuideTryAlertsFlightCaption(
+    String from,
+    String own,
+    String category,
+    String alarm,
+  ) {
+    return '$from · Your alert: $own · $category\'s alarm: $alarm';
+  }
+
+  @override
+  String get syncGuideEmptyNotes => 'No notes yet';
+
+  @override
+  String get syncGuideTrySync => 'Try it: watch it sync';
+
+  @override
+  String syncGuideCoachSyncOn(String sync) {
+    return 'Tap “$sync”.';
+  }
+
+  @override
+  String syncGuideCoachSyncWrite(String newNote) {
+    return 'Add a note with “$newNote”.';
+  }
+
+  @override
+  String get syncGuideCoachSyncLook => 'Open your other phone.';
+
+  @override
+  String get syncGuideCoachSyncEdit =>
+      'Tick its first line there, then come back.';
+
+  @override
+  String get syncGuideReportSyncNow =>
+      'Nothing to send: both phones already match.';
+
+  @override
+  String get syncGuideDemoNoteGroceries => 'Groceries';
+
+  @override
+  String get syncGuideDemoTaskMilk => 'Milk';
+
+  @override
+  String syncGuideCoachSyncWriteStatus(String upToDate, String newNote) {
+    return 'When the status says “$upToDate”, tap “$newNote”.';
+  }
+
+  @override
+  String get syncGuideTryOffline => 'Try it: write without a signal';
+
+  @override
+  String get syncGuideAirplaneMode => 'Airplane mode';
+
+  @override
+  String get syncGuideCoachOfflineOff =>
+      'Turn on airplane mode: tap the plane in the bar.';
+
+  @override
+  String get syncGuideCoachOfflineOn =>
+      'Come back and tap the plane to end airplane mode.';
+
+  @override
+  String get syncGuideTryConflict => 'Try it: the same note on both phones';
+
+  @override
+  String get syncGuideAddLine => 'Add a line';
+
+  @override
+  String get syncGuideCoachConflictHere => 'Add a line on this phone.';
+
+  @override
+  String get syncGuideCoachConflictThere =>
+      'Open your other phone and add a line there.';
+
+  @override
+  String get syncGuideCoachConflictOnline =>
+      'Turn airplane mode off: tap the plane on both phones.';
+
+  @override
+  String get syncGuideReportConflict =>
+      'No text was lost: your other phone’s later line is in the note, this phone’s in the copy beside it. Delete whichever you do not need.';
+
+  @override
+  String get syncGuideDemoLinePassport => 'Passport';
+
+  @override
+  String get syncGuideDemoLineSunscreen => 'Sunscreen';
+
+  @override
+  String get syncGuideDemoLineUmbrella => 'Umbrella';
+
+  @override
+  String get syncGuideReportConflictHere =>
+      'No text was lost: this phone’s later line is in the note, your other phone’s in the copy beside it. Delete whichever you do not need.';
+
+  @override
+  String get syncGuideTryPair => 'Try it: a code, typed once';
+
+  @override
+  String syncGuideReportPairSharing(String page) {
+    return 'In the app, this opens “$page”.';
+  }
+
+  @override
+  String syncGuideCoachPairInvite(String create) {
+    return 'Tap “$create”.';
+  }
+
+  @override
+  String syncGuideCoachPairRedeem(String connect) {
+    return 'Enter the code there and tap “$connect”.';
+  }
+
+  @override
+  String get syncGuideCoachPairBack => 'Come back to your phone.';
+
+  @override
+  String get syncGuidePairFill => 'Fill in the code';
+
+  @override
+  String syncGuideReportPairCopy(String name) {
+    return 'On your own phone, this copies the code so you can send it to $name.';
+  }
+
+  @override
+  String get syncGuideHowPairingWorks => 'How pairing works';
+
+  @override
+  String get syncGuideSetupTitle => 'Your setup';
+
+  @override
+  String syncGuideSetupAccountDone(String name) {
+    return 'Signed in as $name';
+  }
+
+  @override
+  String get syncGuideSetupAccountDoneUnnamed => 'Signed in';
+
+  @override
+  String get syncGuideSetupAccountTodo => 'Sign in';
+
+  @override
+  String get syncGuideSetupAccountFirst => 'Sign in first';
+
+  @override
+  String get syncGuideSetupSyncDone => 'This database syncs';
+
+  @override
+  String syncGuideSetupSyncTodo(String label) {
+    return 'Turn on “$label”';
+  }
+
+  @override
+  String get syncGuideSetupSyncFirst => 'Turn on sync first';
+
+  @override
+  String syncGuideSetupPairDone(String name) {
+    return 'Paired with $name';
+  }
+
+  @override
+  String get syncGuideSetupPairTodo => 'Pair with someone';
+
+  @override
+  String get syncGuideSetupPairFirst => 'Pair first';
+
+  @override
+  String syncGuideSetupShareDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'You share $count things',
+      one: 'You share 1 thing',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncGuideSetupShareTodo => 'Share something';
+
+  @override
+  String get syncGuideSetupOpensSharing => 'Opens Sharing';
+
+  @override
+  String get syncGuideHowSyncWorks => 'How sync and sharing work';
+
+  @override
+  String get syncGuideSetupSyncPausedFirst => 'Sync is paused';
 
   @override
   String get moneyNoTarget => 'no target';
@@ -10995,30 +11792,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get appGuideSyncStopTitle => 'Stopping';
-
-  @override
-  String appGuideSyncStopBody(String syncStop, String signOut) {
-    return '“$syncStop” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “$signOut” pauses sync for every database until you sign in again.';
-  }
-
-  @override
-  String get appGuideSyncDeleteTitle => 'Deleting the cloud copy';
-
-  @override
-  String appGuideSyncDeleteBody(String delete) {
-    return '“$delete” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.';
-  }
-
-  @override
-  String get appGuideSyncDeleteAccountTitle => 'Deleting your account';
-
-  @override
-  String appGuideSyncDeleteAccountBody(String deleteAccount) {
-    return '“$deleteAccount” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.';
-  }
-
-  @override
   String get dataNoticeSection => 'Privacy';
 
   @override
@@ -11064,97 +11837,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
     return '“$deleteCopy” removes a database\'s copy from the cloud; “$deleteAccount” removes everything your account keeps there. Neither deletes anything on this device.';
   }
-
-  @override
-  String appGuideSyncDataBody(String dataNotice) {
-    return 'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “$dataNotice” on the same page says where it is kept and how to remove it.';
-  }
-
-  @override
-  String get appGuidePageSharing => 'Sharing with your partner';
-
-  @override
-  String get appGuidePageSharingCaption =>
-      'A category or an event, read-only on their phone';
-
-  @override
-  String get appGuideSharingLead =>
-      'Pair with one person and choose what they see. Nothing is shared until you switch it on; your partner reads and never changes it; switch it off and it leaves their phone.';
-
-  @override
-  String get appGuideSharingPairTitle => 'Pair first';
-
-  @override
-  String appGuideSharingPairBody(
-    String pairingSection,
-    String sharingSettings,
-    String syncThisDatabase,
-  ) {
-    return '“$pairingSection” in “$sharingSettings” links you with one person through a code. Pairing alone shares nothing. Both phones need “$syncThisDatabase” on — what you share travels with sync.';
-  }
-
-  @override
-  String get appGuideSharingCategoryTitle => 'Share a category';
-
-  @override
-  String appGuideSharingCategoryBody(
-    String shareWith,
-    String calendarCategories,
-    String sharingPage,
-  ) {
-    return 'In a category\'s editor, “$shareWith” shares every event in it, and every event you add to it later. The ⋮ menu on the “$calendarCategories” page does the same; “$sharingPage”, behind the pairing row, ticks several at once.';
-  }
-
-  @override
-  String get appGuideSharingEventTitle => 'Share one event';
-
-  @override
-  String appGuideSharingEventBody(String shareWith) {
-    return 'The same switch, “$shareWith”, in an event\'s editor shares that event alone. An event in a shared category is shared already; its switch says so.';
-  }
-
-  @override
-  String get appGuideSharingReadOnlyTitle => 'Read-only for them';
-
-  @override
-  String appGuideSharingReadOnlyBody(String copy) {
-    return 'Your partner sees what you share and cannot change it, so a list cannot be ticked off by both of you. “$copy” gives them an event of their own; your later changes do not reach that copy, and it stays when you stop sharing.';
-  }
-
-  @override
-  String get appGuideSharingTheirsTitle => 'What your partner shares';
-
-  @override
-  String appGuideSharingTheirsBody(String sharingPage) {
-    return 'Their events open a sheet you can read, not edit. On “$sharingPage” you choose which of their categories show on your calendar and how their events are told apart from yours. Reports, goals and attendance count only your own events.';
-  }
-
-  @override
-  String get appGuideSharingAlertsTitle => 'Alerts';
-
-  @override
-  String appGuideSharingAlertsBody(
-    String shareAlerts,
-    String alertsOff,
-    String alertsCategory,
-  ) {
-    return 'Your partner\'s alerts never ring on your phone, nor yours on theirs. Add an alert of your own to a shared event from its sheet. “$shareAlerts” on the same page can silence them all (“$alertsOff”) or let shared events follow your own category alerts (“$alertsCategory”).';
-  }
-
-  @override
-  String get appGuideSharingStopTitle => 'Stopping';
-
-  @override
-  String appGuideSharingStopBody(String stopAll, String unpair) {
-    return 'Switch a share off and it leaves your partner\'s phone the next time it syncs. “$stopAll” takes everything back and keeps you paired; “$unpair” ends sharing both ways.';
-  }
-
-  @override
-  String get appGuideSharingPrivateTitle => 'What is never shared';
-
-  @override
-  String get appGuideSharingPrivateBody =>
-      'Your counters, alerts, attendance marks, templates and settings stay on your side whatever you share.';
 
   @override
   String get sharePartnerFallback => 'your partner';
@@ -11252,18 +11934,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get shareNoteLook => 'Notes shared with you';
-
-  @override
-  String get appGuideSharingFolderTitle => 'Share a folder';
-
-  @override
-  String appGuideSharingFolderBody(
-    String shareWith,
-    String addFolder,
-    String sharingPage,
-  ) {
-    return '“$shareWith” in a folder\'s ⋮ menu shares it; “$addFolder” on “$sharingPage” does the same. Your partner reads its notes and cannot change them; a note you add later is shared too.';
-  }
 
   @override
   String get shareNone => 'None';
@@ -11631,14 +12301,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String sharedEventCaptionFresh(String name) {
     return 'Only $name can change this event. Your alerts follow its changes, even while ANTA is closed.';
   }
-
-  @override
-  String get appGuideSharingAlertsFresh =>
-      'An alert of yours follows your partner\'s changes to the event, even while ANTA is closed.';
-
-  @override
-  String get appGuideSharingAlertsLastReceived =>
-      'An alert of yours follows what this phone last received.';
 
   @override
   String shareNewFromPartner(String name, String what) {

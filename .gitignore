@@ -2,3 +2,9 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Wrangler writes its cache (the Cloudflare account's id and name) and its
+# local secrets into whichever directory it was run from, not only into
+# backend/push-relay.
+.wrangler/
+.dev.vars

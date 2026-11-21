@@ -99,6 +99,29 @@ void main() {
         );
       }
     });
+
+    test('the guide books round-trip, the sync guide appended beside the '
+        'others (D51)', () {
+      final stack = [
+        const NavDestination(NavDestinationKind.guideHub),
+        const NavDestination(NavDestinationKind.syncGuide),
+      ];
+      expect(
+        NavDestination.decodeStack(NavDestination.encodeStack(stack)),
+        stack,
+      );
+      for (final kind in [
+        NavDestinationKind.notesGuide,
+        NavDestinationKind.appGuide,
+      ]) {
+        expect(
+          NavDestination.decodeStack(
+            NavDestination.encodeStack([NavDestination(kind)]),
+          ),
+          [NavDestination(kind)],
+        );
+      }
+    });
   });
 
   group('degradation', () {
@@ -254,6 +277,7 @@ void main() {
           'guideHub',
           'notesGuide',
           'appGuide',
+          'syncGuide',
         ]);
       },
     );

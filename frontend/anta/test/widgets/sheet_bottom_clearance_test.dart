@@ -1797,12 +1797,13 @@ void main() {
     tearDown(() => pairing.close());
 
     /// Bottom padding of the sheet's own body, which is what holds the
-    /// Connect button off the screen edge.
+    /// Connect button off the screen edge: the nearest padding around
+    /// Connect, since the header above the body draws paddings of its own.
     double bodyBottomPadding(WidgetTester tester) {
       final body = tester.widget<Padding>(
         find
-            .descendant(
-              of: find.byType(BottomSheet),
+            .ancestor(
+              of: find.bySemanticsIdentifier(SemanticsIds.pairingConnect),
               matching: find.byType(Padding),
             )
             .first,

@@ -6,6 +6,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
+import 'package:anta/services/note_money_ledger_service.dart';
 
 /// `CalendarGridFilters` is the whole calendar grid's narrowing rule, and its
 /// two contracts are easy to break quietly: **every axis reads the event
@@ -314,6 +315,35 @@ void main() {
 
       expect(allows(filters, event(noteId: 'n1')), isFalse);
       expect(allows(filters, event()), isFalse);
+    });
+
+    // Review A11: the cell draws no money for an event of mine linked to a
+    // partner's note, so the filter must not keep it for that money.
+    test('with-money reads a note by the rule the cell draws by: a '
+        'partner\'s note counts for the partner\'s event alone', () {
+      NoteMoneyLedgerService.seedForTesting({
+        'theirs': (balance: 800, net: 800, title: 'Theirs', fromPartner: true),
+        'mine': (balance: -500, net: -500, title: 'Mine', fromPartner: false),
+      });
+      addTearDown(NoteMoneyLedgerService.reset);
+      const filters = CalendarGridFilters(moneyOnly: true);
+
+      expect(allows(filters, event(noteId: 'mine')), isTrue);
+      expect(allows(filters, event(noteId: 'theirs')), isFalse);
+      expect(
+        allows(
+          filters,
+          CalendarEvent(
+            id: 'pe',
+            title: 'Lunch',
+            categoryId: 'gym',
+            startDate: DateTime.utc(2026, 1, 1),
+            noteId: 'theirs',
+            fromPartner: true,
+          ),
+        ),
+        isTrue,
+      );
     });
   });
 

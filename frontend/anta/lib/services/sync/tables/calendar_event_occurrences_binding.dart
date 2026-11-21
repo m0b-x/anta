@@ -27,6 +27,9 @@ final class CalendarEventOccurrencesBinding
   @override
   String rowKeyOf(EventOccurrenceRow row) => dayRowKey(row.eventId, row.day);
 
+  @override
+  String documentKeyOf(String rowKey) => dayDocumentKeyOf(rowKey);
+
   /// A per-day text is shared as its event is.
   @override
   Future<Map<String, String>> sharedPairs(

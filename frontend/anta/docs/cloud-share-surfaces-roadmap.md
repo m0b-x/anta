@@ -45,6 +45,7 @@ Written by the session's lead, Fable 5.2; no agent took a decision in it
 14. More than two people
 15. As built
 16. The finishing pass (2026-11-13)
+17. The correctness review (2026-11-21)
 
 ---
 
@@ -3488,3 +3489,617 @@ builds of 12–13 November is not migrated; `*partner` is the partner of
 the moment; changing "Alerts for shared events" says nothing more;
 `CalendarBloc` keeps its own queue; two bars for two visible closings
 when a partner's note leaves before its folder.
+
+---
+
+## 17. The correctness review (2026-11-21)
+
+**Status: A1–A13 FIXED 2026-11-21, uncommitted (§17.7; the share device
+pass 27 of 27 on the final build, the sync pass not run); §17.3 and §17.4
+open.** The owner asked for a correctness review of sharing as it stands
+on `main` (`698f5292`, a clean tree), and on its list answered "fix all
+13, tests first" the same day. §17.2 keeps each finding as it was read;
+§17.7 says what was built for it.
+
+### 17.1 How it ran
+
+Seven `reviewer` agents (Opus 5.5, read-only), one per part — the give
+side, the receive side, pairing and endings, the check with the app
+closed, push and the relay, the Sharing page, a partner's rows in my
+screens (two sittings) — and the lead (Fable 5.2) on `firestore.rules`,
+the indexes and the gateway's queries across accounts. Seven readers
+shared one tree, so none ran a suite (the native-assets lock); the relay's
+own ran and is green (106 of 106). **Nothing below was reproduced by a
+test.** "Read" means the lead read the cited lines and found no other
+path; "reported" means it rests on the reviewer's reading alone.
+
+### 17.2 Worth fixing first
+
+- **A1 — Another account's sign-in clears the bound account's marks
+  (read).** `reconcile` empties the cache when another account is signed
+  in (`pairing_service.dart:259-261`); `_adopt` then compares the pair it
+  found with that emptied cache (`:680`, `clearMarksOfOtherPairs:
+  _cached.pairId != pair.pairId`), and `setPairingSettings` clears every
+  mark that is not the new pair's (`settings_service.dart:2626-2629`,
+  `FolderDao.clearSharesExcept`) — with no look at whose marks they are.
+  *When:* the database is bound to A, paired, with marks; A signs out, B
+  signs in and opens Sync & sharing; B has an active pair of its own. *What
+  happens:* every mark of A's is cleared, stamped and queued; when A signs
+  in again the queue drains under A's binding and the partner loses
+  everything A shared, and A's alert choice is reset (D38). Not when B has
+  no pair, nor when B is A's own partner (one pair id). *Probe:*
+  `pairing_service_test.dart:1350` with one mark set under the first pair;
+  it must still stand after `cara.service.load()`. *Direction:* clear only
+  when the pair that stood was the signed-in account's own, or when the
+  database's binding is that account's.
+- **A2 — The pairing listeners re-attach without a pause on a refused
+  listen (read).** `_reportStreamError` always calls `_attachListeners()`
+  (`pairing_service.dart:798-803`, `:772-789`); nothing detaches at
+  sign-out. *When:* paired, Sync & sharing opened once in this process,
+  then Sign out — the listen on the pair is refused for nobody; or a
+  pending invite past its end at any re-listen. *What happens:* listen,
+  refused, listen — a round trip each, for the life of the process, each
+  turn an "offline" on the page. The fake's streams never fail. *Probe:* a
+  fake `watchPair` that fails and counts its calls; two at most after
+  `load()`. *Direction:* no re-attach on a refusal (the next reconcile
+  attaches), a back-off for the rest, detach when the signed-in account is
+  not the cache's.
+- **A3 — Un-sharing does not reach a row whose newest write is parked
+  (read).** A re-queue raises an entry only by a later stamp
+  (`sync_outbox_dao.dart:392-418`), a parked entry is not eligible
+  (`sync_pusher.dart:245-249`, `:349-355`), and `_regranted` covers a push
+  in flight only. *When:* a note under a shared folder was pushed, then
+  edited, and that edit is parked (a refusal of the rules, a refused
+  chunk, an encode fault, a pull of its own held back); the folder is
+  switched off. *What happens:* the re-queue is absorbed by the parked
+  entry; the earlier document goes on naming the pair, and the partner
+  keeps that version's title, preview and text for as long as the park
+  stands. The same for a day row under an event or a category switched
+  off. *Probe:* `sync_share_push_test.dart` — share, drain, edit, have the
+  fake gateway refuse the note at its new stamp, drain, un-share, drain:
+  the stored document still names the pair. *Direction, a decision:* a
+  write of the document's grant alone for a parked key (the rules'
+  `validEnvelope` passes on the merged document), or a park that a change
+  of grant lifts.
+- **A4 — An act queued behind a running one is dropped when the bloc
+  closes (read).** `ShareBloc.close` hands over the queued Undos alone
+  (`share_bloc.dart:411-436`); `oneAtATime` never starts what had not
+  started. *When:* ✕ on A, ✕ on B, back, back before A's write and reload
+  end. *What happens:* the sheet has said "No longer shared" for B and
+  hidden its row; B is never written and stays shared. A queued
+  `ShareCategoriesSet` goes without a word. *Probe:* a fake whose first
+  `setFolderShared` waits; two ✕, close, release — B is never recorded.
+  *Direction:* hand every queued act over at close, as the Undos are.
+- **A5 — The category tick sheet writes back ticks it read before an act
+  landed (read).** `_pickCategories` takes the overview of the last build
+  and lets go of `_picking` as the sheet closes
+  (`sharing_page.dart:444`, `:978-1008`); `setCategoriesShared` sets
+  exactly the ticked set (`share_service.dart:552-564`). *When:* untick X,
+  Done, Categories again before the state arrives — X is still ticked;
+  tick Y, Done: X is shared again. Without the race: a mark another device
+  of mine or the shared reader changed while the sheet was open is
+  overwritten by any Done that changes something. *Probe:*
+  `sharing_page_test.dart` with a waiting `setCategoriesShared`.
+  *Direction:* hold `_picking` until the act's outcome; send what was
+  added and removed, not the whole set.
+- **A6 — Undoing a note's move can choose a partner's folder (read).**
+  `_firstAvailableFolderId` takes the first top-level folder
+  (`move_coordinator.dart:639-643`) from a query with no owner in it
+  (`folder_dao.dart:53-70`, by position, then id). *When:* a note moved
+  from A to B, A deleted, Undo from Move history, the picker left without
+  a pick, and a partner's folder sorting first. *What happens:*
+  `NoteDao.moveNote` refuses (`note_dao.dart:1467-1472`) — unhandled on
+  the single path (`:610`: no bar, the entry not marked), "could not be
+  moved" on the batch path (`:463`) though a folder of mine exists.
+  *Direction:* leave `fromPartner` out of the fallback; guard `:610`.
+- **A7 — A partner's day row or note stored without its parent stays when
+  my own parent lands under that id (reported).** `evict` returns when no
+  shared row is held under the keys, so nothing under them goes
+  (`shared_row_dao.dart:276-280`); the reader refuses a day row only when
+  some row is held under its event's id
+  (`calendar_event_occurrences_binding.dart:116-137`, the skips alike;
+  notes: `notes_binding.dart:537-550`). *Needs* ids that meet — both
+  people restored one backup — and the partner's parent absent when the
+  child lands (skipped, removed first, or waiting). *What happens:* the
+  partner's skipped day or day text shows on my own event; my edit of
+  that day passes `ensureOwn`, is stamped and queued, and the fence turns
+  its UPDATE into nothing — said as saved, and lost. A partner's note
+  inside my own folder makes `exportFolder` refuse the folder whole.
+  *Probe:* `shared_row_dao_test.dart` — an occurrence of the partner's
+  with no event, `evict('calendar_events', ['E'])`, my own E: the
+  occurrence is still there and `setDescription` stores nothing.
+  *Direction:* cascade by key in `evict` whatever was held, or refuse a
+  shared child whose parent is absent.
+- **A8 — A run that finds a silent holder takes the name without asking
+  it to give way (read).** `SharedRefreshRunPort.open` removes the name
+  after three unanswered pings (`shared_refresh_ports.dart:386-401`); the
+  launch sends the yield with its verdict (`:183`, `:198`), a run does
+  not. *When:* one run's isolate busy past six seconds as another starts.
+  *What happens:* the first goes on unaware — two alert passes over one
+  registry and one native store, two shared reads over one cursor.
+  *Probe:* `shared_refresh_ports_test.dart` — a raw port under the name
+  that records and never answers must have been sent `giveWayToRun`.
+  Whether an isolate stalls that long is a device's to show.
+- **A9 — The folders sheet keeps hiding a folder shared again (read).**
+  `_leaving` loses an id only at a successful Undo or a failed ✕
+  (`share_folders_sheets.dart:170`, `:270-286`, `:339`; the events sheet
+  alike, `share_events_sheets.dart:142`, `:226-234`, `:264`). *When:* ✕ on
+  A, then Share a folder → A, in one sheet. *What happens:* the bar says
+  it is shared, the list leaves it out until the sheet is opened again.
+- **A10 — The relay reads the pair's whole document (read).**
+  `readPair` (`backend/push-relay/src/relay.js:336-338`) sends no
+  `mask.fieldPaths`: the names, the photo addresses, the permissions and
+  the invite code come back beside the four fields it uses, so "reads no
+  user data" does not hold to the letter. *Direction:* mask to `members`,
+  `status`, `endedAt`, `push`; then a deploy.
+- **A11 — My event's linked-note picker offers the partner's notes
+  (read in part).** `loadNotePickerPage` lists All notes, the partner's
+  flagged, and its search is unfiltered
+  (`note_storage_service.dart:463-497`); `_pickNote` takes any pick
+  (`event_editor_sheet.dart:1757-1766`). *What happens:* the ledger folds
+  every linked note (`note_money_ledger_service.dart:106-141`) and the
+  report counts its net for my event (`calendar_report_service.dart:
+  479-486`) — a partner's lines in my report, day bars and day summary;
+  the link reads "Not found" once the share ends. Opening it is safe
+  (flagged, read-only). *Direction:* leave `fromPartner` out of the
+  picker, or out of the fold.
+- **A12 — An account's deletion removes the pair before its "ended" poke
+  can be served (read).** `_removePairs` ends and at once deletes
+  (`account_closer.dart:139-142`); the flush comes after the walk
+  (`:112`), and the relay answers a missing pair 403. The partner's closed
+  app is not woken; it learns at its next check. *Direction:* flush
+  between the end and the delete.
+- **A13 — An owed poke can still go to an ended pair (reported).** With
+  no pair stored every owed pair is poked (`sync_pusher.dart:65-71`,
+  `:88-97`) on the word that the relay refuses a pair the caller is not
+  in — an ended pair still holds the caller and is served for a day
+  (`relay.js:386-391`). The reader's own clearing of marks owes such
+  pokes. The former partner's devices are woken; timing only.
+
+### 17.3 Narrower
+
+- **B1** Cancelling an invite as it is redeemed
+  (`pairing_service.dart:318-325`): the code is deleted and cleared with
+  no look at the server, so the pair just made is unknown here until the
+  next reconcile, and a pairing made meanwhile is ended by earliest-wins.
+- **B2** `redeem` and `generateInvite` trust the cache (`:289-293`,
+  `:330-334`): an account paired on its other phone makes a second pair
+  here, which the next reconcile ends as ended by me.
+- **B3** Unpair on a pair already ended or gone (`:431-440`, `:852`)
+  answers "Not allowed" or "Pairing failed" and the page stays "Paired".
+- **B4** My own Unpair asks for no shared read (`:431-440`): the
+  partner's rows, their alerts and my marks stand until the next run.
+- **B5** A tombstone seen while the server cannot be asked clears the
+  pair with no ended notice (`:878-882` → `:621-646`).
+- **B6** A share act reads the pair before its transaction
+  (`share_service.dart:539-596`) and Undo reads it afresh (`:780-840`;
+  `ShareChange` carries no pair): a pair replaced within the Undo bar's
+  life shares the folder with the new partner.
+- **B7** A row's place is last-writer-wins: a device behind that edits a
+  note moved out of a shared folder puts it back, and shares it again.
+  `mergeMark` guards the mark, nothing guards the place. By design, and
+  until now unrecorded — a known limit.
+- **B8** Notice timers (`share_notice_listener.dart:348-376`,
+  `:488-528`, `:584-602`, `:679-686`): a turn already waiting does not
+  check `_barUp`, and `_holdBarTime` re-arms without cancelling.
+- **B9** `_foreign ??=` (`sharing_page.dart:311-314`) is taken from the
+  first loaded state and kept for the visit.
+- **B10** A run that answered the launch's ping and outlasted its five
+  seconds writes behind the app and owes no catch-up
+  (`shared_refresh_ports.dart:196`, `shared_refresh_app.dart:87-90`);
+  freshness K4 rules it so, on a premise that fails past five seconds.
+- **B11** A check yielded before its `open()` can leave no check standing
+  until the app's next pass (`shared_refresh.dart:315-327`, `:394`).
+- **B12** An own row parked under a key a shared row holds evicts and
+  restores that row at every start and "Sync now"
+  (`sync_puller.dart:255-276`, `:996-1012`).
+- **B13** "Tomorrow" on 31 December (`share_events_sheets.dart:418`):
+  `tomorrow` is local, `day` and `today` UTC, so they never compare equal
+  and the year rule writes a date. The suite builds both local.
+
+### 17.4 Small: accuracy, tests, cost
+
+- **The pairing fake accepts what the rules refuse** —
+  `endPair` on a missing or an ended pair, `removePushDevices` on a
+  missing one (`test/services/pairing_support.dart:283-297`, `:365-373`).
+  It hides how the client answers a pair the partner's account deletion
+  removed (`push_registry.dart:163-176`, `:328-343`;
+  `account_closer.dart:150-158`). One rules-suite case, an update of a
+  missing `pairs/x`, says which code comes back.
+- Pairing: `pairedInMemory` ignores the account (`:210-213`); both
+  inviting at once fork until each reconciles; a claimed invite learned
+  of after its end is never deleted; a phone ten minutes slow cannot make
+  a code.
+- Give: `softDeleteFolderWithDescendants` reads the subtree before its
+  transaction (`folder_dao.dart:958-970`); `softDeleteFolder` has no
+  caller and no re-queue (`:712-731`); `afterMarksClearedElsewhere` asks
+  for a run only when ready (`share_service.dart:887-903`);
+  `sharedPairOfNotes` takes `MAX` across pairs (`folder_dao.dart:
+  1291-1298`), which can name a dead pair — the private side.
+- The page: two overview reloads per act, not one (`share_bloc.dart:
+  223-227`, `:306`); "Could not check" is not tried again within a minute
+  of the last success (`share_service.dart:738-747`); "Sending…" under a
+  failure that is not offline; a failed ✕ brings back rows of ✕s still
+  queued; no guard against a second Sharing page from two taps
+  (`sync_settings_page.dart:2285-2302`); the events sheet builds every
+  row and walks up to 366 days for each on every state.
+- Push: every Android launch reads the preferences store once for an
+  owed address, a never-paired install included (`injection.dart:625`);
+  `leave()` returns on "no address held" though `push_written` names a
+  pair (`push_registry.dart:133`); the later-pair branch never clears
+  `push_written` on a refusal (`:187-196`); one WorkManager name for every
+  pair beside a waiting note per pair; the relay's own 503 carries no
+  `Retry-After`.
+- The check: a run measures the schema by the fresh active name and
+  opens by its copy's (`shared_refresh_app.dart:582-587`, `:710-714`);
+  `runsCanExist` and `checkPlanned` read a key another isolate writes off
+  the copy; a work's wall time adds up to about 77 seconds, not 60;
+  `detached()` gives the name up while a write may still run.
+- Receive: the count compare hides removals when one id is shared from
+  two spaces (`sync_shared_reader.dart:463`), until the daily read; kept
+  notices outlive the pair in the live database; `emptyTombstones` binds
+  every id in one statement; `placeFolders` counts a tombstoned parent as
+  arrived (`shared_row_dao.dart:866-873`).
+- A partner's rows: a refused calendar write is silent by design
+  (`calendar_bloc.dart:1198-1201`, `:1260-1262`) — every gate holds today;
+  a saved list that names only a partner's category reports every
+  category while it is held and nothing once it left
+  (`category_allowlist.dart:293-303`); a partner's event evicted by my
+  own pull may leave no notice.
+
+### 17.5 Read and found sound
+
+`firestore.rules`, whole, against the gateway's queries and the six
+indexes: a pair's id cannot come round again for the same two people by
+any order of end, delete, invite and redeem; a query that does not pin
+pair and owner is refused; a chunk is one `get` behind the space's pair;
+the access calls stay under the limits; the rules suite pins each of
+these. The relay's token check, membership, targets, paths and rate
+limit. The fences against every replacing insert and import, and the
+migrations after them. `_stripShared` against §16.3. The three mark
+writers, each one transaction; `mergeMark`; `_regranted`; `_resayShares`;
+the space's settle rule. The read-only doors of the browser, the editor
+and the calendar, down to their service and DAO gates. Presence at no
+door; Skip and "remove after it rings" at none; the move, the removal and
+the leave notice of an alert on a partner's event. Outcomes carry a stamp
+of their own, so an equal state swallows none. A run never migrates,
+creates a database or a device id.
+
+### 17.6 Considered, not findings
+
+- Under "Category alerts too" my built-in category's alerts ring on a
+  partner's event shared alone in that built-in: the event is drawn under
+  that category here, so the choice does what it says.
+- The `fid` target of the FCM message rests on decision m's reading of
+  Google's reference (2026-11-13); only the two phones can show it.
+
+### 17.7 The fix pass (2026-11-21)
+
+The owner: "fix all 13, tests first". Three `implementer` agents (Opus
+5.5), each in a worktree of its own on files no other touched — pairing
+(A1, A2, A12), the screens (A4, A5, A6, A9, A11), the data path (A3, A7,
+A8, A13) — and the lead on the relay (A10). Every item's test was seen
+to fail for the stated reason before its fix, except where noted. No
+schema, no migration, no change of the wire or of `firestore.rules`; one
+new `sync_metadata` key. Gate on the merged tree: `dart analyze lib
+test` clean; the whole suite 18,444 passed, 17 skipped, none failed (six
+chunks); the rules suite 178 of 178 on the local emulator; the relay's
+106 of 106. No device pass yet — it rides the guide's (§11 of
+`guide-hub-roadmap.md`).
+
+- **A1.** `SettingsService.setPairingSettings` clears the marks of other
+  pairs only when they are the adopting account's to take away: the
+  database has no sync binding, or its binding is that account's
+  (`_boundToAccountOrNone`, read inside the write's transaction and only
+  once a mark is known to exist). **D39 is amended so:** a database bound
+  to another account's space keeps its marks. D38 — the alert choice
+  starts over when the stored pair is another one — is as it was.
+- **A2.** A listen that ended in an error is asked again after a wait,
+  `PairingLimits.relistenFirst` (two seconds) doubling to
+  `relistenCeiling` (five minutes) and starting over at the first
+  snapshot (`lib/constants/pairing_limits.dart`). With nobody signed in,
+  or another account than the stored pairing's, nothing listens again:
+  the next `load` attaches. One pending timer, cancelled by
+  `_detachListeners`, so by a reset and a dispose too.
+- **A3.** The grant alone is taken off a stored document whose row
+  cannot be pushed. `SyncGateway.unshareRows` — in Firestore a
+  read-then-update transaction that deletes `sharedPair` and `wire` and
+  restamps `pushedAt` and `pushedBy` on each document that names a pair,
+  creating nothing. `_Pusher._unshareHeld` runs after a drain's pushes:
+  for a key of a shareable table that a push park or a pull park holds
+  back, whose grant as derived now is private, once per park
+  (`share_cleared.<table>.<rowKey>` holds the stamp held back, and goes
+  when the park lifts and at an unbind). Never toward shared. A drain
+  with no such park reads nothing; a database never in a pair
+  (`SyncDao.everPaired`) sends nothing; a failure is tried again at a
+  later drain and never fails the run. The rules already allow it — the
+  merged document passes `validEnvelope` — and the rules suite has the
+  case, with the partner's same update refused.
+- **A4.** `ShareBloc` keeps every act added and not yet started, with
+  the database generation it was asked under; at close all of them are
+  written in order after the running act, the way a queued Undo was. One
+  asked under another database is not written; a failure is said once by
+  the event's own `failedPastBloc`.
+- **A5.** Done sends what the person changed — the categories newly
+  ticked and those unticked against what the sheet opened with — and
+  `ShareService.changeCategoriesShared` applies exactly those to the
+  marks as they stand, in one transaction. The Categories row does not
+  open again until that act has answered.
+- **A6.** The fallback folder of a move's Undo is never a partner's; the
+  single-note Undo answers a refused move with the "could not move" bar
+  and stays undoable. Beyond the finding: that path now counts a deleted
+  source folder as gone, as the batch path did — before, the picker never
+  opened for one.
+- **A7.** `SharedRowDao.evict` removes the partner's rows that hang
+  under the evicted keys whatever stood under the keys themselves — the
+  day rows of an event id, the notes of a folder id — past the "no shared
+  owner" exit, so a database that reads from nobody pays what it paid. A
+  partner's folder under such a key is lifted to the top by
+  `placeFolders`, as before.
+- **A8.** A run sends `giveWayToRun` to a silent holder before it takes
+  the name.
+- **A9.** In both give sheets each ✕ is matched to its own outcome: a
+  failed one brings back its own row only, and a row hidden by its ✕ is
+  listed again once it is shared again.
+- **A10.** `readPair` asks Firestore for `members`, `status`, `endedAt`
+  and `push` alone. **It takes effect at the owner's next deploy of the
+  relay.**
+- **A11.** The linked-note picker of an event lists my own notes only,
+  on the list and on the search (`ownOnly`; the counters page's picker
+  is as it was). The ledger folds a partner's note as before but says
+  whose it is, and the calendar report leaves such a note out. *The
+  first build left a partner's note out of the ledger everywhere, which
+  also took the money off the partner's own events in my day bars; it
+  was sent back and narrowed to the report, which is all the rule asks.*
+- **A12.** `PairedAccountCloser.afterPairEnded`, awaited between a
+  pair's end and its removal and bounded by `kPushEndedPokeBound` (five
+  seconds), sends what that end asked the relay for;
+  `HttpPushRelay.flush` now waits for a poke already on its way too.
+- **A13.** With no pairing stored, an owed pair is poked when the shared
+  read holds it, dropped when the read holds another or found the pair
+  ended, and poked as owed when this database's reader never met a
+  partner (a second database on the phone).
+
+Each stream then went to a `reviewer` of its own, in a fresh context
+(read-only; the gate above had already run). Their verdicts: A5, A6, A7,
+A8 and A9 closed; the others closed for the trigger the finding names,
+each with something the fix left or opened — which a second leg, tests
+first again, answers:
+
+- **A1.** The marks now survive another account's sign-in — and then show
+  on that account's Sharing page as its own, where "Stop sharing
+  everything" clears them (`ShareService.overview` asks only whether a
+  mark stands; `stopAll` asks nothing of the pairing). And the alert
+  choice is still reset, twice: at the other account's adoption and at
+  the owner's return, because the adoption overwrote the last-pair
+  memory. *Second leg:* on a database bound to another account an
+  adoption changes neither marks nor alert choice nor last pair, and
+  there the Sharing page lists nothing of mine and `stopAll` writes
+  nothing.
+- **A2.** An invite past its end was still listened to every five
+  minutes; and after a sign-out and sign-in of the same account nothing
+  attached again until Sync & sharing was opened (the old loop had hidden
+  that). *Second leg:* an expired code is dropped, never listened to; the
+  service follows the signed-in user and attaches and detaches by it.
+- **A3.** The "cleared" record knew the held stamp but not the decision
+  it answered: with two devices of one owner — clear, re-share from the
+  other, un-share here again at the same held stamp — the second
+  clearing was skipped. And a document pushed after this device's
+  decision (another device's later re-share, or the newer version a pull
+  park holds back) could lose a grant it rightly carried, with nothing to
+  put it back. *Second leg:* a document is cleared only when it was
+  pushed before the write that decides the row is private here, and the
+  record keeps that decision beside the stamp.
+- **A4.** The hand-over at close opened an order race: an Undo tapped
+  after the page had gone wrote at once, and the handed-over un-share it
+  undid landed after it; a page reopened in that moment likewise. A
+  handed-over act skipped for a database switch said nothing. *Second
+  leg:* one order for every write made past a bloc or by a newer one;
+  the skipped act is said.
+- **A11.** An old link from an event of mine to a partner's note still
+  counted in the day bars, the day summary and the month's net. *Second
+  leg:* an entry counts for an event only when the note is mine or the
+  event is the partner's too — one rule for the four readers.
+- **A12.** The hook's bound (five seconds) was shorter than one poke's
+  own deadline (ten), and a held poke went only after the entry's
+  removal and the address's give-up. *Second leg:* the poke first, the
+  bound derived from the poke's deadline.
+- **A13.** In a run that only drains, a poke owed to a pair the reader
+  had not begun yet was deleted unsent. *Second leg:* such an entry is
+  kept until it can be judged.
+
+Kept as known limits, no code: after "Stop syncing" a database is bound
+to nobody, so another account's adoption there still clears its marks —
+the rule of an unbound database ("simply this device's rows"); should the
+first account bind that same database again, the clearing goes up with
+it. And a second database whose reader still holds an ended pair pokes
+that pair, not the new one, until its next shared read.
+
+**The second leg as built (2026-11-21), each point's test seen to fail
+first.**
+
+- **A1.** `setPairingSettings` reads the binding once in its transaction;
+  on a database bound to another account it stores the pairing rows and
+  nothing else — no mark cleared, no alert choice started over, the
+  last-pair memory left as it was — and answers what it did
+  (`marksCleared`, `alertsReset`), so the alert pass runs only after a
+  reset that was stored. The owner's return finds its choice, its marks
+  and nothing queued. `SettingsService.boundToAnotherAccount` is the one
+  place that answers it for the pairing side;
+  `ShareSyncSource.boundToAnotherAccount` answers it for the screens:
+  there `ShareService.overview` lists nothing and `stopAll` writes
+  nothing (the per-row acts already refused, as `ShareNotSyncing`).
+- **A2.** `PairingService` follows the signed-in user: signed out or
+  another account, it detaches; the cache's own account back, it
+  attaches what the cache holds. An invite past its end is dropped by
+  the wait itself and never listened to; a `load` starts the wait over.
+  `reset` and `dispose` cancel the follow and a pending wait.
+- **A3.** A document is cleared only when it was pushed before the write
+  that decides the row is private here — `pushedBefore(pushedAt,
+  decidedAt)`, the same comparison `_resayShares` now calls, by this
+  device's clock as that one is — and the record
+  `share_cleared.<table>.<key>` holds the held stamp *and* the deciding
+  stamp: due again whenever either differs. The gateway reads fifty
+  documents at a time. A gap test found one more real case: a day row
+  under a category that was un-shared was never cleared, because
+  `CalendarEventDao.stampsOf` joined only a category still marked; it now
+  counts the category's `shared_stamp` for any event of mine without a
+  mark of its own. *Limit, recorded:* a phone whose clock runs behind
+  leaves a document pushed within that lag before the un-share uncleared
+  until its park lifts.
+- **A4.** One order for every share write made past a bloc or by a newer
+  one: `ShareBloc.writePastBloc`, a process-wide tail the hand-over at
+  close, the Undo tapped after its page and every act of a later bloc go
+  through — not bounded, since a bound would let a later write overtake.
+  An act added while the bloc is closing is written past it; one skipped
+  for a database switch is said. `ShareLoaded.read` numbers each
+  overview read, for the sheets (A9).
+- **A6.** A title clash at a single note's Undo says the batch's words;
+  the folder Undo counts a deleted parent as gone and says a failed move.
+- **A9.** A row hidden by its ✕ stays hidden only against the read that
+  carried that ✕; a newer read that lists it shows it.
+- **A11.** `NoteMoneyLedgerService.ledgerForEvent` is the one rule — an
+  entry counts for an event when the note is mine or the event is the
+  partner's too — read by the day bars, the day summary, the month's net
+  and the report.
+- **A12.** The end's poke is flushed before the entry leaves the pair and
+  before the address is given up; the hook's bound is one poke's own
+  deadline.
+- **A13.** With no pairing stored and a reader that holds no pair after
+  having had a partner, an owed poke is kept — neither sent nor deleted —
+  until a pairing is stored or the reader holds a pair; one entry per
+  pair, removed by the next pair's first drain that can judge it or by
+  an unbind.
+
+**Gate on the whole, in the main tree (2026-11-21):** `dart analyze lib
+test` clean; the whole suite 18,481 passed, 17 skipped; the rules suite
+178 of 178 (run on the first leg; the second changed neither the rules
+nor their case); the relay's 106 of 106. One case of
+`optimized_folder_content_page_test.dart` ("a row's long-press sheet
+leads with the strip…", colour labels) went red once in its chunk while
+another worktree's build loaded the machine and is green alone, 131 of
+131 — a load flake outside the diff. Not delivered: a widget test of the
+A4 scenario through the folders sheet — under `testWidgets` a bloc
+closed while its act is held never finishes closing; the bloc suite
+covers it. **No device pass yet.**
+
+**The closing reviews of the second leg (two `reviewer`s, fresh
+contexts) — and two of the lead's own second-leg decisions withdrawn.**
+
+- **A3 did not hold.** Clearing only a document "pushed before the write
+  that decides the row private" needs that write's stamp, and
+  `shareStamps` does not have it for three kinds of row: a note moved
+  out of a shared folder (the move is a write of the note; only the
+  folder chain was read), an event or day row under a *deleted* shared
+  category (a tombstone moves `hlc_timestamp`, not `shared_stamp`), and
+  a category row itself (the binding gives none). All three kept their
+  grant, and the record then said "answered". The rule also left a
+  device that is behind free to push the grant back for good. *Third
+  leg — back to the foundations' own rule, private always:* a held row
+  that is private here has its document's grant cleared, with no
+  comparison; the record is "cleared at this park" and is dropped when
+  the park lifts, when the row is shared again at a drain, and whenever
+  a pulled document of that key names a pair, merged or parked.
+  `stampsOf` goes back to what it was. *What this costs, accepted:* a
+  parked row's document can stay private where another device of the
+  owner shared its root later, until the park lifts — the side the
+  foundations say to err on (§3 there). Also from the first leg: a day
+  row stored at a local midnight by an older build was asked for under
+  its outbox key, not the document's — mapped now.
+- **A4's process-wide tail was fragile.** A lone running act (nothing
+  queued behind it) stood outside it, so an Undo past the bloc could
+  still land first; an act delayed by the tail wrote with no check for a
+  database switch; the calendar's, the Categories page's and the folder
+  page's own share writes bypassed it; a running act that failed after
+  its bloc closed said nothing; and one write that never completed froze
+  every later act of every later bloc. *Third leg:* the order lives in
+  `ShareService` — its share writes run in the order they are asked,
+  per instance, each carrying the database generation it was asked
+  under — and `ShareBloc` starts an act's write when the act is added,
+  so nothing waits to be handed over and every door is ordered with no
+  change of its own. The tail, its counter and its zone marker go.
+- **A2.** The wait's drop of an expired invite wrote a copy of the cache
+  taken when the timer fired, and could undo a fresh code or an adopted
+  pair whose write was in flight. *Third leg:* one queue for every write
+  of the pairing state, and a write that depends on what the cache held
+  re-reads it in its turn. The account's return attached but did not
+  look, so a pair removed meanwhile stayed "paired": it now reconciles
+  in the background.
+- **A12.** An Unpair followed by a sign-out on a slow relay could leave
+  this phone's entry in the ended pair's document (the end's flush, ten
+  seconds, outlasted the leave's five). *Third leg:* the end's own wait
+  is bounded under the leave's.
+- **A11, A6.** The "money only" grid filter still read the ledger by
+  note; leaving the folder Undo's picker without a pick moved the folder
+  to the top level. *Third leg:* the filter reads `ledgerForEvent`; no
+  pick cancels.
+- **Recorded, no code:** on a database bound to another account, what
+  "Category alerts too" armed for the owner's partner goes on ringing
+  under the other account (nothing is reset there now, by A1's rule); a
+  newer overview read that fails in the event cache can list an event
+  just un-shared, and its row then shows again in the sheet (A9, rare).
+
+**The third leg as built (2026-11-21, three fresh `implementer`s; each
+changed behaviour's test seen to fail first).**
+
+- **A3.** `_unshareHeld` clears every held row that is private here;
+  `SyncGateway.unshareRows` takes keys again, fifty reads at a time. The
+  record `share_cleared.<table>.<key>` is the held stamp and is dropped
+  at the park's lift and at an unbind, at a drain that finds the row
+  shared, and by `_Puller._forgetCleared` when a pulled document of that
+  key — merged or parked — names a pair. A held key is sent as the
+  document's id (`SyncTableBinding.documentKeyOf`; a day row's is its
+  envelope key). `stampsOf` is HEAD's again. The second leg's line about
+  a slow clock no longer applies: the clearing reads no clock.
+- **A4.** `ShareService._inTurn`: the seven mark writers run in the
+  order asked, per instance; a write whose turn comes after a database
+  switch throws `ShareDatabaseSwitched` and writes nothing. `ShareBloc`
+  starts an act's write in `add` and its handler awaits it; an act whose
+  write fails once its bloc is closing says so through `failedPastBloc`,
+  once. The tail, its counter, its zone marker, the hand-over at close
+  and `ShareUndoRequested.pastBloc` are gone; the calendar's, the
+  Categories page's and the folder page's own share writes are ordered
+  with no change of theirs.
+- **A2.** `PairingService._inTurn`: one queue for every write of the
+  pairing state; `_rewrite` builds its value from the cache when its
+  turn comes and writes nothing when what it meant to change is gone
+  (the expired-invite drop, cancel, the ended notice's dismissal, a
+  vanished pair, the partner's name, `_adopt` whole). The account's
+  return reconciles in the background, one at a time, and attaches
+  after it.
+- **A12.** `kPushEndedPokeWait`, half the leave's deadline, bounds the
+  end's own wait for its poke.
+- **A1.** `setPairingSettings` reads the binding only when a mark
+  exists, an alert reset is asked or the last pair would change; the
+  same pair adopted again on a database with no mark costs its rows and
+  one read, pinned.
+- **A11, A6.** The grid's money filter reads `ledgerForEvent`; a folder
+  Undo left without a pick is cancelled and stays undoable.
+
+**Gate on the whole after the third leg, in the main tree:** `dart
+analyze lib test` clean; the whole suite **18,513 passed, 17 skipped,
+none failed** (six chunks; the colour-label case that flaked once under
+load in the second run is green in its chunk). The rules suite stands at
+178 of 178 from the first leg — neither later leg changed the rules, the
+write sent, or its case; the relay's 106 of 106. **No device pass yet.**
+
+**The device pass (2026-11-21, later the same day, on the tree that also
+holds the sync guide — whole suite there 19,038 passed, 17 skipped, none
+failed).** `qa pass share` on two guests against the local Firebase
+emulators with the cloud build: **27 of 27 green**, no flaky — `00_pair`,
+`04_n`–`04_q`, `04g`–`04m`, `05a`, `06_delete_account` among them — and
+`qa pass settings` 21 of 21. `qa pass sync` did not run (it needs a
+freshly started emulator suite; the stop of the running one was refused
+by the session's permissions) and is the owner's to run.
+
+**Seen on the way and left, for a later pass:** `unpair()` writes a
+fixed value and does not look again in its turn; the Categories page
+caches its share service across a database switch; a day row stored at
+a local midnight gets a second row at the UTC midnight when the device
+pulls its own push back.
+
+**For the owner:** the relay's mask (A10) needs a deploy; the device
+checks of §17.5's last line still stand. **Found on the way, not
+fixed:** the day list writes an event's time in 24-hour form while its
+read sheet follows the locale (`EventSummaryProvider.formatRange`
+against `formatRangeOfContext`).

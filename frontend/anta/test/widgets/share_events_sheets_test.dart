@@ -379,6 +379,77 @@ void main() {
       expect(find.text(en.saveStatusError), findsNothing);
     });
 
+    // Review A9: a ✕ that failed brought back the rows of the ✕s still
+    // queued, and a row its ✕ hid stayed hidden once shared again.
+    testWidgets(
+      'of two ✕, the first failing brings back only its own row',
+      (tester) async {
+        await openMine(tester);
+        final hold = service.hold = Completer<void>();
+
+        await tester.tap(unshare('dinner'));
+        await settle(tester);
+        await tester.tap(unshare('lunch'));
+        await settle(tester);
+        hold.completeError(StateError('disk'));
+        await settle(tester);
+
+        expect(service.eventShares, [('dinner', false), ('lunch', false)]);
+        expect(find.text('Dinner'), findsOneWidget);
+        expect(find.text('Lunch'), findsNothing);
+      },
+      timeout: const Timeout(Duration(seconds: 250)),
+    );
+
+    testWidgets('a row its ✕ hid is listed again once a later state lists '
+        'the event shared again', (tester) async {
+      await openMine(tester);
+      final listed = service.shareOverview;
+      service.shareOverview = ShareOverview(
+        events: [MySharedEvent(event: lunch, categoryShared: true)],
+      );
+
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      expect(find.text('Dinner'), findsNothing);
+
+      // Shared again elsewhere — the event's own editor, another phone.
+      service
+        ..shareOverview = listed
+        ..emit(service.availability);
+      await settle(tester);
+
+      expect(find.text('Dinner'), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 250)));
+
+    // Review A9, second leg: the ✕ written while the reload's read failed,
+    // so the state that said so still lists the row.
+    testWidgets('a row whose ✕ was written stays out while the state still '
+        'lists it from the last read, and is listed again by a newer read '
+        'that lists it', (tester) async {
+      await openMine(tester);
+      service.overviewFails = true;
+
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      expect(service.eventShares, [('dinner', false)]);
+      expect(find.text('Dinner'), findsNothing);
+
+      // Shared again elsewhere before any read said it had gone.
+      service
+        ..overviewFails = false
+        ..shareOverview = ShareOverview(
+          events: [
+            MySharedEvent(event: dinner, categoryShared: false),
+            MySharedEvent(event: lunch, categoryShared: true),
+          ],
+        )
+        ..emit(service.availability);
+      await settle(tester);
+
+      expect(find.text('Dinner'), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 250)));
+
     testWidgets('a row comes back on Undo only once the undo was written', (
       tester,
     ) async {
@@ -402,6 +473,11 @@ void main() {
       await openMine(tester);
       await tester.tap(unshare('dinner'));
       await settle(tester);
+      // As the service reads once the ✕ is written: the reload after the
+      // failed Undo is a newer read, and decides.
+      service.shareOverview = ShareOverview(
+        events: [MySharedEvent(event: lunch, categoryShared: true)],
+      );
       final hold = service.hold = Completer<void>();
 
       await tester.tap(find.text('Undo'));
@@ -472,6 +548,8 @@ void main() {
     testWidgets('a ✕ refused after the sheet was dismissed says why on the '
         'app\'s messenger', (tester) async {
       await openMine(tester);
+      // The second ✕ is refused or not in its turn, as the service does.
+      service.inTurn = true;
       final hold = service.hold = Completer<void>();
       await tester.tap(unshare('dinner'));
       await settle(tester);

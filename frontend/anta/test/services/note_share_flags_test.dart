@@ -130,6 +130,52 @@ void main() {
       );
     });
 
+    // Review A11: my event's linked-note picker offered the partner's
+    // notes, and the ledger then counted their money for my event.
+    test('the picker over my own notes leaves the partner\'s out, on the '
+        'list and on a search, its counts with them', () async {
+      final listed = await notes.loadNotePickerPage(ownOnly: true);
+      expect(
+        listed.notes.map((note) => note.title),
+        isNot(contains('Their list')),
+      );
+      expect(listed.notes.map((note) => note.title), contains('Loose'));
+      expect(listed.totalCount, 2);
+
+      final searched = await notes.loadNotePickerPage(
+        query: 'list',
+        ownOnly: true,
+      );
+      expect(searched.notes, isEmpty);
+      expect(searched.totalCount, 0);
+      expect(
+        (await notes.loadNotePickerPage(query: 'list')).notes.single.title,
+        'Their list',
+        reason: 'the counters\' picker still offers it',
+      );
+    });
+
+    test('the picker\'s search over my own notes keeps a note of mine whose '
+        'owner is unset, and one carrying my own account\'s', () async {
+      await note('My list', plain, text: 'bread');
+      final stamped = await note('Stamped list', plain, text: 'butter');
+      await db.customStatement(
+        "UPDATE notes SET owner_id = 'me-uid' WHERE id = ?",
+        [stamped],
+      );
+
+      final searched = await notes.loadNotePickerPage(
+        query: 'list',
+        ownOnly: true,
+      );
+
+      expect(
+        searched.notes.map((note) => note.title),
+        unorderedEquals(['My list', 'Stamped list']),
+      );
+      expect(searched.totalCount, 2);
+    });
+
     test('every door into the editor hands flagged metadata: search, and the '
         'repository\'s own mapping the restore, the session chip, a linked '
         'note and the counter page take (§6.13)', () async {

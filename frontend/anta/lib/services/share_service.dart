@@ -100,12 +100,29 @@ class ShareRefused implements Exception {
   String toString() => 'ShareRefused(${availability.runtimeType})';
 }
 
+/// A share write whose turn came once the database it was asked of had been
+/// switched away: it writes nothing — built-in category ids are the same in
+/// every database, so it would land in one that never saw the tap — and a
+/// surface words it as any write that could not be made.
+class ShareDatabaseSwitched implements Exception {
+  const ShareDatabaseSwitched();
+
+  @override
+  String toString() => 'ShareDatabaseSwitched';
+}
+
 /// Whether the open database syncs with the signed-in account's space — a
 /// seam, so the service's suite decides the answer and the engine stays out
 /// of it.
 abstract interface class ShareSyncSource {
   /// Local only: the stored binding against the signed-in account.
   Future<bool> syncing();
+
+  /// Local only: whether the stored binding names an account other than
+  /// the one signed in now. Its marks are then that account's — kept
+  /// through this account's adoption of its own pair (A1) — never this
+  /// one's to list or to clear. False with no binding or nobody signed in.
+  Future<bool> boundToAnotherAccount();
 
   /// Fires whenever [syncing] may have changed: a sign-in or out, a bind or
   /// an unbind.
@@ -178,6 +195,14 @@ class BindingShareSyncSource implements ShareSyncSource {
   }
 
   @override
+  Future<bool> boundToAnotherAccount() async {
+    final uid = _currentUser()?.uid;
+    if (uid == null) return false;
+    final binding = await _binding();
+    return SyncPause.forAccount(binding, uid) == SyncPause.accountMismatch;
+  }
+
+  @override
   Stream<void> get changes =>
       _authChanges.map<Object?>((user) => user?.uid).merge(_bindingChanges());
 }
@@ -215,7 +240,9 @@ class ShareServiceWiring {
 /// The one facade over sharing (`docs/cloud-share-surfaces-roadmap.md`
 /// §6.1): whether this database can share and with whom, the only writer of
 /// a share's mark outside tests and the QA seam, whether a row is the
-/// partner's, and the receiver's settings.
+/// partner's, and the receiver's settings. Its share writes land in the
+/// order they are asked, whichever surface asks ([_shareWrites]): the one
+/// order every act and every Undo keeps.
 ///
 /// Pairing and the sync binding are per database, so this is on the
 /// [DatabaseLifecycle] reset contract. Built only when a surface asks, and
@@ -279,6 +306,20 @@ class ShareService {
   /// The hidden-set writes in order, each reading what the one before it
   /// wrote: two switches flipped in a row must both hold.
   Future<void> _hiddenWrites = Future.value();
+
+  /// The share writes in the order they were asked, whoever asked — the
+  /// Sharing page's acts, an Undo tapped once its page had gone, the
+  /// calendar's, the categories page's and the browser's own: a write asked
+  /// earlier writes earlier, so an Undo never lands before the act it
+  /// answers. Per instance, so a database switch starts a new chain; a
+  /// write that never ends holds only the writes behind it here, as a
+  /// database that never answers would.
+  Future<void> _shareWrites = Future.value();
+
+  /// The writes of [_shareWrites] not yet ended. At none, the next write
+  /// starts at once rather than on the last one's future: a completed future
+  /// runs what waits on it in the zone it was made in.
+  int _shareWritesPending = 0;
 
   ShareService._({
     required PairingService pairing,
@@ -536,53 +577,79 @@ class ShareService {
   ///
   /// Throws [ShareRefused] unless this database is [ShareReady] now —
   /// evaluated afresh, since the pairing's own writes publish no change.
-  Future<ShareChange> setEventShared(String id, bool on) async =>
-      _act(await _readyPair(), events: {id: on});
+  /// Written in its turn ([_inTurn]): [ShareDatabaseSwitched] when the
+  /// database switched before it.
+  Future<ShareChange> setEventShared(String id, bool on) =>
+      _inTurn(() async => _act(await _readyPair(), events: {id: on}));
 
   /// Shares the category [id] — every event of this person's in it, new
   /// ones too — or stops sharing it; [setEventShared]'s terms. Un-sharing
   /// says how many of its events stay shared on their own (case C10).
-  Future<ShareChange> setCategoryShared(String id, bool on) async =>
-      _act(await _readyPair(), categories: {id: on});
+  Future<ShareChange> setCategoryShared(String id, bool on) =>
+      _inTurn(() async => _act(await _readyPair(), categories: {id: on}));
 
-  /// The tick sheet's Done (§6.3): exactly [ids] of this person's
-  /// categories shared afterwards, an empty set included. Diffed against
-  /// the marks, one write per category that changes; one change returned
-  /// for the one snackbar.
-  Future<ShareChange> setCategoriesShared(Set<String> ids) async {
-    final pairId = await _readyPair();
-    await CategoryService.getInstance();
-    return _act(
-      pairId,
+  /// Exactly [ids] of this person's categories shared afterwards, an empty
+  /// set included. Diffed against the catalogue's marks, one write per
+  /// category that changes; one change returned for the one snackbar. The
+  /// tick sheet's Done sends [changeCategoriesShared] instead: a whole set
+  /// read at the sheet's open would undo a mark set since.
+  Future<ShareChange> setCategoriesShared(Set<String> ids) =>
+      _inTurn(() async {
+        final pairId = await _readyPair();
+        await CategoryService.getInstance();
+        return _act(
+          pairId,
+          categories: {
+            for (final category in CalendarCategories.all)
+              if (!category.fromPartner &&
+                  category.sharedByMe != ids.contains(category.id))
+                category.id: ids.contains(category.id),
+          },
+        );
+      });
+
+  /// The tick sheet's Done (§6.3) as the person made it: [shared] ticked
+  /// and [unshared] un-ticked against what the sheet opened with, each
+  /// written over the marks as they stand now, in the act's one
+  /// transaction. A category the person did not touch keeps its mark —
+  /// one another phone of mine or the shared reader set while the sheet
+  /// was up included, which a whole set read at the open would undo — and
+  /// one whose mark already says so writes nothing.
+  Future<ShareChange> changeCategoriesShared({
+    Set<String> shared = const {},
+    Set<String> unshared = const {},
+  }) => _inTurn(
+    () async => _act(
+      await _readyPair(),
       categories: {
-        for (final category in CalendarCategories.all)
-          if (!category.fromPartner &&
-              category.sharedByMe != ids.contains(category.id))
-            category.id: ids.contains(category.id),
+        for (final id in shared) id: true,
+        for (final id in unshared) id: false,
       },
-    );
-  }
+    ),
+  );
 
   /// Writes back every mark [change] wrote — its snackbar's Undo — and
   /// returns that change in turn. The events a category's un-share left
   /// shared on their own were never written, and stay as they are. A
   /// folder's share is undone outer mark first, then each inner mark it
   /// covered, so the inner ones are not cleared again by the outer.
-  Future<ShareChange> undo(ShareChange change) async => _act(
-    await _readyPair(),
-    categories: {
-      for (final category in change.sharedCategories) category.id: false,
-      for (final category in change.unsharedCategories) category.id: true,
-    },
-    events: {
-      for (final event in change.sharedEvents) event.id: false,
-      for (final event in change.unsharedEvents) event.id: true,
-    },
-    folders: {
-      for (final folder in change.sharedFolders) folder.id: false,
-      for (final folder in change.unsharedFolders) folder.id: true,
-      for (final folder in change.coveredFolders) folder.id: true,
-    },
+  Future<ShareChange> undo(ShareChange change) => _inTurn(
+    () async => _act(
+      await _readyPair(),
+      categories: {
+        for (final category in change.sharedCategories) category.id: false,
+        for (final category in change.unsharedCategories) category.id: true,
+      },
+      events: {
+        for (final event in change.sharedEvents) event.id: false,
+        for (final event in change.unsharedEvents) event.id: true,
+      },
+      folders: {
+        for (final folder in change.sharedFolders) folder.id: false,
+        for (final folder in change.unsharedFolders) folder.id: true,
+        for (final folder in change.coveredFolders) folder.id: true,
+      },
+    ),
   );
 
   /// Shares the folder [id] — everything under it, notes and folders made
@@ -592,8 +659,8 @@ class ShareService {
   /// again. A folder that is gone or the partner's writes nothing, and so
   /// does one already shared, by its own mark or through an outer folder's
   /// — the surface says it is shared already.
-  Future<ShareChange> setFolderShared(String id, bool on) async =>
-      _act(await _readyPair(), folders: {id: on});
+  Future<ShareChange> setFolderShared(String id, bool on) =>
+      _inTurn(() async => _act(await _readyPair(), folders: {id: on}));
 
   /// "Stop sharing everything" (§6.2): every mark of this database cleared
   /// — categories, events and folders, tombstones too — under one stamp and
@@ -601,8 +668,13 @@ class ShareService {
   /// the run that sends it. What the partner shares stays. Asks nothing of
   /// the pairing, so it also ends what an old pair left behind; a database
   /// without a mark pays one statement. Returns how many marks it cleared.
-  Future<int> stopAll() async {
+  /// Nothing on a database bound to another account than the one signed
+  /// in: those marks are that account's
+  /// ([ShareSyncSource.boundToAnotherAccount]), and clearing them here
+  /// would undo what kept them through the adoption.
+  Future<int> stopAll() => _inTurn(() async {
     if (!await _db.syncDao.anyShareMark()) return 0;
+    if (await _sync.boundToAnotherAccount()) return 0;
     final cleared = await _db.transaction(() async {
       final cleared = await _db.folderDao.clearSharesExcept(null);
       if (cleared > 0) await _markSending();
@@ -610,6 +682,29 @@ class ShareService {
     });
     if (cleared > 0) await _afterMarks(wrote: true);
     return cleared;
+  });
+
+  /// Runs [write] once every share write asked before it has ended
+  /// ([_shareWrites]); a failure or a refusal ends its turn like any other.
+  /// The generation is the one the call was made under: a write whose turn
+  /// comes after a switch throws [ShareDatabaseSwitched] and writes nothing.
+  Future<T> _inTurn<T>(Future<T> Function() write) {
+    final asked = databaseGeneration;
+    final Future<T> turn;
+    if (_shareWritesPending == 0) {
+      turn = write();
+    } else {
+      turn = _shareWrites.then((_) {
+        if (databaseGeneration != asked) throw const ShareDatabaseSwitched();
+        return write();
+      });
+    }
+    _shareWritesPending++;
+    // The chain outlives a failed write; the caller still hears of it.
+    _shareWrites = turn
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() => _shareWritesPending--);
+    return turn;
   }
 
   /// What the Sharing page lists and says, read now (§6.1, §6.2): local
@@ -626,8 +721,16 @@ class ShareService {
   /// whether the partner shares a folder, and a list is read — one
   /// statement each, two at most; one count in a summary — only when that
   /// statement says it has rows.
+  ///
+  /// [ShareOverview.empty] too on a database bound to another account than
+  /// the one signed in: what it shares, and what its partner shares, belong
+  /// to that account's pair, not to the one this account adopted — so the
+  /// page lists none of it as mine and "Stop sharing everything" stays off.
+  /// Asked after the pairing, so an account that never paired reads no
+  /// binding.
   Future<ShareOverview> overview({bool withCounts = false}) async {
     if (_pairing.status.pairId == null) return ShareOverview.empty;
+    if (await _sync.boundToAnotherAccount()) return ShareOverview.empty;
     await CategoryService.getInstance();
     final events = (await CalendarEventService.getInstance()).events;
     final hidden = await _settings.getShareHiddenCategories();

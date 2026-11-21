@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/push_constants.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/pair_record.dart';
@@ -202,6 +206,72 @@ void main() {
 
     expect(auth.deletedAccounts, [userA.uid]);
     expect(gateway.deletedPairs, isEmpty);
+  });
+
+  group('what an end asks the relay for goes out before its pair is gone '
+      '(A12): the relay refuses a pair that no longer exists', () {
+    tearDown(() => PairedAccountCloser.afterPairEnded = null);
+
+    test('the poke of the pair this call ended, while the pair stands; '
+        'none for a pair it did not end, and none for an account that '
+        'never paired', () async {
+      final active = gateway.seedPair([userA.uid, userB.uid]);
+      final over = gateway.seedPair([userA.uid, _userC.uid]);
+      await gateway.endPair(pairId: over.pairId, endedBy: _userC.uid);
+      final seen = <String>[];
+      PairedAccountCloser.afterPairEnded = () async => seen.add(
+        'sent: ${gateway.pairs[active.pairId]?.isActive == false ? 'ended, '
+                  'standing' : 'not ended or gone'}',
+      );
+
+      await close(closer);
+
+      expect(seen, ['sent: ended, standing']);
+      expect(
+        gateway.deletedPairs,
+        unorderedEquals([active.pairId, over.pairId]),
+      );
+
+      seen.clear();
+      final never = _WatchedAuth(user: _userC);
+      addTearDown(never.dispose);
+      await PairedAccountCloser(
+        auth: never,
+        pairing: FakePairingGateway(),
+      ).close(_userC.uid, stillWanted: () => true);
+      expect(seen, isEmpty);
+    });
+
+    test('a relay that never answers holds the pair\'s removal for no '
+        'longer than its bound, and the account still goes', () {
+      fakeAsync((async) {
+        final pair = gateway.seedPair([userA.uid, userB.uid]);
+        PairedAccountCloser.afterPairEnded = () => Completer<void>().future;
+        var closed = false;
+        close(closer).then((_) => closed = true);
+
+        async.flushMicrotasks();
+        expect(gateway.deletedPairs, isEmpty);
+        async.elapse(kPushEndedPokeBound - const Duration(milliseconds: 1));
+        expect(gateway.deletedPairs, isEmpty);
+        async.elapse(const Duration(milliseconds: 1));
+
+        expect(gateway.deletedPairs, [pair.pairId]);
+        expect(closed, isTrue);
+        expect(auth.deletedAccounts, [userA.uid]);
+      });
+    });
+
+    test('a hook that fails holds nothing up', () async {
+      final pair = gateway.seedPair([userA.uid, userB.uid]);
+      PairedAccountCloser.afterPairEnded = () async =>
+          throw StateError('no relay');
+
+      await close(closer);
+
+      expect(gateway.deletedPairs, [pair.pairId]);
+      expect(auth.deletedAccounts, [userA.uid]);
+    });
   });
 
   for (final (label, signedIn) in [

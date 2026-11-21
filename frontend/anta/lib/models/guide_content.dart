@@ -36,6 +36,12 @@ abstract interface class GuideTopic {
   /// The page's "Try it" editors (D17), drawn above its rows; empty for a
   /// page that is only read.
   List<GuideEditorCard> get editorCards;
+
+  /// The page's "Try it" cards whose stage is no editor (§11.3): the sync
+  /// book's two phones. Data only — the page makes each card's demo through
+  /// the widgets layer's factory, since a model cannot name a widget. Empty
+  /// for every page without one.
+  List<GuideCardSpec> get demoCards;
 }
 
 /// What a step's check reads (D18): the document as the stage draws it and

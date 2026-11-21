@@ -138,6 +138,14 @@ class _Puller {
       ),
   ];
 
+  /// The keys of this session's parks and the stored ones, for the push's
+  /// look at the rows a park holds back (`_Pusher._unshareHeld`) and for
+  /// [_forgetCleared].
+  Iterable<(String, String)> get parkedKeys => {
+    ...parked.keys,
+    ..._stored.keys,
+  };
+
   /// Whether the outbox entry of [key] at [hlc] waits for the space's
   /// version of the row: this session parked it, or a stored park's stamp
   /// is at or above the entry's.
@@ -1103,15 +1111,55 @@ class _Puller {
         if (at == null) continue;
         decided ??= await table.shareStamps(db, rows);
         final stamp = decided[envelope.rowKey];
-        if (stamp == null ||
-            HlcTimestamp.parse(stamp).wallTime <= at.millisecondsSinceEpoch) {
-          continue;
-        }
+        if (stamp == null || !pushedBefore(at, _decidedAt(stamp))) continue;
       }
       await db.syncOutboxDao.requeueRow(
         table.table,
         envelope.rowKey,
         republish: true,
+      );
+    }
+  }
+
+  /// Lets go of what the push recorded of a grant it took off a parked
+  /// row's document ([SyncDao.keyShareCleared]) once a pulled document of
+  /// that row names a pair, merged or parked: a device of the owner that is
+  /// behind pushed the grant back, and the record would keep this device's
+  /// next drain from taking it off again (`_Pusher._unshareHeld`). Whether
+  /// the row is private here is that drain's to judge. A held key is the
+  /// document's when it is the document's id, as a pull park's is, or names
+  /// the row a push writes that document for
+  /// ([SyncTableBinding.documentKeyOf]).
+  ///
+  /// Only a key a park holds can carry a record, so a table with no park
+  /// makes no statement here; one cleared document met again names no pair.
+  Future<void> _forgetCleared(
+    SyncTableBinding<Object> table,
+    List<SyncEnvelope> pulled,
+  ) async {
+    if (!sharedTables.contains(table.table)) return;
+    final named = {
+      for (final envelope in pulled)
+        if (envelope.sharedPair != null) envelope.rowKey,
+    };
+    if (named.isEmpty) return;
+    bool namedBy(String rowKey) {
+      if (named.contains(rowKey)) return true;
+      try {
+        return named.contains(table.documentKeyOf(rowKey));
+      } on FormatException {
+        // A key no row is stored under, parked as it came: no record.
+        return false;
+      }
+    }
+
+    final held = {
+      for (final (name, rowKey) in {..._e._pusher.parkedKeys, ...parkedKeys})
+        if (name == table.table && namedBy(rowKey)) rowKey,
+    };
+    for (final rowKey in held) {
+      await _e._db.syncDao.deleteValue(
+        SyncDao.keyShareCleared(table.table, rowKey),
       );
     }
   }
@@ -1184,6 +1232,9 @@ class _Puller {
     // The envelopes that merged, whose documents may say who reads them as
     // of a push this device now knows better than ([_resayShares]).
     final merged = <SyncEnvelope>[];
+    // The envelopes parked, whose documents may name a pair all the same
+    // ([_forgetCleared]).
+    final unmerged = <SyncEnvelope>[];
     await db.transaction(() async {
       await _checkStillBound(bound);
       final conflicts = <SyncNoteConflict>[];
@@ -1216,6 +1267,7 @@ class _Puller {
         } catch (error) {
           if (_abortsTransaction(error)) rethrow;
           await _park(envelope, error);
+          unmerged.add(envelope);
           if (floor != null) {
             queued ??= {
               for (final entry in await db.syncOutboxDao.pendingForTable(name))
@@ -1266,6 +1318,7 @@ class _Puller {
       // After every merge of the part: a merge retires the very entry this
       // may have to put back.
       await _resayShares(table, merged, pushed);
+      await _forgetCleared(table, [...merged, ...unmerged]);
       for (final conflict in conflicts) {
         final copy = await _e._hooks.fileConflictCopy(conflict);
         if (copy != null) {
@@ -1484,8 +1537,21 @@ class _Puller {
     unparked.add(key);
     if (!parked.containsKey(key) && !_stored.containsKey(key)) return;
     await _e._db.syncDao.deleteValue(SyncDao.keyPullParked(table, rowKey));
+    // The park that held the row's push back is gone, and with it what the
+    // push recorded of the grant it took off (`_Pusher._unshareHeld`).
+    if (sharedTables.contains(table)) {
+      await _e._db.syncDao.deleteValue(SyncDao.keyShareCleared(table, rowKey));
+    }
   }
 }
+
+/// The instant a write stamped [stamp] was decided at, by the clock of the
+/// device that wrote it: what a document's push time is weighed against
+/// ([pushedBefore]) when a pull says a grant again.
+DateTime _decidedAt(String stamp) => DateTime.fromMillisecondsSinceEpoch(
+  HlcTimestamp.parse(stamp).wallTime,
+  isUtc: true,
+);
 
 /// The digits a stored park's order is padded to, so the values sort as
 /// numbers would.

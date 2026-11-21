@@ -9869,7 +9869,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get guideHubIntro =>
-      'Trei ghiduri scurte. Căutarea de aici caută în toate trei deodată.';
+      'Patru ghiduri scurte. Căutarea de aici caută în toate patru deodată.';
 
   @override
   String get guideHubSectionGuides => 'Ghiduri';
@@ -9886,11 +9886,22 @@ class AppLocalizationsRo extends AppLocalizations {
       'Dosare, scris, markdown, liste, scurtăturile tale, registrul de bani, autocompletare, contoare';
 
   @override
-  String get guideBookAppTitle => 'Copii de rezervă, sincronizare și setări';
+  String get guideBookSyncTitle => 'Sincronizare și partajare';
+
+  @override
+  String get guideBookSyncCaption =>
+      'Telefoanele la zi, împerecherea, partajarea evenimentelor, categoriilor și folderelor, oprirea';
+
+  @override
+  String get syncGuideIntro =>
+      'Ține-ți telefoanele la zi și partajează ce alegi cu o singură persoană.';
+
+  @override
+  String get guideBookAppTitle => 'Copii de rezervă și setări';
 
   @override
   String get guideBookAppCaption =>
-      'Meniul principal, o copie a notițelor tale, sincronizarea între telefoane, setările';
+      'Meniul principal, o copie a notițelor tale, setările';
 
   @override
   String get notesGuideIntro =>
@@ -10649,8 +10660,11 @@ class AppLocalizationsRo extends AppLocalizations {
   String get notesGuideSafeBackupTitle => 'Calea înapoi';
 
   @override
-  String notesGuideSafeBackupBody(String guideBookAppTitle) {
-    return 'Ștergerea e definitivă, iar acest telefon ține singura copie până când mai faci una. Ghidul „$guideBookAppTitle” arată cum faci o copie de rezervă și cum sincronizezi.';
+  String notesGuideSafeBackupBody(
+    String guideBookAppTitle,
+    String guideBookSyncTitle,
+  ) {
+    return 'Ștergerea e definitivă, iar acest telefon ține singura copie până când mai faci una. Ghidul „$guideBookAppTitle” arată cum faci o copie de rezervă, iar „$guideBookSyncTitle”, cum sincronizezi.';
   }
 
   @override
@@ -10860,21 +10874,21 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get appGuidePageSync => 'Sincronizare între telefoane';
+  String get syncGuidePageSync => 'Sincronizare între telefoanele tale';
 
   @override
-  String get appGuidePageSyncCaption =>
-      'Te conectezi o dată, aceleași notițe pe fiecare dispozitiv';
+  String get syncGuidePageSyncCaption =>
+      'Te conectezi o dată, aceleași notițe pe fiecare telefon';
 
   @override
-  String get appGuideSyncLead =>
-      'Sincronizarea ține o copie a unei baze de date în contul tău și trimite fiecare schimbare celorlalte dispozitive ale tale. E oprită până o pornești.';
+  String get syncGuideSyncLead =>
+      'Un singur cont, aceleași notițe și același calendar pe fiecare telefon pe care te conectezi. E oprită până o pornești.';
 
   @override
-  String get appGuideSyncSignInTitle => 'Conectare';
+  String get syncGuideSignInTitle => 'Te conectezi o dată';
 
   @override
-  String appGuideSyncSignInBody(
+  String syncGuideSignInBody(
     String sharingSettings,
     String settingsHubTitle,
     String signInWithGoogle,
@@ -10883,50 +10897,841 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get appGuideSyncOnTitle => 'Pornirea';
+  String get syncGuideOnTitle => 'O pornești pentru fiecare bază de date';
 
   @override
-  String appGuideSyncOnBody(
-    String syncThisDatabase,
-    String syncThisDatabaseDesc,
-  ) {
-    return '„$syncThisDatabase” de pe aceeași pagină începe sincronizarea bazei de date pe care o folosești. $syncThisDatabaseDesc.';
+  String syncGuideOnBody(String syncThisDatabase, String syncThisDatabaseDesc) {
+    return '„$syncThisDatabase” de pe aceeași pagină sincronizează baza de date pe care o folosești; fiecare bază de date are comutatorul ei. $syncThisDatabaseDesc.';
   }
 
   @override
-  String get appGuideSyncStatusTitle => 'Cum stau lucrurile';
+  String get syncGuideStatusTitle => 'Citește rândul de stare';
 
   @override
-  String appGuideSyncStatusBody(
+  String syncGuideStatusBody(
     String syncUpToDate,
     String syncOffline,
     String syncNow,
   ) {
-    return 'Pagina spune „$syncUpToDate”, „$syncOffline” sau câte schimbări așteaptă; rândul de sus al meniului principal arată când s-a sincronizat ultima dată. Offline nu se pierde nimic: schimbările pleacă de îndată ce revine conexiunea, iar „$syncNow” nu așteaptă.';
+    return 'Pagina spune „$syncUpToDate”, „$syncOffline” sau câte schimbări așteaptă; rândul de sus al meniului principal arată când s-a sincronizat ultima dată. „$syncNow” nu așteaptă.';
   }
 
   @override
-  String get appGuideSyncCadenceTitle => 'Când se sincronizează';
+  String get syncGuideCadenceTitle => 'Cât de des';
 
   @override
-  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow) {
-    return '„$syncAutomatic” de pe aceeași pagină este pornită la început: modificările se sincronizează cât timp aplicația e deschisă și când o părăsești. Oprește-o și nimic nu se mișcă până nu atingi „$syncNow” — pentru o conexiune cu trafic limitat sau când vrei să decizi tu când.';
+  String syncGuideCadenceBody(String syncAutomatic, String syncNow) {
+    return '„$syncAutomatic” e pornită la început: o schimbare pleacă în câteva minute cât timp aplicația e deschisă și când o părăsești. Oprește-o și nimic nu se mișcă până nu atingi „$syncNow”.';
   }
 
   @override
-  String get appGuideSyncOtherTitle => 'Pe celălalt telefon';
+  String get syncGuideOtherTitle => 'Un al doilea telefon';
 
   @override
-  String appGuideSyncOtherBody(String syncThisDatabase) {
-    return 'Conectează-te cu același cont și pornește și acolo „$syncThisDatabase”. ANTA listează spațiile din contul tău; alege-l pe al tău și e descărcat ca bază de date nouă pe telefonul acela. După aceea circulă doar schimbările.';
+  String syncGuideOtherBody(String syncThisDatabase) {
+    return 'Conectează-te acolo cu același cont și pornește „$syncThisDatabase”. Alege-ți baza de date din listă și ea sosește ca bază de date separată; după aceea circulă doar schimbările.';
   }
 
   @override
-  String get appGuideSyncConflictTitle => 'Două telefoane, o notiță';
+  String get syncGuidePagePair => 'Împerechează-te cu cineva';
 
   @override
-  String get appGuideSyncConflictBody =>
-      'Dacă aceeași notiță se schimbă în două locuri, ANTA le păstrează pe amândouă: cealaltă versiune e pusă lângă a ta, ca o copie, așa că nimic nu e suprascris.';
+  String get syncGuidePagePairCaption =>
+      'O altă persoană, legată printr-un cod';
+
+  @override
+  String get syncGuidePairLead =>
+      'Partajarea e între tine și o singură altă persoană. Prin împerechere, cele două telefoane se găsesc unul pe altul.';
+
+  @override
+  String get syncGuidePairOneTitle => 'O singură persoană';
+
+  @override
+  String syncGuidePairOneBody(String unpair) {
+    return 'O pereche înseamnă două conturi. Ca să te împerechezi cu altcineva, atinge mai întâi „$unpair”.';
+  }
+
+  @override
+  String get syncGuidePairCodeTitle => 'Codul';
+
+  @override
+  String syncGuidePairCodeBody(
+    String pairingSection,
+    String sharingSettings,
+    String createCode,
+    String enterCode,
+  ) {
+    return '„$pairingSection” din „$sharingSettings”: unul dintre voi atinge „$createCode”, celălalt îl scrie la „$enterCode”. Un cod merge o singură dată, timp de zece minute; dacă expiră, fă altul.';
+  }
+
+  @override
+  String get syncGuidePairSyncTitle => 'Amândoi sincronizați';
+
+  @override
+  String syncGuidePairSyncBody(String syncThisDatabase) {
+    return 'Fiecare telefon are nevoie de „$syncThisDatabase” pornit ca să poată partaja sau primi: ce partajezi circulă odată cu sincronizarea.';
+  }
+
+  @override
+  String get syncGuidePairEmptyTitle => 'Împerecherea nu partajează nimic';
+
+  @override
+  String get syncGuidePairEmptyBody =>
+      'O pereche nouă începe goală: celălalt îți vede numele și poza, și nimic altceva până nu partajezi ceva.';
+
+  @override
+  String get syncGuidePageOffline => 'Fără semnal, și două telefoane deodată';
+
+  @override
+  String get syncGuidePageOfflineCaption =>
+      'Scrisul offline și o notiță schimbată de două ori';
+
+  @override
+  String get syncGuideOfflineLead =>
+      'Nimic nu așteaptă rețeaua. Ce scrii se salvează întâi pe telefon.';
+
+  @override
+  String get syncGuideOfflineNormalTitle => 'Offline e normal';
+
+  @override
+  String syncGuideOfflineNormalBody(String syncOffline) {
+    return 'Fiecare schimbare se salvează pe telefon și pleacă de îndată ce revine conexiunea. Între timp, pagina spune „$syncOffline”.';
+  }
+
+  @override
+  String get syncGuideOfflineConflictTitle =>
+      'Două modificări ale aceleiași notițe';
+
+  @override
+  String get syncGuideOfflineConflictBody =>
+      'Dacă aceeași notiță se schimbă pe două telefoane, modificarea mai recentă rămâne în notiță, iar cealaltă e pusă lângă ea, ca o copie, așa că nu se pierde niciun text. Șterge-o pe cea de care nu ai nevoie.';
+
+  @override
+  String get syncGuideOfflineCloseTitle => 'Închiderea aplicației';
+
+  @override
+  String get syncGuideOfflineCloseBody =>
+      'ANTA trimite ce așteaptă când o părăsești. Ce mai așteaptă pleacă la următoarea sincronizare.';
+
+  @override
+  String get syncGuidePageEvent => 'Partajează un singur eveniment';
+
+  @override
+  String get syncGuidePageEventCaption =>
+      'Un comutator în editorul evenimentului';
+
+  @override
+  String get syncGuideEventLead => 'Un singur comutator, chiar pe eveniment.';
+
+  @override
+  String get syncGuideEventSwitchTitle => 'Unde e comutatorul';
+
+  @override
+  String syncGuideEventSwitchBody(String shareWith) {
+    return 'În editorul evenimentului: „$shareWith”. Apare după ce v-ați împerecheat.';
+  }
+
+  @override
+  String get syncGuideEventTheirsTitle => 'Ce poate face celălalt';
+
+  @override
+  String get syncGuideEventTheirsBody =>
+      'Să-l vadă, să-l deschidă, să-l copieze și să-și adauge alerte proprii. Nu-l poate modifica niciodată.';
+
+  @override
+  String get syncGuideEventFollowTitle => 'Îți urmează modificările';
+
+  @override
+  String get syncGuideEventFollowBody =>
+      'Îl muți sau îl redenumești, și ce vede celălalt urmează. Îl ștergi, și dispare de pe telefonul lui.';
+
+  @override
+  String get syncGuideEventCopyTitle => 'Copia lui e a lui';
+
+  @override
+  String syncGuideEventCopyBody(String copy) {
+    return '„$copy” îi face un eveniment al lui. Modificările tale ulterioare nu ajung în acea copie, iar ea rămâne când oprești partajarea.';
+  }
+
+  @override
+  String get syncGuidePageCategory => 'Partajează o categorie întreagă';
+
+  @override
+  String get syncGuidePageCategoryCaption =>
+      'Fiecare eveniment din ea, și cele noi';
+
+  @override
+  String get syncGuideCategoryLead =>
+      'Tot ce e în categorie, acum și mai târziu.';
+
+  @override
+  String get syncGuideCategoryWhereTitle => 'Unde e comutatorul';
+
+  @override
+  String syncGuideCategoryWhereBody(
+    String shareWith,
+    String calendarCategories,
+    String sharingPage,
+    String categories,
+  ) {
+    return '„$shareWith” în editorul unei categorii sau în meniul ei ⋮ din pagina „$calendarCategories”. „$sharingPage” › „$categories” bifează mai multe deodată.';
+  }
+
+  @override
+  String get syncGuideCategoryAllTitle => 'Tot ce e în ea';
+
+  @override
+  String get syncGuideCategoryAllBody =>
+      'Fiecare eveniment al categoriei e partajat, și fiecare pe care îl adaugi mai târziu.';
+
+  @override
+  String get syncGuideCategoryOutTitle => 'Un eveniment scos';
+
+  @override
+  String syncGuideCategoryOutBody(String through) {
+    return 'Un eveniment dintr-o categorie partajată nu are comutator propriu: scrie „$through”. Mută-l în altă categorie, și comutatorul lui decide din nou.';
+  }
+
+  @override
+  String get syncGuideCategoryTheirsTitle => 'La celălalt';
+
+  @override
+  String syncGuideCategoryTheirsBody(String calendarCategories) {
+    return 'Apare în pagina lui „$calendarCategories”, sub numele tău. El alege dacă se vede în calendarul lui.';
+  }
+
+  @override
+  String get syncGuidePageFolder => 'Partajează un folder cu notițele lui';
+
+  @override
+  String get syncGuidePageFolderCaption =>
+      'Tot ce e înăuntru, doar pentru citire la celălalt';
+
+  @override
+  String get syncGuideFolderLead => 'Un folder partajează tot ce e în el.';
+
+  @override
+  String get syncGuideFolderWhereTitle => 'Unde e comutatorul';
+
+  @override
+  String syncGuideFolderWhereBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+    String folders,
+  ) {
+    return '„$shareWith” în meniul ⋮ al unui folder, sau „$addFolder” în „$sharingPage” › „$folders”.';
+  }
+
+  @override
+  String get syncGuideFolderInsideTitle => 'Ce merge cu el';
+
+  @override
+  String get syncGuideFolderInsideBody =>
+      'Notițele lui, folderele din el și tot ce muți înăuntru mai târziu. O notiță pe care o muți afară e din nou doar a ta.';
+
+  @override
+  String get syncGuideFolderReadOnlyTitle => 'Doar pentru citire la celălalt';
+
+  @override
+  String syncGuideFolderReadOnlyBody(String copy) {
+    return 'Îi citește notițele și poate păstra una cu „$copy”. Nu poate scrie în folderul tău.';
+  }
+
+  @override
+  String get syncGuideFolderNoteTitle => 'O singură notiță';
+
+  @override
+  String get syncGuideFolderNoteBody =>
+      'O notiță e partajată prin folderul în care se află. Ca s-o partajezi, pune-o într-un folder partajat.';
+
+  @override
+  String get syncGuidePageLook => 'Cum arată ce e partajat';
+
+  @override
+  String get syncGuidePageLookCaption =>
+      'Să deosebești ce e al lui de ce e al tău';
+
+  @override
+  String get syncGuideLookLead =>
+      'Ce partajează partenerul tău stă printre ale tale. Tu alegi cum le deosebești.';
+
+  @override
+  String get syncGuideLookEventsTitle => 'Trei aspecte pentru evenimente';
+
+  @override
+  String syncGuideLookEventsBody(
+    String eventLook,
+    String sharingPage,
+    String outlined,
+    String avatar,
+    String plain,
+  ) {
+    return '„$eventLook” din „$sharingPage”: „$outlined”, „$avatar” sau „$plain”.';
+  }
+
+  @override
+  String get syncGuideLookNotesTitle => 'Și pentru notițe';
+
+  @override
+  String syncGuideLookNotesBody(String noteLook, String avatar, String plain) {
+    return '„$noteLook” de pe aceeași pagină: „$avatar” sau „$plain”.';
+  }
+
+  @override
+  String get syncGuideLookMarkBody =>
+      'Un semn mic pe categoriile, evenimentele și folderele tale pe care partenerul le poate vedea.';
+
+  @override
+  String get syncGuideLookHideTitle => 'Ascunde ce nu-ți trebuie';
+
+  @override
+  String syncGuideLookHideBody(String sharingPage, String categories) {
+    return 'În „$sharingPage”, la ce partajează el, „$categories” oprește una dintre categoriile lui: evenimentele ei ies din calendarul tău și nu sună. Doar pe acest telefon; el nu vede asta niciodată.';
+  }
+
+  @override
+  String get syncGuidePageAlerts => 'Alerte pentru ce e partajat';
+
+  @override
+  String get syncGuidePageAlertsCaption => 'Ce sună pe telefonul tău';
+
+  @override
+  String get syncGuideAlertsLead =>
+      'Alertele lui nu sună niciodată pe telefonul tău. Ale tale sună când spui tu.';
+
+  @override
+  String get syncGuideAlertsChoicesTitle => 'Trei variante';
+
+  @override
+  String syncGuideAlertsChoicesBody(
+    String shareAlerts,
+    String sharingPage,
+    String off,
+    String own,
+    String category,
+  ) {
+    return '„$shareAlerts” din „$sharingPage”: „$off” le oprește pe toate, „$own” sună doar alertele pe care le adaugi, „$category” lasă evenimentele partajate să urmeze și alertele categoriilor tale.';
+  }
+
+  @override
+  String get syncGuideAlertsOwnTitle => 'Adaugă-ți propriile alerte';
+
+  @override
+  String get syncGuideAlertsOwnBody =>
+      'Deschide un eveniment partajat și adaugă o alertă din foaia lui. E doar a ta: pe telefonul lui nu sună niciodată.';
+
+  @override
+  String get syncGuideAlertsFollowTitle => 'Îi urmează modificările';
+
+  @override
+  String get syncGuideAlertsFollowFreshBody =>
+      'Alerta ta urmează modificările pe care partenerul le face evenimentului, chiar și când ANTA este închisă.';
+
+  @override
+  String get syncGuideAlertsFollowLastReceivedBody =>
+      'Alerta ta urmează ce a primit ultima dată acest telefon.';
+
+  @override
+  String get syncGuideAlertsFromTitle => 'De la cine e';
+
+  @override
+  String get syncGuideAlertsFromBody =>
+      'Alerta îl numește pe partenerul tău. O poți amâna, dar nu o poți sări.';
+
+  @override
+  String get syncGuidePageStop => 'Oprește partajarea';
+
+  @override
+  String get syncGuidePageStopCaption => 'Un lucru, totul sau perechea';
+
+  @override
+  String get syncGuideStopLead =>
+      'Fiecare cale de ieșire, de la un lucru până la tot.';
+
+  @override
+  String get syncGuideStopOneTitle => 'Un singur lucru';
+
+  @override
+  String get syncGuideStopOneBody => 'Oprește-l acolo unde l-ai pornit.';
+
+  @override
+  String get syncGuideStopAllTitle => 'Totul';
+
+  @override
+  String syncGuideStopAllBody(String stopAll, String sharingPage) {
+    return '„$stopAll” din „$sharingPage” retrage tot și vă lasă împerecheați.';
+  }
+
+  @override
+  String syncGuideStopUnpairBody(String sharingPage) {
+    return 'Din „$sharingPage”, oprește partajarea în ambele sensuri: fiecare telefon renunță la ce a partajat celălalt. Lucrurile tale rămân ale tale.';
+  }
+
+  @override
+  String get syncGuideStopWhenTitle => 'Când are efect';
+
+  @override
+  String get syncGuideStopWhenBody =>
+      'Telefonul tău trimite schimbarea la următoarea sincronizare, iar ea dispare de pe telefonul partenerului la următoarea lui. Offline, schimbarea așteaptă ca oricare alta.';
+
+  @override
+  String get syncGuideStopSyncTitle => 'Oprește sincronizarea sau pleacă';
+
+  @override
+  String syncGuideStopSyncBody(
+    String syncStop,
+    String deleteCloud,
+    String deleteAccount,
+    String sharingSettings,
+  ) {
+    return '„$syncStop” păstrează lucrurile tale pe acest telefon; ce partajează partenerul pleacă de pe el. Partenerul păstrează ce partajezi așa cum e acum, deci oprește mai întâi partajarea. „$deleteCloud” și „$deleteAccount” din „$sharingSettings” spun ce elimină.';
+  }
+
+  @override
+  String get syncGuidePagePrivate => 'Ce rămâne privat';
+
+  @override
+  String get syncGuidePagePrivateCaption =>
+      'Ce nu se partajează niciodată și unde e păstrat';
+
+  @override
+  String get syncGuidePrivateLead =>
+      'Se partajează doar ce pornești tu. Restul nu părăsește niciodată contul tău.';
+
+  @override
+  String get syncGuidePrivateNeverTitle => 'Niciodată partajate';
+
+  @override
+  String get syncGuidePrivateNeverBody =>
+      'Contoarele, alertele, marcajele de prezență, șabloanele și setările tale, și orice categorie, eveniment sau folder pe care nu l-ai pornit.';
+
+  @override
+  String get syncGuidePrivateReadOnlyTitle => 'Nu poate modifica nimic';
+
+  @override
+  String get syncGuidePrivateReadOnlyBody =>
+      'Partajarea e doar pentru citire în ambele sensuri, așa că o listă nu poate fi bifată de amândoi.';
+
+  @override
+  String get syncGuidePrivateBackupsTitle =>
+      'Nu intră în copiile tale de rezervă';
+
+  @override
+  String get syncGuidePrivateBackupsBody =>
+      'Copiile de rezervă și exporturile calendarului lasă deoparte ce partajează partenerul tău, iar un export de notițe care include ceva de-al lui e refuzat. Rapoartele, obiectivele și prezența numără doar evenimentele tale.';
+
+  @override
+  String syncGuidePrivateDataBody(String dataNotice, String sharingSettings) {
+    return 'O bază de date pe care o sincronizezi are o copie în cloudul Google. Acolo este criptată, dar nu de la un capăt la altul: cei care administrează serviciul cloud al ANTA o pot citi. „$dataNotice” din „$sharingSettings” spune unde este păstrată și cum o elimini.';
+  }
+
+  @override
+  String get syncGuideDemoPartner => 'Sam';
+
+  @override
+  String get syncGuideDemoYou => 'tine';
+
+  @override
+  String get syncGuidePhoneYours => 'Telefonul tău';
+
+  @override
+  String syncGuidePhoneTheirs(String name) {
+    return 'Telefonul lui $name';
+  }
+
+  @override
+  String get syncGuidePhoneThis => 'Acest telefon';
+
+  @override
+  String get syncGuidePhoneOther => 'Celălalt telefon al tău';
+
+  @override
+  String syncGuidePhoneChanged(String phone) {
+    return '$phone, modificat';
+  }
+
+  @override
+  String syncGuidePhoneSyncing(String phone) {
+    return '$phone, se sincronizează';
+  }
+
+  @override
+  String syncGuidePhoneBar(String phone, String area) {
+    return '$phone · $area';
+  }
+
+  @override
+  String get syncGuideEmptyFromYou => 'Nimic de la tine încă';
+
+  @override
+  String get syncGuideTryEvent => 'Încearcă: partajează un eveniment';
+
+  @override
+  String syncGuideCoachEventShare(String shareWith) {
+    return 'Pornește „$shareWith”.';
+  }
+
+  @override
+  String syncGuideCoachEventLook(String name) {
+    return 'Deschide telefonul lui $name.';
+  }
+
+  @override
+  String get syncGuideCoachEventOpen =>
+      'Imaginea conturată înseamnă că e de la tine. Atinge evenimentul acolo.';
+
+  @override
+  String syncGuideCoachEventUnshare(String shareWith) {
+    return 'Revino la telefonul tău și oprește „$shareWith”.';
+  }
+
+  @override
+  String syncGuideReportEventCopy(String name) {
+    return 'Copia e evenimentul lui $name. Al tău rămâne al tău.';
+  }
+
+  @override
+  String syncGuideSharedEventCaption(String name) {
+    return '$name nu îl poate modifica. Doar tu.';
+  }
+
+  @override
+  String get syncGuideTryCategory => 'Încearcă: partajează o categorie';
+
+  @override
+  String syncGuideCoachCategoryShare(String category, String shareWith) {
+    return 'Deschide ⋮ la $category și alege „$shareWith”.';
+  }
+
+  @override
+  String syncGuideCoachCategoryAdd(String add) {
+    return 'Imaginea conturată înseamnă că e de la tine. Revino la telefonul tău și atinge „$add”.';
+  }
+
+  @override
+  String syncGuideCoachCategoryFollow(String name) {
+    return 'Deschide din nou telefonul lui $name.';
+  }
+
+  @override
+  String syncGuideAddEventTo(String category) {
+    return 'Adaugă un eveniment în $category';
+  }
+
+  @override
+  String get syncGuideTryFolder => 'Încearcă: partajează un folder';
+
+  @override
+  String syncGuideCoachFolderShare(String folder, String shareWith) {
+    return 'Deschide ⋮ la $folder și alege „$shareWith”.';
+  }
+
+  @override
+  String syncGuideCoachFolderOpen(String folder) {
+    return 'Atinge $folder acolo.';
+  }
+
+  @override
+  String syncGuideCoachFolderCopy(String copy) {
+    return 'Atinge o notiță acolo și alege „$copy”.';
+  }
+
+  @override
+  String get syncGuideDemoFolderTrips => 'Călătorii';
+
+  @override
+  String get syncGuideDemoFolderRecipes => 'Rețete';
+
+  @override
+  String get syncGuideDemoFolderIdeas => 'Idei';
+
+  @override
+  String get syncGuideDemoNoteLisbon => 'Lisabona în mai';
+
+  @override
+  String get syncGuideDemoNotePacking => 'Listă de bagaje';
+
+  @override
+  String get syncGuideDemoNotePancakes => 'Clătite';
+
+  @override
+  String syncGuideSharedNoteCaption(String name) {
+    return '$name nu o poate modifica. Doar tu.';
+  }
+
+  @override
+  String syncGuideReportFolderCopy(String name, String folder) {
+    return 'Copia e în folderul „$folder” al lui $name. A ta rămâne neschimbată.';
+  }
+
+  @override
+  String get syncGuideTryStop => 'Încearcă: retrage partajarea';
+
+  @override
+  String syncGuideCoachStopOne(String event) {
+    return 'Atinge ✕ la $event.';
+  }
+
+  @override
+  String syncGuideCoachStopAll(String stopAll) {
+    return 'Revino la telefonul tău și atinge „$stopAll”.';
+  }
+
+  @override
+  String syncGuideCoachStopUnpair(String unpair) {
+    return 'Acum atinge „$unpair”.';
+  }
+
+  @override
+  String syncGuideReportStopUnpair(String name) {
+    return 'Nu mai sunteți împerecheați. Ce a partajat $name a dispărut și de pe telefonul tău; lucrurile tale rămân ale tale.';
+  }
+
+  @override
+  String get syncGuideTryStopNotShared => 'Nu se mai partajează';
+
+  @override
+  String get syncGuideTryStopFromYou =>
+      'O imagine conturată arată un eveniment de la tine.';
+
+  @override
+  String syncGuideTryStopCategoryPicker(String categories) {
+    return 'În aplicație, debifezi categoria la „$categories”.';
+  }
+
+  @override
+  String syncGuideCoachChooseNext(String choice) {
+    return 'Acum alege „$choice”.';
+  }
+
+  @override
+  String get syncGuideTryLook => 'Încearcă: alege aspectul';
+
+  @override
+  String syncGuideCoachLookAvatar(String setting, String look) {
+    return 'Setează „$setting” pe „$look”.';
+  }
+
+  @override
+  String syncGuideCoachLookMark(String mark) {
+    return 'Pornește „$mark”.';
+  }
+
+  @override
+  String get syncGuideTryAlerts => 'Încearcă: alege ce sună';
+
+  @override
+  String syncGuideCoachAlertsOff(String alerts, String off) {
+    return 'Atinge „$alerts” și alege „$off”.';
+  }
+
+  @override
+  String get syncGuideDemoCategoryTravel => 'Călătorii';
+
+  @override
+  String get syncGuideRingsNothing => 'Nu sună nimic.';
+
+  @override
+  String get syncGuideRingsOwn => 'Sună alerta ta.';
+
+  @override
+  String syncGuideRingsBoth(String category) {
+    return 'Sună alerta ta și alarma categoriei $category.';
+  }
+
+  @override
+  String syncGuideTryAlertsFlightCaption(
+    String from,
+    String own,
+    String category,
+    String alarm,
+  ) {
+    return '$from · Alerta ta: $own · Alarma categoriei $category: $alarm';
+  }
+
+  @override
+  String get syncGuideEmptyNotes => 'Încă nicio notiță';
+
+  @override
+  String get syncGuideTrySync => 'Încearcă: vezi cum se sincronizează';
+
+  @override
+  String syncGuideCoachSyncOn(String sync) {
+    return 'Atinge „$sync”.';
+  }
+
+  @override
+  String syncGuideCoachSyncWrite(String newNote) {
+    return 'Adaugă o notiță cu „$newNote”.';
+  }
+
+  @override
+  String get syncGuideCoachSyncLook => 'Deschide celălalt telefon al tău.';
+
+  @override
+  String get syncGuideCoachSyncEdit =>
+      'Bifează acolo primul rând, apoi revino.';
+
+  @override
+  String get syncGuideReportSyncNow =>
+      'Nimic de trimis: ambele telefoane sunt deja la fel.';
+
+  @override
+  String get syncGuideDemoNoteGroceries => 'Cumpărături';
+
+  @override
+  String get syncGuideDemoTaskMilk => 'Lapte';
+
+  @override
+  String syncGuideCoachSyncWriteStatus(String upToDate, String newNote) {
+    return 'Când starea arată „$upToDate”, atinge „$newNote”.';
+  }
+
+  @override
+  String get syncGuideTryOffline => 'Încearcă: scrie fără semnal';
+
+  @override
+  String get syncGuideAirplaneMode => 'Mod avion';
+
+  @override
+  String get syncGuideCoachOfflineOff =>
+      'Activează modul avion: atinge avionul din bară.';
+
+  @override
+  String get syncGuideCoachOfflineOn =>
+      'Revino și atinge avionul ca să oprești modul avion.';
+
+  @override
+  String get syncGuideTryConflict =>
+      'Încearcă: aceeași notiță pe ambele telefoane';
+
+  @override
+  String get syncGuideAddLine => 'Adaugă un rând';
+
+  @override
+  String get syncGuideCoachConflictHere => 'Adaugă un rând pe acest telefon.';
+
+  @override
+  String get syncGuideCoachConflictThere =>
+      'Deschide celălalt telefon și adaugă acolo un rând.';
+
+  @override
+  String get syncGuideCoachConflictOnline =>
+      'Oprește modul avion: atinge avionul pe ambele telefoane.';
+
+  @override
+  String get syncGuideReportConflict =>
+      'Nu s-a pierdut niciun text: rândul mai nou, de pe celălalt telefon, e în notiță, cel de pe acest telefon în copia de lângă ea. Șterge-o pe cea de care nu ai nevoie.';
+
+  @override
+  String get syncGuideDemoLinePassport => 'Pașaport';
+
+  @override
+  String get syncGuideDemoLineSunscreen => 'Cremă de soare';
+
+  @override
+  String get syncGuideDemoLineUmbrella => 'Umbrelă';
+
+  @override
+  String get syncGuideReportConflictHere =>
+      'Nu s-a pierdut niciun text: rândul mai nou, de pe acest telefon, e în notiță, cel de pe celălalt telefon în copia de lângă ea. Șterge-o pe cea de care nu ai nevoie.';
+
+  @override
+  String get syncGuideTryPair => 'Încearcă: un cod, introdus o dată';
+
+  @override
+  String syncGuideReportPairSharing(String page) {
+    return 'În aplicație, asta deschide „$page”.';
+  }
+
+  @override
+  String syncGuideCoachPairInvite(String create) {
+    return 'Atinge „$create”.';
+  }
+
+  @override
+  String syncGuideCoachPairRedeem(String connect) {
+    return 'Introdu codul acolo și atinge „$connect”.';
+  }
+
+  @override
+  String get syncGuideCoachPairBack => 'Revino la telefonul tău.';
+
+  @override
+  String get syncGuidePairFill => 'Completează codul';
+
+  @override
+  String syncGuideReportPairCopy(String name) {
+    return 'Pe telefonul tău, asta copiază codul ca să i-l poți trimite lui $name.';
+  }
+
+  @override
+  String get syncGuideHowPairingWorks => 'Cum funcționează împerecherea';
+
+  @override
+  String get syncGuideSetupTitle => 'Ce ai configurat';
+
+  @override
+  String syncGuideSetupAccountDone(String name) {
+    return 'Conectat ca $name';
+  }
+
+  @override
+  String get syncGuideSetupAccountDoneUnnamed => 'Conectat';
+
+  @override
+  String get syncGuideSetupAccountTodo => 'Conectează-te';
+
+  @override
+  String get syncGuideSetupAccountFirst => 'Conectează-te mai întâi';
+
+  @override
+  String get syncGuideSetupSyncDone => 'Baza de date se sincronizează';
+
+  @override
+  String syncGuideSetupSyncTodo(String label) {
+    return 'Pornește „$label”';
+  }
+
+  @override
+  String get syncGuideSetupSyncFirst => 'Pornește mai întâi sincronizarea';
+
+  @override
+  String syncGuideSetupPairDone(String name) {
+    return 'Împerecheat cu $name';
+  }
+
+  @override
+  String get syncGuideSetupPairTodo => 'Împerechează-te cu cineva';
+
+  @override
+  String get syncGuideSetupPairFirst => 'Împerechează-te mai întâi';
+
+  @override
+  String syncGuideSetupShareDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Partajezi $count de lucruri',
+      few: 'Partajezi $count lucruri',
+      one: 'Partajezi un lucru',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncGuideSetupShareTodo => 'Partajează ceva';
+
+  @override
+  String get syncGuideSetupOpensSharing => 'Deschide Partajare';
+
+  @override
+  String get syncGuideHowSyncWorks =>
+      'Cum funcționează sincronizarea și partajarea';
+
+  @override
+  String get syncGuideSetupSyncPausedFirst => 'Sincronizarea e în pauză';
 
   @override
   String get moneyNoTarget => 'fără țintă';
@@ -11239,30 +12044,6 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get appGuideSyncStopTitle => 'Oprirea';
-
-  @override
-  String appGuideSyncStopBody(String syncStop, String signOut) {
-    return '„$syncStop” îți lasă notițele pe acest telefon și încetează să trimită și să primească; copia din contul tău rămâne. „$signOut” pune pe pauză sincronizarea pentru fiecare bază de date până te conectezi din nou.';
-  }
-
-  @override
-  String get appGuideSyncDeleteTitle => 'Ștergerea copiei din cloud';
-
-  @override
-  String appGuideSyncDeleteBody(String delete) {
-    return '„$delete” elimină definitiv baza de date din contul tău. Rămâne pe acest telefon, care nu o mai sincronizează; celelalte dispozitive o păstrează pe a lor și se opresc și ele.';
-  }
-
-  @override
-  String get appGuideSyncDeleteAccountTitle => 'Ștergerea contului';
-
-  @override
-  String appGuideSyncDeleteAccountBody(String deleteAccount) {
-    return '„$deleteAccount” de pe aceeași pagină elimină fiecare copie din cloud a contului, încheie partajarea cu partenerul tău și șterge contul însuși, după ce Google îți cere să te conectezi din nou. Totul rămâne pe acest telefon.';
-  }
-
-  @override
   String get dataNoticeSection => 'Confidențialitate';
 
   @override
@@ -11308,97 +12089,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
     return '„$deleteCopy” elimină din cloud copia unei baze de date; „$deleteAccount” elimină tot ce păstrează contul tău acolo. Niciuna nu șterge nimic de pe acest dispozitiv.';
   }
-
-  @override
-  String appGuideSyncDataBody(String dataNotice) {
-    return 'O bază de date pe care o sincronizezi are o copie în cloudul Google. Acolo este criptată, dar nu de la un capăt la altul: cei care administrează serviciul cloud al ANTA o pot citi. „$dataNotice” de pe aceeași pagină spune unde este păstrată și cum o elimini.';
-  }
-
-  @override
-  String get appGuidePageSharing => 'Partajarea cu partenerul tău';
-
-  @override
-  String get appGuidePageSharingCaption =>
-      'O categorie sau un eveniment, doar pentru citire pe celălalt telefon';
-
-  @override
-  String get appGuideSharingLead =>
-      'Împerechează-te cu o persoană și alege ce vede. Nimic nu e partajat până nu pornești tu; partenerul tău citește și nu modifică nimic; oprești, și dispare de pe telefonul lui.';
-
-  @override
-  String get appGuideSharingPairTitle => 'Mai întâi, împerecherea';
-
-  @override
-  String appGuideSharingPairBody(
-    String pairingSection,
-    String sharingSettings,
-    String syncThisDatabase,
-  ) {
-    return '„$pairingSection” din „$sharingSettings” te leagă de o persoană printr-un cod. Împerecherea singură nu partajează nimic. Pe ambele telefoane trebuie pornit „$syncThisDatabase” — ce partajezi circulă odată cu sincronizarea.';
-  }
-
-  @override
-  String get appGuideSharingCategoryTitle => 'Partajează o categorie';
-
-  @override
-  String appGuideSharingCategoryBody(
-    String shareWith,
-    String calendarCategories,
-    String sharingPage,
-  ) {
-    return 'În editorul unei categorii, „$shareWith” partajează fiecare eveniment din ea — și pe cele pe care le adaugi mai târziu. Meniul ⋮ din pagina „$calendarCategories” face același lucru; „$sharingPage”, din rândul de împerechere, bifează mai multe deodată.';
-  }
-
-  @override
-  String get appGuideSharingEventTitle => 'Partajează un singur eveniment';
-
-  @override
-  String appGuideSharingEventBody(String shareWith) {
-    return 'Același comutator, „$shareWith”, în editorul unui eveniment partajează doar acel eveniment. Un eveniment dintr-o categorie partajată e deja partajat; comutatorul lui o spune.';
-  }
-
-  @override
-  String get appGuideSharingReadOnlyTitle => 'Doar pentru citire la celălalt';
-
-  @override
-  String appGuideSharingReadOnlyBody(String copy) {
-    return 'Partenerul tău vede ce partajezi și nu poate modifica, așa că o listă nu poate fi bifată de amândoi. „$copy” îi face un eveniment al lui; modificările tale ulterioare nu ajung în acea copie, iar ea rămâne când oprești partajarea.';
-  }
-
-  @override
-  String get appGuideSharingTheirsTitle => 'Ce partajează partenerul tău';
-
-  @override
-  String appGuideSharingTheirsBody(String sharingPage) {
-    return 'Evenimentele lui deschid o foaie pe care o poți citi, nu edita. În „$sharingPage” alegi care dintre categoriile lui apar în calendarul tău și cum deosebești evenimentele lui de ale tale. Rapoartele, obiectivele și prezența numără doar evenimentele tale.';
-  }
-
-  @override
-  String get appGuideSharingAlertsTitle => 'Alerte';
-
-  @override
-  String appGuideSharingAlertsBody(
-    String shareAlerts,
-    String alertsOff,
-    String alertsCategory,
-  ) {
-    return 'Alertele partenerului nu sună niciodată pe telefonul tău, nici ale tale pe al lui. Adaugă o alertă a ta la un eveniment partajat, din foaia lui. „$shareAlerts” din aceeași pagină le poate opri pe toate („$alertsOff”) sau poate lăsa evenimentele partajate să urmeze alertele categoriilor tale („$alertsCategory”).';
-  }
-
-  @override
-  String get appGuideSharingStopTitle => 'Oprirea';
-
-  @override
-  String appGuideSharingStopBody(String stopAll, String unpair) {
-    return 'Oprești o partajare și ea dispare de pe telefonul partenerului la următoarea lui sincronizare. „$stopAll” retrage tot și vă lasă împerecheați; „$unpair” oprește partajarea în ambele sensuri.';
-  }
-
-  @override
-  String get appGuideSharingPrivateTitle => 'Ce nu se partajează niciodată';
-
-  @override
-  String get appGuideSharingPrivateBody =>
-      'Contoarele, alertele, marcajele de prezență, șabloanele și setările tale rămân la tine, orice ai partaja.';
 
   @override
   String get sharePartnerFallback => 'partenerul tău';
@@ -11499,18 +12189,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get shareNoteLook => 'Notițe partajate cu tine';
-
-  @override
-  String get appGuideSharingFolderTitle => 'Partajează un folder';
-
-  @override
-  String appGuideSharingFolderBody(
-    String shareWith,
-    String addFolder,
-    String sharingPage,
-  ) {
-    return '„$shareWith” din meniul ⋮ al unui folder îl partajează; „$addFolder” din „$sharingPage” face același lucru. Partenerul tău îi citește notițele și nu le poate modifica; o notiță pe care o adaugi mai târziu e partajată și ea.';
-  }
 
   @override
   String get shareNone => 'Nimic';
@@ -11889,14 +12567,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String sharedEventCaptionFresh(String name) {
     return 'Doar $name poate modifica acest eveniment. Alertele tale îi urmează modificările, chiar și când ANTA este închisă.';
   }
-
-  @override
-  String get appGuideSharingAlertsFresh =>
-      'Alerta ta urmează modificările pe care partenerul le face evenimentului, chiar și când ANTA este închisă.';
-
-  @override
-  String get appGuideSharingAlertsLastReceived =>
-      'Alerta ta urmează ce a primit ultima dată acest telefon.';
 
   @override
   String shareNewFromPartner(String name, String what) {

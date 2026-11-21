@@ -3346,6 +3346,10 @@ class FormChip extends StatelessWidget {
   /// the presence pair, whose labels change with the locale.
   final String? identifier;
 
+  /// A glyph before the label, in its ink, for a chip that is a prop rather
+  /// than a choice — a guide stage's "Fill it in" with the practice mark.
+  final IconData? glyph;
+
   const FormChip({
     super.key,
     required this.label,
@@ -3353,11 +3357,22 @@ class FormChip extends StatelessWidget {
     required this.onTap,
     this.tapTarget = FormMetrics.chipTapTarget,
     this.identifier,
+    this.glyph,
   });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final ink = selected ? colorScheme.onSurface : colorScheme.onSurfaceVariant;
+    final Widget text = Text(
+      label,
+      style: TextStyle(
+        fontSize: FormMetrics.chipFontSize,
+        fontWeight: FontWeight.w500,
+        color: ink,
+      ),
+    );
+    final leading = glyph;
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(FormMetrics.chipRadius),
       side: BorderSide(
@@ -3382,16 +3397,20 @@ class FormChip extends StatelessWidget {
             child: Center(
               widthFactor: 1,
               heightFactor: 1,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: FormMetrics.chipFontSize,
-                  fontWeight: FontWeight.w500,
-                  color: selected
-                      ? colorScheme.onSurface
-                      : colorScheme.onSurfaceVariant,
-                ),
-              ),
+              child: leading == null
+                  ? text
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          leading,
+                          size: FormMetrics.chipGlyphSize,
+                          color: ink,
+                        ),
+                        const SizedBox(width: FormMetrics.chipGlyphGap),
+                        Flexible(child: text),
+                      ],
+                    ),
             ),
           ),
         ),
