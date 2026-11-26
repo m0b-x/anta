@@ -323,7 +323,8 @@ already lets them do by editing it.
 After slice J is on both phones; none of it blocks slice I.
 
 1. A free Cloudflare account; `npm install` and `npx wrangler deploy` in
-   `backend/push-relay/`.
+   `backend/push-relay/`. — DONE: on 2026-11-26 the Worker answers at the
+   address step 4 names (a GET on `/poke` gets the relay's own 405).
 2. In the Google Cloud console of the project: a service account with the
    role "Firebase Cloud Messaging API Admin" and nothing else; its JSON
    key → `npx wrangler secret put FCM_SERVICE_ACCOUNT`. The project's id →
@@ -333,7 +334,8 @@ After slice J is on both phones; none of it blocks slice I.
    `firebase deploy --only firestore:rules --project alexs-note-tracking-app`.
    The indexes were live already and have not changed.
 4. In the Firebase console: the document `config/push` with one field,
-   `relay`, the Worker's URL.
+   `relay`, the Worker's URL. — DONE 2026-11-14 (read back on 2026-11-26:
+   created that day at 15:01 UTC, its one field naming the Worker).
 5. Both phones opened once while paired. Then: one changes a shared event
    with the other's app closed and an alert set on it; the alert moves.
 

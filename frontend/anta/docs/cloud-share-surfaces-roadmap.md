@@ -3498,7 +3498,7 @@ when a partner's note leaves before its folder.
 ## 17. The correctness review (2026-11-21)
 
 **Status: A1–A13 FIXED 2026-11-21, COMMITTED `f6af7a70` (§17.7; the
-share device pass 27 of 27 on the final build, the sync pass not run;
+share device pass 27 of 27 on the final build, the sync pass 5 of 5 on 2026-11-26;
 the relay's mask deployed 2026-11-22); §17.3 and §17.4 open.** The owner asked for a correctness review of sharing as it stands
 on `main` (`698f5292`, a clean tree), and on its list answered "fix all
 13, tests first" the same day. §17.2 keeps each finding as it was read;
@@ -4093,7 +4093,16 @@ emulators with the cloud build: **27 of 27 green**, no flaky — `00_pair`,
 `04_n`–`04_q`, `04g`–`04m`, `05a`, `06_delete_account` among them — and
 `qa pass settings` 21 of 21. `qa pass sync` did not run (it needs a
 freshly started emulator suite; the stop of the running one was refused
-by the session's permissions) and is the owner's to run.
+by the session's permissions) and is the owner's to run. Run on
+2026-11-26: 5 of 5 on `29483765` (39.0 s), and 5 of 5 again after that
+day's dependency refresh and file splits (`2a06353f`, 39.7 s). The share
+pass on `2a06353f` stopped at 18 of 27 the same day, three times, for a
+reason of the suite's own — the day was a Thursday, and the seed's weekly
+event puts the flows' day on today on Mondays and Thursdays
+(`qa-emulator/references/share-pass.md`) — so the flows from `04hb` on
+have no device verdict on that commit; `alerts` 5 of 5, `alerts_pair`
+1 of 1, `calendar` 35 of 35, `settings` 21 of 21 and `browser` 3 of 3
+were green on it.
 
 **Seen on the way and left, for a later pass:** `unpair()` writes a
 fixed value and does not look again in its turn; the Categories page
