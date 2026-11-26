@@ -181,6 +181,11 @@ class TargetResolver {
   /// included, so a hidden duplicate of a visible label stays reachable
   /// (and is then revealed) and the number does not shift when a scroll
   /// changes which of them are on screen.
+  ///
+  /// A negative [nth] counts from the end, `-1` being the last match: the
+  /// pick for a row that follows a summary which names its title only some
+  /// days — a calendar day's marker names the bars it draws, and says "+2"
+  /// for the rest — so the count before the row is not the flow's to know.
   ResolvedTarget _pick(List<TargetMatch> all, String target, int? nth) {
     if (all.isEmpty) {
       throw TargetFailure('no node matches "$target". ${onScreenListing()}');
@@ -188,13 +193,14 @@ class TargetResolver {
     final ordered = [...all]
       ..sort((a, b) => a.node.index.compareTo(b.node.index));
     if (nth != null) {
-      if (nth < 0 || nth >= ordered.length) {
+      final at = nth < 0 ? ordered.length + nth : nth;
+      if (at < 0 || at >= ordered.length) {
         throw TargetFailure(
           '--nth $nth is out of range: "$target" has ${ordered.length} '
           'match(es) (0..${ordered.length - 1}).',
         );
       }
-      return fromNode(ordered[nth].node);
+      return fromNode(ordered[at].node);
     }
     final visible = ordered.where((m) => !m.node.outOfView).toList();
     final matches = visible.isNotEmpty ? visible : ordered;

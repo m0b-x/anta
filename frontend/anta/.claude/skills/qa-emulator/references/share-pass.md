@@ -195,10 +195,27 @@ the pair ended); anything on the real project.
   before the run: the flows never rely on it alone, each check on the
   partner's guest carries its own timeout.
 - An event a flow makes has an id minted on the device, so its day-panel
-  row is tapped by title — and today's grid cell carries every title of
-  the day in its marker label ("Lifting session, From …, Core circuit, From
-  …"), which comes first in traversal: the flows tap `--nth 1`. The panel's
-  expand toggle, which would take the grid out of the tree, has no id.
+  row is tapped by title — and the day's grid cell names titles too, in its
+  marker label ("Lifting session, From …, Core circuit, From …"), which
+  comes first in traversal: the flows tap `--nth 1`. The cell names only
+  the bars it draws, though: past three entries it names two and says "+N"
+  (`CalendarDayBars`). A row whose day may hold a fourth entry is tapped
+  from the end, `--nth=-1` (04hb, since 2026-11-26); the `--nth 1` steps
+  stand on days of at most three. The panel's expand toggle, which would
+  take the grid out of the tree, has no id.
+- **Not on a Monday or a Thursday (found 2026-11-26, a Thursday).**
+  `basic.json`'s "Lifting session" recurs on Mondays and Thursdays at
+  18:00 with a fixed start, and from 04g on the flows work on the day its
+  next occurrence selects. On those two weekdays that day is today: it
+  holds one entry more (04hb's second match — the one thing fixed that
+  day), and whatever the partner arms on it is already past — an all-day
+  event's alert is 09:00 of its day, the session's "10 min before" 17:50 —
+  so `armed --expect some` reads "nothing armed" and 04hb, 04i, 04k–04m,
+  05, 05a and 06 go red in a row behind it: 18 of 27, three times that
+  day, the same 18 each time. The suite's greens were a Friday and two
+  Saturdays. Until the seed's weekdays are written relative to today
+  (`{{weekday+N}}`, as `calendar.json` writes them — every suite on
+  `basic.json` is then re-run), run `share` on another weekday.
 - A partner's row reads "From qa1@example.com": the owner's account has no
   profile name in the Auth emulator, so the partner's name is its email.
 - The Upcoming list groups a category of two or more events into one card

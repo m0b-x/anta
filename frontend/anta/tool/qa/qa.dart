@@ -2971,7 +2971,9 @@ abstract class TargetCommand extends QaCommand {
   TargetCommand() {
     argParser.addOption(
       'nth',
-      help: 'Pick the Nth match (0-based) when a label is ambiguous.',
+      help:
+          'Pick the Nth match (0-based) when a label is ambiguous; a '
+          'negative N counts from the end (--nth=-1 is the last).',
     );
   }
 

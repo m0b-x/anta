@@ -107,7 +107,10 @@ A target is one of:
   wins.
 
 An ambiguous label exits 2 and lists the candidates with the `--nth N`
-(0-based) that picks each one. **`wait` on an ambiguous label exits 2 at
+(0-based) that picks each one; a negative N counts from the end
+(`--nth=-1`, with the `=`, is the last match — for a row that follows a
+summary naming its title only some days, such as a calendar day's marker,
+which names the bars it draws and says "+2" for the rest). **`wait` on an ambiguous label exits 2 at
 once** rather than polling: `"All notes"` matches both `"All notes\n3"` and
 `"Search all notes"` — wait for `id:drawer-all-notes` or `"All notes\n3"`
 instead. A tap on a node that is not itself clickable retargets to the nearest

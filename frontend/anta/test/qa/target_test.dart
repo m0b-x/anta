@@ -151,6 +151,24 @@ void main() {
       expect(ambiguous.resolve('elete', nth: 2).node?.index, 2);
     });
 
+    test('a negative --nth counts from the end', () {
+      expect(ambiguous.resolve('elete', nth: -1).node?.index, 2);
+      expect(ambiguous.resolve('elete', nth: -3).node?.index, 0);
+    });
+
+    test('a negative --nth past the first match is a target failure', () {
+      expect(
+        () => ambiguous.resolve('elete', nth: -4),
+        throwsA(
+          isA<TargetFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('out of range'),
+          ),
+        ),
+      );
+    });
+
     test('content descriptions are listed before texts', () {
       final matches = ambiguous.matchLabel('elete');
       expect(matches.map((m) => m.field), [

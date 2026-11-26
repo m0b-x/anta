@@ -49,10 +49,13 @@
 -d emulator-5558 wait id:day-list-close
 -d emulator-5558 tap "Foam rolling" --nth 0
 -d emulator-5558 wait id:day-list-close --gone
--d emulator-5558 tap id:panel-mode-day
-# The day's grid marker names it first; the day panel's row is the second.
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+# The day panel's row is the last match. The day's grid marker names the
+# title before it only while it draws that bar: on a Monday or a Thursday
+# the seed's weekly "Lifting session" is this day's fourth entry and the
+# cell says "+2" instead, so the row is picked from the end.
 -d emulator-5558 expect "Foam rolling" --timeout 10
--d emulator-5558 tap "Foam rolling" --nth 1
+-d emulator-5558 tap "Foam rolling" --nth=-1
 -d emulator-5558 wait id:shared-event-sheet
 -d emulator-5558 tap id:shared-event-add-alert
 -d emulator-5558 wait id:alert-sheet-save
