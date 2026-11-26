@@ -36,7 +36,7 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
   
   # BLoC for state management
   flutter_bloc: ^9.1.1
@@ -67,7 +67,7 @@ dependencies:
     path: packages/re_editor
   
   # File picker for backup import
-  file_picker: ^12.0.0
+  file_picker: ^13.4.1
 
   # Archive (zip) support for folder export/import
   archive: ^4.1.0
@@ -93,7 +93,7 @@ dependencies:
   # Event alerts (Android/iOS only — gated by AlertAvailability)
   alarm:
     path: packages/alarm
-  flutter_local_notifications: ^22.3.1
+  flutter_local_notifications: ^23.0.4
   timezone: ^0.11.1
   flutter_timezone: ^5.1.0
   # What the alarm fork reports through; listened to so its warnings are printed

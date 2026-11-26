@@ -30,6 +30,7 @@ class FakeFilePicker extends FilePickerPlatform {
     Function(FilePickerStatus)? onFileLoading,
     int compressionQuality = 0,
     AndroidOptions androidOptions = const AndroidOptions(),
+    DarwinOptions darwinOptions = const DarwinOptions(),
     WindowsOptions windowsOptions = const WindowsOptions(),
     LinuxOptions linuxOptions = const LinuxOptions(),
     WebOptions webOptions = const WebOptions(),
@@ -63,7 +64,10 @@ final class _PickedFile extends PlatformFile {
   XFile get xFile => XFile(_path);
 
   @override
-  Future<int> length() => File(_path).length();
+  int? lengthSync() => null;
+
+  @override
+  Future<int?> length() => File(_path).length();
 
   @override
   Future<Uint8List> readAsBytes() => File(_path).readAsBytes();

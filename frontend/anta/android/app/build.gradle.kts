@@ -21,7 +21,10 @@ val allowDebugSigning =
 
 android {
     namespace = "com.alexzamfir.anta"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications 23 builds against androidx.core 1.19, which
+    // refuses an app compiled below 37 (Flutter's default is still 36);
+    // targetSdk stays Flutter's, so no runtime behaviour opts in with it.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
