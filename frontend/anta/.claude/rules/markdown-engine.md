@@ -7,6 +7,7 @@ paths:
   - "lib/bloc/markdown_preview/**"
   - "lib/services/markdown_render_service.dart"
   - "lib/pages/optimized_note_editor_page.dart"
+  - "lib/pages/optimized_note_editor_page/**"
   - "lib/widgets/markdown_bar.dart"
   - "lib/widgets/source_mapped_markdown_view.dart"
   - "lib/controllers/**"

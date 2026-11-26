@@ -2,6 +2,8 @@
 
 Reference, not rules — moved verbatim from the ui-language SKILL.md on 2026-10-11. Read only the part the task needs.
 
+Where each one lives: `form_rows.dart` is the single import, and its primitives are parts under `lib/widgets/form_rows/` — `row_groups` (`FormDividedRow`, `FormRowGroup`, `FormIndentedRow`, `FormSwatchRow`, `FormRowShell`), `labels_and_captions` (`FormSectionLabel`, `FormCaption`, `FormCaptionSlot`), `sheet_header` (`FormSheetHandle`, `FormSheetHeader`, `FormHeaderHairline`, `FormHeaderTextButton`), `row_pieces` (`FormLabelValue`, the glyphs, `FormChevron`, `FormValueDot`, `FormTrailingButton`, `FormDragHandle`), `picker_rows` (`FormPickerRow`, `FormPickerSwitchRow`, `FormMenuRow`), `title_rows` (`FormTitleRow`, `FormReadTitleRow`, `FormHeroRow`), `choice_rows` (`FormSwitchRow`, `FormRadioRow`, `FormCheckRow`), `action_row`, `meter_and_stepper_rows`, `chips` (`FormChip`, `TapTargetPadding`, `FormChipRow`), `search_row`.
+
 ## Row primitives — the anatomy table
 
 In the table, "below" means SKILL.md's Sheet chrome section; its long lines are in `sheet-chrome.md`.

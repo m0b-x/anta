@@ -1,6 +1,7 @@
 ---
 paths:
   - "lib/pages/calendar_*.dart"
+  - "lib/pages/calendar_overview_page/**"
   - "lib/pages/alerts_page.dart"
   - "lib/pages/alarm_page.dart"
   - "lib/bloc/calendar/**"
@@ -31,6 +32,7 @@ paths:
   - "lib/widgets/agenda_*.dart"
   - "lib/widgets/calendar_*.dart"
   - "lib/widgets/event_*.dart"
+  - "lib/widgets/event_editor_sheet/**"
   - "lib/widgets/day_*.dart"
   - "lib/models/calendar_*.dart"
   - "lib/models/recurrence_rule.dart"

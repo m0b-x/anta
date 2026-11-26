@@ -1,6 +1,6 @@
 ---
 name: ui-language
-description: ANTA's app-wide UI language - which idiom a surface takes, the row primitives, the sheet chrome, the role-named metrics, menus and dialogs, semantics ids, and the widget-test pattern every surface ships with. USE FOR - building or restyling any sheet, page, row, picker, menu, dialog or tile anywhere in the app; adding a bottom sheet; any change to form_rows.dart, form_sheet_frame.dart, form_menu_item.dart, form_metrics.dart, content_rows.dart or app_dialogs.dart. Load with anta-context and the area skill; ui-mock for a mock, ui-revamp for a rework.
+description: ANTA's app-wide UI language - which idiom a surface takes, the row primitives, the sheet chrome, the role-named metrics, menus and dialogs, semantics ids, and the widget-test pattern every surface ships with. USE FOR - building or restyling any sheet, page, row, picker, menu, dialog or tile anywhere in the app; adding a bottom sheet; any change to form_rows.dart or its parts under form_rows/, form_sheet_frame.dart, form_menu_item.dart, form_metrics.dart, content_rows.dart or app_dialogs.dart. Load with anta-context and the area skill; ui-mock for a mock, ui-revamp for a rework.
 ---
 
 # UI language
@@ -26,7 +26,7 @@ Around them: a bar reads `AppBarMetrics` (48 dp toolbar, 22 px glyphs, a 17 / 50
 
 | File | Holds |
 | --- | --- |
-| `lib/widgets/form_rows.dart` | every row primitive below; re-exports `form_metrics.dart` and `form_sheet_frame.dart` |
+| `lib/widgets/form_rows.dart` | every row primitive below — the one import; the primitives themselves are its parts under `lib/widgets/form_rows/`, a file per family (`references/row-primitives.md` names them); re-exports `form_metrics.dart` and `form_sheet_frame.dart` |
 | `lib/widgets/form_sheet_frame.dart` | `FormSheetFrame`, the form sheet's shell, and `FormSheetSemanticsRefresh`, the wrapper a sheet that resizes on a dialog's answer needs (`references/sheet-chrome.md`) |
 | `lib/widgets/form_menu_item.dart` | `FormMenuChoiceItem`, `FormMenuItemRow`, `formMenuPosition` (`references/row-primitives.md`) |
 | `lib/constants/form_metrics.dart` | `FormMetrics` — every number a form uses |
