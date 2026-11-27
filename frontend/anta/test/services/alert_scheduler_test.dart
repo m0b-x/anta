@@ -738,6 +738,54 @@ void main() {
       expect(gateway.cancelled, hasLength(1));
     });
 
+    // The Romania profile's January (religious calendar D6): 2 January, and
+    // Theophany and Saint John from 2024. A workdays alarm follows the days
+    // off — and only those: Saint Nicholas is a feast, not a day off (D2).
+    for (final (at, next, why) in [
+      (
+        DateTime(2026, 1, 5, 19),
+        DateTime.utc(2026, 1, 8),
+        'Tuesday 6 and Wednesday 7 January 2026 are days off',
+      ),
+      (
+        DateTime(2022, 1, 5, 19),
+        DateTime.utc(2022, 1, 6),
+        'before 2024 Theophany was a workday',
+      ),
+      (
+        DateTime(2027, 12, 3, 19),
+        DateTime.utc(2027, 12, 6),
+        'Monday 6 December 2027 is a feast, never a day off',
+      ),
+    ]) {
+      test('under the Romania profile the workdays alarm after $at rings '
+          'on $next', () async {
+        now = at;
+        final holidays = await PublicHolidayService.getInstance();
+        addTearDown(
+          () => holidays.setProfile(HolidayProfile.generic, reconcile: false),
+        );
+        await holidays.setProfile(HolidayProfile.romania, reconcile: false);
+        await seed(
+          event: eventOf(
+            rule: const WorkdaysRecurrence(),
+            startDate: DateTime.utc(2021, 1, 4),
+          ),
+        );
+        final scheduler = schedulerOf(
+          horizon: const AlertHorizon(perAlert: 1, days: 30, total: 48),
+        );
+
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+        expect(
+          (await registrations()).single.day,
+          next.millisecondsSinceEpoch,
+          reason: why,
+        );
+      });
+    }
+
     test('a profile switch requests the pass rather than awaiting it, and '
         'the caller can own it instead', () async {
       // C152: the pass is requested after the republish and never awaited

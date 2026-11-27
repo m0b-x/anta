@@ -83,6 +83,8 @@
   "publicHolidayChildrensDay": "Kindertag",
   "publicHolidayStAndrewDay": "Andreastag",
   "publicHolidayNationalDayRomania": "Rumänischer Nationalfeiertag",
+  "publicHolidayDayAfterNewYear": "Zweiter Neujahrstag",
+  "publicHolidayStJohnTheBaptist": "Johannes der Täufer",
   "publicHolidayMartinLutherKingDay": "Martin-Luther-King-Tag",
   "publicHolidayPresidentsDay": "Presidents’ Day",
   "publicHolidayMemorialDay": "Memorial Day",
@@ -448,6 +450,8 @@
   "exportedOn": "Exportiert am: {date}",
   "import": "Importieren",
   "importSuccess": "{folders} Ordner und {notes} Notizen erfolgreich importiert",
+  "importSkippedFiles": "{count, plural, =1{1 Datei übersprungen: nicht lesbar} other{{count} Dateien übersprungen: nicht lesbar}}",
+  "importSkipped": "{count, plural, =1{1 Eintrag übersprungen: nicht lesbar} other{{count} Einträge übersprungen: nicht lesbar}}",
   "importFailed": "Import fehlgeschlagen",
   "invalidBackupFile": "Ungültige Backup-Datei",
   "exportBackup": "Backup exportieren",
@@ -1423,6 +1427,7 @@
     "description": "Title for data deleted success dialog"
   },
   "restartRequiredAfterDeletion": "Alle Daten wurden gelöscht. Bitte starten Sie die App neu, um fortzufahren.",
+  "restartRequiredAfterRename": "Die Datenbank wurde umbenannt. Starte die App neu, um fortzufahren.",
   "@restartRequiredAfterDeletion": {
     "description": "Message after data deletion requiring restart"
   },

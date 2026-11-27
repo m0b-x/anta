@@ -249,6 +249,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get publicHolidayNationalDayRomania => 'Rumänischer Nationalfeiertag';
 
   @override
+  String get publicHolidayDayAfterNewYear => 'Zweiter Neujahrstag';
+
+  @override
+  String get publicHolidayStJohnTheBaptist => 'Johannes der Täufer';
+
+  @override
   String get publicHolidayMartinLutherKingDay => 'Martin-Luther-King-Tag';
 
   @override
@@ -1523,6 +1529,28 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String importSkippedFiles(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Dateien übersprungen: nicht lesbar',
+      one: '1 Datei übersprungen: nicht lesbar',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String importSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Einträge übersprungen: nicht lesbar',
+      one: '1 Eintrag übersprungen: nicht lesbar',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get importFailed => 'Import fehlgeschlagen';
 
   @override
@@ -2277,6 +2305,10 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get restartRequiredAfterDeletion =>
       'Alle Daten wurden gelöscht. Bitte starten Sie die App neu, um fortzufahren.';
+
+  @override
+  String get restartRequiredAfterRename =>
+      'Die Datenbank wurde umbenannt. Starte die App neu, um fortzufahren.';
 
   @override
   String get exitApp => 'App beenden';

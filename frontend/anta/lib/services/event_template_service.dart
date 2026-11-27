@@ -148,13 +148,19 @@ class EventTemplateService {
 
   Future<void> reload() => _load();
 
+  /// A failed read keeps the templates as they were held and publishes
+  /// nothing: an empty list reads as "no templates saved" in every picker
+  /// until the next reload — and a republish of what this instance holds
+  /// would, when the read failed because the database closed under it at a
+  /// switch, put the closed database's templates back into the facade the
+  /// switch had just cleared.
   Future<void> _load() async {
     try {
       final rows = await _dao.getAll();
       _cache = List.unmodifiable(rows.map(_rowToTemplate));
     } catch (e) {
       debugPrint('[EventTemplateService] Load error: $e');
-      _cache = const [];
+      return;
     }
     CalendarTemplates.updateCache(_cache);
   }
@@ -230,13 +236,15 @@ class EventTemplateService {
   /// Wipe-then-reinsert, mirroring [CalendarEventService.importData]. Audit
   /// timestamps are preserved from the backup; identity is stamped fresh by
   /// the DAO, so a tombstone never round-trips a restore. Malformed rows are
-  /// skipped so one bad entry cannot hide the rest.
-  Future<void> importData(List<dynamic> data) async {
+  /// skipped so one bad entry cannot hide the rest, and counted: the return
+  /// is how many object rows were skipped, for the restore to report.
+  Future<int> importData(List<dynamic> data) async {
     await _dao.deleteAll();
     // Parsed first, written once (**5.1**): the per-row `try` still guards
     // parsing, but the write is one batched transaction instead of one
     // awaited insert — and one WAL commit — per archived row.
     final companions = <EventTemplatesCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -244,7 +252,10 @@ class EventTemplateService {
         final id = map['id'];
         final name = map['name'];
         final category = map['category'];
-        if (id is! String || name is! String || category is! String) continue;
+        if (id is! String || name is! String || category is! String) {
+          skipped++;
+          continue;
+        }
         final now = DateTime.now();
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
@@ -298,11 +309,13 @@ class EventTemplateService {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[EventTemplateService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _load();
+    return skipped;
   }
 
   /// Clears every template. Used when restoring a backup that carried

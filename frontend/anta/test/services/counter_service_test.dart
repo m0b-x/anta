@@ -116,6 +116,98 @@ void main() {
     expect(row.shards, endsWith(':[2,0]}'));
   });
 
+  test('pinning one of 40 counters moves only that one, in memory and in '
+      'the stored positions', () async {
+    // Past 32 elements `List.sort` is not stable, and every position is a
+    // synced row: a scramble here reaches every device.
+    final ids = [
+      for (var i = 0; i < 40; i++) await service.addCounter(name: 'C$i'),
+    ];
+
+    await service.toggleCounterPin(ids[20]);
+
+    final expected = [ids[20], ...ids.take(20), ...ids.skip(21)];
+    expect(service.counters.map((c) => c.id), expected);
+    final fresh = await CounterService.forTesting(db);
+    expect(fresh.counters.map((c) => c.id), expected);
+  });
+
+  group('a tap right after a Reset, while a flush is in flight', () {
+    test('is kept in memory and in the table', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 0);
+      await service.incrementGlobal(id);
+      await service.incrementGlobal(id);
+      await service.flush();
+      await service.incrementGlobal(id);
+      final flushing = service.flush();
+      final resetting = service.resetGlobal(id);
+      await service.incrementGlobal(id);
+      await resetting;
+      await flushing;
+      expect(service.getGlobalValue(id), 1);
+
+      await service.flush();
+      expect(service.getGlobalValue(id), 1);
+      expect(await db.counterDao.getValue(id, ''), 1);
+    });
+
+    test('is kept when it lands one event-loop turn later', () async {
+      final id = await service.addCounter(name: 'Sets', startValue: 0);
+      await service.incrementGlobal(id);
+      await service.flush();
+      await service.incrementGlobal(id);
+      final flushing = service.flush();
+      await Future<void>.microtask(() {});
+      final resetting = service.resetGlobal(id);
+      await Future<void>.delayed(Duration.zero);
+      await service.incrementGlobal(id);
+      await resetting;
+      await flushing;
+      await service.flush();
+
+      expect(service.getGlobalValue(id), 1);
+      expect(await db.counterDao.getValue(id, ''), 1);
+    });
+
+    test('is kept on a per-note counter too', () async {
+      final id = await service.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+        startValue: 0,
+      );
+      await service.increment(id, noteId: 'n1');
+      await service.flush();
+      await service.increment(id, noteId: 'n1');
+      final flushing = service.flush();
+      final resetting = service.resetForNote(id, 'n1');
+      await service.increment(id, noteId: 'n1');
+      await resetting;
+      await flushing;
+      await service.flush();
+
+      expect(await service.getValueForNote(id, 'n1'), 1);
+      expect(await db.counterDao.getValue(id, 'n1'), 1);
+    });
+  });
+
+  test('a note value deleted while a flush is in flight stays gone from '
+      'memory', () async {
+    final id = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+      startValue: 1,
+    );
+    await service.increment(id, noteId: 'n1');
+    final flushing = service.flush();
+    await Future<void>.microtask(() {});
+    final deleting = service.deleteNoteValue(id, 'n1');
+    await flushing;
+    await deleting;
+
+    expect(await db.counterDao.getValue(id, 'n1'), isNull);
+    expect((await service.getNoteValues('n1')).containsKey(id), isFalse);
+  });
+
   group('the backup export', () {
     const orphanHlc = 'ffffffffffff:0000:remote';
 
@@ -524,6 +616,74 @@ void main() {
     expect(reloaded.getGlobalValue('merged'), 3);
   });
 
+  group('a Reset on a counter with no live value row (A6 review R117)', () {
+    Future<String> rowless(CounterService counters, AppDatabase on) async {
+      final id = await counters.addCounter(name: 'Sets', startValue: 3);
+      await on.counterDao.deleteValue(id, '');
+      await counters.reload();
+      await on.syncOutboxDao.clear();
+      return id;
+    }
+
+    test('twice over writes nothing either', () async {
+      final id = await rowless(service, db);
+
+      await service.resetGlobal(id);
+      await service.resetGlobal(id);
+      await service.flush();
+
+      expect(await db.counterDao.getValue(id, ''), isNull);
+      expect(await db.syncOutboxDao.pending(), isEmpty);
+      expect(service.getGlobalValue(id), 3);
+    });
+
+    test('twice with the start value edited between shows the new start and '
+        'writes nothing', () async {
+      final id = await rowless(service, db);
+
+      await service.resetGlobal(id);
+      await service.updateCounter(
+        service.getCounterById(id)!.copyWith(startValue: 7),
+      );
+      await service.resetGlobal(id);
+      await service.flush();
+
+      expect(await db.counterDao.getValue(id, ''), isNull);
+      expect(service.getGlobalValue(id), 7);
+    });
+
+    test('keeps the taps after it as taps through a failed flush', () async {
+      final writes = _FailCounterValueWrites();
+      final failing = await openTestDatabase(interceptor: writes);
+      addTearDown(failing.close);
+      final counters = await CounterService.forTesting(failing);
+      final id = await rowless(counters, failing);
+      await counters.resetGlobal(id);
+      await counters.incrementGlobal(id);
+
+      writes.armed = true;
+      final flushing = counters.flush();
+      await Future<void>.microtask(() {});
+      // Tapped while the write the flush had copied was refused: the two
+      // pending changes are joined again (`_PendingCount.then`).
+      await counters.incrementGlobal(id);
+      await flushing;
+      expect(writes.refused, isPositive);
+      writes.armed = false;
+      await counters.flush();
+
+      final row =
+          await (failing.select(failing.counterValues)
+                ..where((v) => v.counterId.equals(id) & v.noteId.equals('')))
+              .getSingle();
+      expect(row.value, 5);
+      expect(counters.getGlobalValue(id), 5);
+      // Written as taps over the tombstone's epoch, not as a Reset of its
+      // own: there was no row for the Reset to replace.
+      expect(row.epochHlc, isNot(row.hlcTimestamp));
+    });
+  });
+
   test('a flush that failed arms the next one itself, with no further tap '
       'and no explicit flush (A1b review R21)', () async {
     final writes = _FailCounterValueWrites();
@@ -575,6 +735,126 @@ void main() {
     },
   );
 
+  test('an import with a malformed counter row lands every valid row and '
+      'drops the skipped counter\'s values', () async {
+    final kept = await service.addCounter(name: 'Kept');
+    final skipped = await service.importData(
+      {
+        'counters': jsonEncode([
+          {'id': 'c1', 'name': 'Restored 1'},
+          {'id': 'c2', 'name': 42},
+          {'id': 'c3', 'name': 'Restored 3'},
+        ]),
+        'globalValues': jsonEncode({'c1': 5, 'c2': 9, 'c3': 7}),
+        'noteValues': jsonEncode({
+          'n1': {'c2': 4, 'c3': 2},
+        }),
+      },
+      noteIdMap: {'n1': 'copy-n1'},
+    );
+
+    expect(skipped, 1);
+    final rows = await db.counterDao.getAllCounters();
+    expect(rows.map((r) => r.name), ['Restored 1', 'Restored 3']);
+    expect(rows.map((r) => r.position), [0, 1]);
+    expect(
+      rows.map((r) => r.id),
+      isNot(contains(kept)),
+      reason: 'the restore still replaces the counters it found',
+    );
+    final values = await db.counterDao.getAllValues();
+    expect(
+      {for (final v in values) '${v.counterId}/${v.noteId}': v.value},
+      {'c1/': 5, 'c3/': 7, 'c3/copy-n1': 2},
+      reason: 'a value whose counter was skipped is dropped, not orphaned',
+    );
+    expect(service.counters.map((c) => c.id), ['c1', 'c3']);
+    expect(service.getGlobalValue('c1'), 5);
+  });
+
+  test('an import whose counter list cannot be read keeps the counters and '
+      'counts one skip', () async {
+    final kept = await service.addCounter(name: 'Kept');
+    for (final raw in [
+      jsonEncode({'c1': 'x'}),
+      '[bad',
+    ]) {
+      expect(await service.importData({'counters': raw}), 1);
+    }
+    expect((await db.counterDao.getAllCounters()).map((r) => r.id), [kept]);
+    expect(service.counters.map((c) => c.id), [kept]);
+  });
+
+  test('an import from which no counter row survives, or with no counter '
+      'list, keeps the counters and their values', () async {
+    final kept = await service.addCounter(name: 'Kept', startValue: 3);
+    await service.incrementGlobal(kept);
+    await service.flush();
+    final value = await db.counterDao.getValue(kept, '');
+    expect(value, isNotNull);
+    expect(
+      await service.importData({
+        'counters': '[1,2]',
+        'globalValues': jsonEncode({kept: 9}),
+      }),
+      2,
+      reason: 'each unreadable row',
+    );
+    expect(
+      await service.importData({
+        'globalValues': jsonEncode({kept: 9}),
+      }),
+      0,
+      reason: 'an absent section',
+    );
+    expect((await db.counterDao.getAllCounters()).map((r) => r.id), [kept]);
+    expect(service.counters.map((c) => c.id), [kept]);
+    expect(await db.counterDao.getValue(kept, ''), value);
+  });
+
+  test('an empty counter list is a database without counters and replaces '
+      'them', () async {
+    await service.addCounter(name: 'Replaced');
+    expect(await service.importData({'counters': '[]'}), 0);
+    expect(await db.counterDao.getAllCounters(), isEmpty);
+  });
+
+  test('a value sub-section that cannot be read is absent, and two rows '
+      'under one id keep the first', () async {
+    final skipped = await service.importData({
+      'counters': jsonEncode([
+        {'id': 'dup', 'name': 'First'},
+        {'id': 'dup', 'name': 'Second'},
+      ]),
+      'globalValues': jsonEncode({'dup': 4}),
+      'noteValues': '{bad',
+      'noteValueExtras': 'null',
+    });
+
+    expect(skipped, 3, reason: 'the duplicate and two sub-sections');
+    expect((await db.counterDao.getAllCounters()).map((r) => r.name), [
+      'First',
+    ]);
+    expect(service.getGlobalValue('dup'), 4);
+  });
+
+  test('an import with no note map drops every per-note value', () async {
+    await service.importData({
+      'counters': jsonEncode([
+        {'id': 'laps', 'name': 'Laps', 'scope': 'perNote'},
+      ]),
+      'globalValues': jsonEncode({'laps': 2}),
+      'noteValues': jsonEncode({
+        'deleted-at-source': {'laps': 9},
+      }),
+    });
+    final values = await db.counterDao.getAllValues();
+    expect(
+      {for (final v in values) '${v.counterId}/${v.noteId}': v.value},
+      {'laps/': 2},
+    );
+  });
+
   group('the changes signal', () {
     test('fires after a reload, with the merged rows read', () async {
       final id = await service.addCounter(name: 'Sets', startValue: 3);
@@ -606,6 +886,152 @@ void main() {
       await service.importData(await service.exportData());
       await pumpEventQueue();
       expect(fired, 1);
+    });
+  });
+
+  group('a note read while its cache is cold', () {
+    late String laps;
+
+    setUp(() async {
+      laps = await service.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+        startValue: 0,
+      );
+      await service.setValueForNote(laps, 4, noteId: 'n1');
+      await service.flush();
+      // As every sync pull touching counters does: the note cache is gone.
+      await service.reload();
+    });
+
+    test(
+      'is one map for every caller, the taps between them included',
+      () async {
+        final first = service.getNoteValues('n1');
+        final tap = service.increment(laps, noteId: 'n1');
+        final second = service.getNoteValues('n1');
+
+        expect(await tap, 5);
+        final (a, b) = (await first, await second);
+        expect(
+          identical(a, b),
+          isTrue,
+          reason: 'a later read replaced the map',
+        );
+        expect(a[laps], 5);
+
+        expect(await service.increment(laps, noteId: 'n1'), 6);
+        expect(
+          a[laps],
+          6,
+          reason: 'the map a reader holds is the one taps reach',
+        );
+        expect(await service.getValueForNote(laps, 'n1'), 6);
+      },
+    );
+
+    test('that a reload overtook reads the reloaded table', () async {
+      final hold = _HoldNoteRead('n1');
+      final held = await openTestDatabase(interceptor: hold);
+      addTearDown(held.close);
+      final counters = await CounterService.forTesting(held);
+      final id = await counters.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+        startValue: 0,
+      );
+      await counters.setValueForNote(id, 4, noteId: 'n1');
+      await counters.flush();
+      await counters.reload();
+
+      hold.armed = true;
+      final read = counters.getNoteValues('n1');
+      await hold.reached.future;
+      // A pull merges 9 and reloads while the read holds the table's 4.
+      await held.counterDao.upsertValue(id, 'n1', 9);
+      await counters.reload();
+      hold.release.complete();
+
+      expect((await read)[id], 9);
+      expect(await counters.getValueForNote(id, 'n1'), 9);
+      expect(await counters.increment(id, noteId: 'n1'), 10);
+    });
+
+    test(
+      'that a value delete overtook does not bring the value back',
+      () async {
+        final hold = _HoldNoteRead('n1');
+        final held = await openTestDatabase(interceptor: hold);
+        addTearDown(held.close);
+        final counters = await CounterService.forTesting(held);
+        final id = await counters.addCounter(
+          name: 'Laps',
+          scope: CounterScope.perNote,
+          startValue: 0,
+        );
+        await counters.setValueForNote(id, 4, noteId: 'n1');
+        await counters.flush();
+        await counters.reload();
+
+        hold.armed = true;
+        final read = counters.getNoteValues('n1');
+        await hold.reached.future;
+        // The per-note page removes the note while the read holds its 4.
+        await counters.deleteNoteValue(id, 'n1');
+        hold.release.complete();
+
+        expect((await read).containsKey(id), isFalse);
+        expect(await counters.getValueForNote(id, 'n1'), 0);
+        expect(await counters.increment(id, noteId: 'n1'), 1);
+      },
+    );
+  });
+
+  group("the per-note page's read of a counter", () {
+    test(
+      'shows a tap a reload left pending, and fills no note cache',
+      () async {
+        final laps = await service.addCounter(
+          name: 'Laps',
+          scope: CounterScope.perNote,
+          startValue: 0,
+        );
+        await service.setValueForNote(laps, 4, noteId: 'n1');
+        await service.flush();
+        await service.increment(laps, noteId: 'n1');
+        await service.reload();
+
+        final rows = await service.getOrderedNoteValuesForCounter(laps);
+
+        expect(rows.single.value, 5);
+        expect(service.cachedNoteValues('n1'), isNull);
+      },
+    );
+
+    test('waits for a flush in flight, which took the tap out of the pending '
+        'map before writing it', () async {
+      final slow = _HoldFirstTransaction();
+      final held = await openTestDatabase(interceptor: slow);
+      addTearDown(held.close);
+      final counters = await CounterService.forTesting(held);
+      final laps = await counters.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+        startValue: 0,
+      );
+      await counters.setValueForNote(laps, 4, noteId: 'n1');
+      await counters.flush();
+      await counters.increment(laps, noteId: 'n1');
+      await counters.reload();
+
+      slow.armed = true;
+      final flushing = counters.flush();
+      // The flush has copied its pending tap and is waiting for its BEGIN.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final rows = await counters.getOrderedNoteValuesForCounter(laps);
+      await flushing;
+
+      expect(rows.single.value, 5);
     });
   });
 
@@ -685,6 +1111,35 @@ class _HoldFirstTransaction extends QueryInterceptor {
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
     return super.ensureOpen(executor, user);
+  }
+}
+
+/// Holds the first read of [noteId]'s values made while [armed] after the
+/// table answered and before the answer reaches the service, so a test can
+/// land a reload inside a read.
+class _HoldNoteRead extends QueryInterceptor {
+  _HoldNoteRead(this.noteId);
+
+  final String noteId;
+  bool armed = false;
+  final reached = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await super.runSelect(executor, statement, args);
+    if (armed &&
+        statement.contains('counter_values') &&
+        args.contains(noteId)) {
+      armed = false;
+      reached.complete();
+      await release.future;
+    }
+    return rows;
   }
 }
 

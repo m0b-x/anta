@@ -157,13 +157,14 @@ class FilterPresetService {
     }
   }
 
+  /// A failed read keeps the presets as they were held: an empty list reads
+  /// as "nothing saved", and [isFull] would let a save past [maxPresets].
   Future<void> _load() async {
     try {
       final rows = await _dao.getAll();
       _cache = List.unmodifiable(rows.map(_rowToPreset));
     } catch (e) {
       debugPrint('[FilterPresetService] Load error: $e');
-      _cache = const [];
     }
   }
 
@@ -277,20 +278,26 @@ class FilterPresetService {
   /// A preset whose blob no longer parses is **not** dropped — it is stored as
   /// written and decodes to "nothing filtered" at read time, which keeps the
   /// user's named row alive instead of deleting it on their behalf.
-  Future<void> importData(List<dynamic> data) {
+  ///
+  /// Returns how many object rows were skipped, for the restore to report.
+  Future<int> importData(List<dynamic> data) {
     return _serialize(() => _importData(data));
   }
 
-  Future<void> _importData(List<dynamic> data) async {
+  Future<int> _importData(List<dynamic> data) async {
     await _dao.deleteAll();
     final companions = <CalendarFilterPresetsCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final id = map['id'];
         final name = map['name'];
-        if (id is! String || name is! String) continue;
+        if (id is! String || name is! String) {
+          skipped++;
+          continue;
+        }
         final now = DateTime.now();
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
@@ -314,11 +321,13 @@ class FilterPresetService {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[FilterPresetService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _load();
+    return skipped;
   }
 
   CalendarFilterPreset _rowToPreset(CalendarFilterPresetRow row) {

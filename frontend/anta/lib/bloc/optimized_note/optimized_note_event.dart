@@ -157,3 +157,46 @@ class RefreshNotes extends OptimizedNoteEvent {
   @override
   List<Object?> get props => [folderId];
 }
+
+/// A folder page back in front asking for its own notes again: the bloc is
+/// aimed at [folderId] in [sortOrder] and the [pages] the page had loaded
+/// are re-read as one statement, straight to Loaded. A [LoadNotesPaginated]
+/// would pass through Loading, which empties the count's notes half and
+/// starts the list over at page one; and a folder page under a subfolder's
+/// would stay deaf to its own notes, since the bloc answers only the folder
+/// it is aimed at.
+class ReturnToNotes extends OptimizedNoteEvent {
+  final String folderId;
+  final NotesSortOrder sortOrder;
+  final int pages;
+  final int pageSize;
+
+  const ReturnToNotes({
+    required this.folderId,
+    required this.sortOrder,
+    required this.pages,
+    this.pageSize = 20,
+  });
+
+  @override
+  List<Object?> get props => [folderId, sortOrder, pages, pageSize];
+}
+
+/// Reads [folderId]'s first page of notes in [sortOrder] and answers through
+/// [done], for a folder page that is not in front: the bloc emits nothing
+/// and stays aimed where it is. See `PeekFolders`.
+class PeekNotes extends OptimizedNoteEvent {
+  final String folderId;
+  final NotesSortOrder sortOrder;
+  final Completer<PaginatedNotes> done;
+
+  // ignore: prefer_const_constructors_in_immutables
+  PeekNotes({
+    required this.folderId,
+    required this.sortOrder,
+    required this.done,
+  });
+
+  @override
+  List<Object?> get props => [folderId, sortOrder];
+}

@@ -17,6 +17,7 @@ import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -503,6 +504,96 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    // Added 2026-11-27: the open database is closed before its file moves —
+    // no file is renamed under a live connection, on any platform — and the
+    // way on is the restart a switch asks for. The case above renames an
+    // active database nothing has opened, as the suite's set-up leaves it.
+    testWidgets('renaming the open database closes it, moves its file and '
+        'asks for a restart that exits', (tester) async {
+      await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        await db.folderDao.createFolder(name: 'Kept');
+      });
+      final platform = recordMethodCalls(SystemChannels.platform);
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.openMenu('gym_notes');
+      await robot.chooseFromMenu(l10n.rename);
+      await robot.enterName('training');
+      await robot.confirmDialog();
+      await robot.settleUntil(
+        () => robot.shows(l10n.restartRequiredAfterRename),
+      );
+      // The restart dialog opens in the turn the loading one is popped, so
+      // the two overlap for the length of the pop: the spinner is judged
+      // once that has run out, and must be gone for good by then.
+      await robot.settle();
+
+      expect(robot.showsLoading, isFalse);
+      expect(await filesOnDisk(tester), {'training', 'work'});
+      expect(prefs.getString(activeKey), 'training');
+      expect(AppDatabase.openInstanceOf('gym_notes'), isNull);
+
+      // No way back, as after a switch.
+      await robot.tapOutsideDialog();
+      await tester.binding.handlePopRoute();
+      await robot.settle();
+      expect(robot.shows(l10n.restartRequiredAfterRename), isTrue);
+      await robot.tapDialogAction(l10n.exitApp);
+      expect(
+        platform.where((c) => c.method == 'SystemNavigator.pop'),
+        hasLength(1),
+      );
+
+      // What the next launch opens is the renamed file, rows and all.
+      final folders = await tester.runAsync(
+        () async => (await AppDatabase.getInstance()).folderDao.getAllFolders(
+          includeDeleted: false,
+        ),
+      );
+      expect(folders!.map((f) => f.name), contains('Kept'));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // Added 2026-11-27: once the file has moved nothing may throw out of the
+    // rename — a throw there said "couldn't rename" while the stored name
+    // had already moved, and the page went on over a closed database
+    // (review of the database-safety slice, item 4).
+    testWidgets('a failure once the open database\'s file has moved still '
+        'asks for the restart', (tester) async {
+      await tester.runAsync(() async {
+        await AppDatabase.getInstance();
+      });
+      final oldPath = await pathOf('gym_notes');
+      final newPath = await pathOf('training');
+      // A stray `-shm` beside the closed file, and a directory where its
+      // twin must go: the `.db` moves, then the sidecar's move fails.
+      DatabaseManager.debugRenameStep = (step) async {
+        if (step != RenameStep.closed) return;
+        File('$oldPath-shm').writeAsStringSync('stray');
+        Directory('$newPath-shm').createSync();
+      };
+      addTearDown(() => DatabaseManager.debugRenameStep = null);
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.openMenu('gym_notes');
+      await robot.chooseFromMenu(l10n.rename);
+      await robot.enterName('training');
+      await robot.confirmDialog();
+      await robot.settleUntil(
+        () => robot.shows(l10n.restartRequiredAfterRename),
+      );
+
+      expect(robot.shows(l10n.databaseRenameFailed), isFalse);
+      expect(prefs.getString(activeKey), 'training');
+      expect(AppDatabase.openInstanceOf('gym_notes'), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('renaming another database leaves the active name alone', (
       tester,
     ) async {
@@ -647,6 +738,33 @@ void main() {
       expect(robot.shows(l10n.restartRequiredTitle), isFalse);
       expect(prefs.getString(activeKey), isNull);
       expect(manager.getActiveDatabaseName(), 'gym_notes');
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // Added 2026-11-27: the write is for the next launch alone. It used to
+    // be the active name itself, and the first `AppDatabase.getInstance()`
+    // behind the restart dialog — an alert firing, a resume's reconcile —
+    // closed the open database and opened the other one under the pages.
+    testWidgets('the switch waits for the restart: the open database stays '
+        'open behind the dialog, whoever asks for it', (tester) async {
+      final open = await tester.runAsync(AppDatabase.getInstance);
+      var resets = 0;
+      void onSwitch() => resets++;
+      DatabaseLifecycle.registerResetHandler(onSwitch);
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.openMenu('work');
+      await robot.chooseFromMenu(l10n.switchTo);
+      await robot.confirmDialog();
+      await robot.settleUntil(() => robot.shows(l10n.restartRequiredTitle));
+
+      expect(prefs.getString(activeKey), 'work');
+      expect(manager.getActiveDatabaseName(), 'gym_notes');
+      final asked = await tester.runAsync(AppDatabase.getInstance);
+      expect(identical(asked, open), isTrue);
+      expect(resets, 0, reason: 'nothing was told to drop the open database');
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -1065,6 +1183,46 @@ void main() {
       await robot.scrollTo(l10n.optimizeDatabase);
 
       expect(shownCaption(tester), l10n.databaseReclaimableUnknown);
+    });
+
+    // Added 2026-11-27, with the two cases after it: Optimize takes the
+    // connection that is open and never opens one. It used to ask
+    // `AppDatabase.getInstance()`, which switches the whole app to the
+    // stored active name when that has moved since the page read it.
+    testWidgets('Optimize opens nothing: with the active database not open '
+        'it says it could not', (tester) async {
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.tapButton(l10n.optimizeDatabase);
+      await robot.settleUntil(() => robot.shows(l10n.databaseOptimizeFailed));
+
+      expect(robot.showsLoading, isFalse);
+      expect(AppDatabase.openInstanceOf('gym_notes'), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('Optimize runs on the open database when the stored name has '
+        'moved, and switches nothing from under the app', (tester) async {
+      await tester.runAsync(AppDatabase.getInstance);
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      // What a rename of the open database leaves where the file can be
+      // renamed under it: the stored name ahead of the open one.
+      await prefs.setString(activeKey, 'work');
+      var resets = 0;
+      void onSwitch() => resets++;
+      DatabaseLifecycle.registerResetHandler(onSwitch);
+
+      await robot.tapButton(l10n.optimizeDatabase);
+      await robot.settleUntil(() => robot.shows(l10n.optimizeAlreadyCompact));
+
+      expect(resets, 0, reason: 'nothing was told to drop the open database');
+      expect(AppDatabase.openInstanceOf('gym_notes'), isNotNull);
+      expect(AppDatabase.openInstanceOf('work'), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
     });
 
     // The caption is read in the page's first load and always laid out, so

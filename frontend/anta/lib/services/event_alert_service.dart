@@ -472,16 +472,21 @@ class EventAlertService {
   }
 
   /// Wipe-then-reinsert, [importData]'s shape: audit timestamps preserved,
-  /// identity stamped fresh by the DAO, a malformed row skipped.
-  Future<void> importCategoryAlerts(List<dynamic> data) async {
+  /// identity stamped fresh by the DAO, a malformed row skipped. Returns how
+  /// many object rows were skipped, [importData]'s count.
+  Future<int> importCategoryAlerts(List<dynamic> data) async {
     await _categoryDao.deleteAll();
     final companions = <CalendarCategoryAlertsCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final alert = CategoryAlert.fromJson(map);
-        if (alert == null) continue;
+        if (alert == null) {
+          skipped++;
+          continue;
+        }
         final now = DateTime.now();
         final createdMs = map[EventAlertKeys.createdAtMs];
         final updatedMs = map[EventAlertKeys.updatedAtMs];
@@ -497,11 +502,13 @@ class EventAlertService {
           ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(map))),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[EventAlertService] Category import row error: $e');
       }
     }
     await _categoryDao.importAll(companions);
     await _loadCategories();
+    return skipped;
   }
 
   /// Clears every category alert, tombstones included, for an import that
@@ -534,18 +541,26 @@ class EventAlertService {
   /// Wipe-then-reinsert, mirroring `CalendarEventService.importData`. Audit
   /// timestamps are preserved from the backup; identity is stamped fresh by
   /// the DAO, so a tombstone never round-trips a restore.
-  Future<void> importData(List<dynamic> data) async {
+  ///
+  /// Returns how many object rows could not be read and were skipped, for
+  /// the restore to report; a row that is not an object the restore counts
+  /// itself.
+  Future<int> importData(List<dynamic> data) async {
     await _dao.deleteAll();
     // Parsed first, written once: the per-row guard still skips one malformed
     // archive row, but the write is a single batched transaction rather than
     // one awaited insert — and one WAL commit — per restored alert.
     final companions = <EventAlertsCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final alert = EventAlert.fromJson(map);
-        if (alert == null) continue;
+        if (alert == null) {
+          skipped++;
+          continue;
+        }
         final now = DateTime.now();
         final createdMs = map[EventAlertKeys.createdAtMs];
         final updatedMs = map[EventAlertKeys.updatedAtMs];
@@ -561,11 +576,13 @@ class EventAlertService {
           ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(map))),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[EventAlertService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _load();
+    return skipped;
   }
 
   /// Clears every alert. Used when restoring a backup that carried events but

@@ -66,6 +66,11 @@ void main() {
   File write(String name) =>
       File(p.join(dir.path, name))..writeAsStringSync('payload');
 
+  void onPlatform(TargetPlatform platform) {
+    debugDefaultTargetPlatformOverride = platform;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+  }
+
   test('a calendar export leaves a partner\'s events out, and counts only '
       'mine (D19)', () async {
     CalendarEvent eventOf(String id, {bool fromPartner = false}) =>
@@ -162,6 +167,64 @@ void main() {
     expect(kept.readAsStringSync(), 'payload');
   });
 
+  // A note, folder, `.ics` or report export takes the snapshot's desktop
+  // rule: a desktop sheet may still read the path after `share()` returns,
+  // so the file waits for the launch sweep there.
+  for (final platform in [
+    TargetPlatform.windows,
+    TargetPlatform.macOS,
+    TargetPlatform.linux,
+  ]) {
+    test('on ${platform.name} a temporary export waits for the launch sweep, '
+        'where the sheet may still read it', () async {
+      onPlatform(platform);
+      messenger.setMockMethodCallHandler(
+        shareChannel,
+        (call) async => 'org.example.mail',
+      );
+      final temp = write('export.zip');
+
+      await service.shareExport(ExportResult(filePath: temp.path));
+
+      expect(temp.readAsStringSync(), 'payload');
+    });
+  }
+
+  test('on Windows a temporary export whose share threw still goes: no '
+      'sheet ever had it', () async {
+    onPlatform(TargetPlatform.windows);
+    messenger.setMockMethodCallHandler(
+      shareChannel,
+      (call) async => throw PlatformException(code: 'share_failed'),
+    );
+    final temp = write('export.zip');
+
+    await expectLater(
+      service.shareExport(ExportResult(filePath: temp.path)),
+      throwsA(isA<PlatformException>()),
+    );
+
+    expect(temp.existsSync(), isFalse);
+  });
+
+  test('on Android a temporary export goes once the share returns, whatever '
+      'it answered', () async {
+    onPlatform(TargetPlatform.android);
+    final answers = ['org.example.mail', null];
+    messenger.setMockMethodCallHandler(
+      shareChannel,
+      (call) async => answers.removeAt(0),
+    );
+    final answered = write('answered.zip');
+    final unavailable = write('unavailable.zip');
+
+    await service.shareExport(ExportResult(filePath: answered.path));
+    await service.shareExport(ExportResult(filePath: unavailable.path));
+
+    expect(answered.existsSync(), isFalse);
+    expect(unavailable.existsSync(), isFalse);
+  });
+
   // S18 (D11): the Databases page shares a snapshot, alone in a folder of its
   // own, which goes only once the share sheet is done reading it.
   group('a database snapshot', () {
@@ -172,11 +235,6 @@ void main() {
       )..createSync();
       return File(p.join(folder.path, 'gym_notes.db'))
         ..writeAsStringSync('payload');
-    }
-
-    void onPlatform(TargetPlatform platform) {
-      debugDefaultTargetPlatformOverride = platform;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
     }
 
     /// What Android answers once the user picked a target: its package.

@@ -62,21 +62,73 @@ class MarkdownBarService extends ChangeNotifier {
   static Future<MarkdownBarService> forTesting(AppDatabase db) =>
       _create(() async => db);
 
+  /// The open in flight, shared by every caller that arrives before it
+  /// finishes — through either seam.
+  static Future<MarkdownBarService>? _opening;
+
+  /// Bumped by every [reset], the `CounterService` guard: `BackupService`
+  /// resets the bar after a committed restore so it re-reads the restored
+  /// profiles, and an open already loading the rows from before it must not
+  /// be the one published.
+  static int _generation = 0;
+
+  /// Published only once its profiles are loaded, the `SettingsService`
+  /// shape: stored before its awaits, a second caller in that window got a
+  /// bar with no database or no profiles yet.
   static Future<MarkdownBarService> _create(
     Future<AppDatabase> Function() open,
-  ) async {
-    if (_instance == null) {
-      _instance = MarkdownBarService._();
-      _instance!._db = await open();
-      await _instance!._load();
-      DatabaseLifecycle.registerResetHandler(reset);
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final inFlight = _opening;
+    if (inFlight != null) return inFlight;
+    final opening = _open(open);
+    _opening = opening;
+    // Only this open's own entry is cleared: a reset during it may already
+    // have let a newer open take the slot.
+    void settle() {
+      if (identical(_opening, opening)) _opening = null;
     }
-    return _instance!;
+
+    opening.then<void>((_) => settle(), onError: (Object _) => settle());
+    return opening;
   }
 
-  /// Force re-init (e.g. after database switch).
+  /// How many times [_open] starts over before it gives up on a database
+  /// that keeps switching under it.
+  static const int _openAttempts = 3;
+
+  /// A switch or a [reset] landing during the open starts it over, so a bar
+  /// over the closing database, or one read before a restore, is never
+  /// published.
+  static Future<MarkdownBarService> _open(
+    Future<AppDatabase> Function() open,
+  ) async {
+    for (var attempt = 0; attempt < _openAttempts; attempt++) {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+      final db = await open();
+      if (_instance case final raced?) return raced;
+      if (overtaken()) continue;
+      final service = MarkdownBarService._().._db = db;
+      await service._load();
+      if (_instance case final raced?) return raced;
+      if (overtaken()) continue;
+      _instance = service;
+      DatabaseLifecycle.registerResetHandler(reset);
+      return service;
+    }
+    throw StateError('the database switched while the markdown bar was opened');
+  }
+
+  /// Force re-init (e.g. after database switch), dropping an open in flight.
   static void reset() {
+    _generation++;
     _instance = null;
+    _opening = null;
   }
 
   // ---------------------------------------------------------------------------

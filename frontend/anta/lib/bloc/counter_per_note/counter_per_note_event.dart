@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 
 sealed class CounterPerNoteEvent extends Equatable {
@@ -69,17 +71,25 @@ final class CounterPerNoteSetValue extends CounterPerNoteEvent {
   List<Object?> get props => [noteId, value];
 }
 
+/// [done] completes with true once the value is reset, with false when
+/// nothing was attempted (the values were not loaded), or with the error, so
+/// the dispatch site says the outcome it got rather than the one it hoped
+/// for.
 final class CounterPerNoteReset extends CounterPerNoteEvent {
   final String noteId;
+  final Completer<bool>? done;
 
-  const CounterPerNoteReset({required this.noteId});
+  const CounterPerNoteReset({required this.noteId, this.done});
 
   @override
   List<Object?> get props => [noteId];
 }
 
+/// [done] — as [CounterPerNoteReset]'s.
 final class CounterPerNoteResetAll extends CounterPerNoteEvent {
-  const CounterPerNoteResetAll();
+  final Completer<bool>? done;
+
+  const CounterPerNoteResetAll({this.done});
 }
 
 final class CounterPerNoteTogglePin extends CounterPerNoteEvent {

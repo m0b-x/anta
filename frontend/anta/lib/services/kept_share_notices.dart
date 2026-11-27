@@ -193,6 +193,23 @@ abstract final class KeptShareNotices {
     }
   }
 
+  /// The database [from] is now named [to]: its place on the list follows.
+  /// Left under the old name, what it keeps would never be looked for —
+  /// [forActiveDatabase] asks by the live name — and [_prune] would take
+  /// the old name off as a database that is gone.
+  static Future<void> databaseRenamed(
+    SharedPreferences prefs,
+    String from,
+    String to,
+  ) async {
+    final names = await _freshNames();
+    if (!names.contains(from)) return;
+    await prefs.setStringList(_prefsKey, [
+      for (final name in names)
+        if (name == from) to else name,
+    ]);
+  }
+
   /// Takes the names of databases that are gone off the list. Never the
   /// active one's, and nothing when the files cannot be asked about.
   static Future<void> _prune(

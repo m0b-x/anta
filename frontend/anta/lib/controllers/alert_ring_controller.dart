@@ -290,13 +290,18 @@ class AlertRingController extends ChangeNotifier {
     return GetIt.I<AlertGateway>().dismissLockScreen();
   }
 
-  /// Makes this alarm's database the active one. The caller shows the dialog
-  /// that says so and closes the app; nothing switches underneath a running
-  /// process.
+  /// Makes this alarm's database the one the next launch opens. The caller
+  /// shows the dialog that says so and closes the app; nothing switches
+  /// underneath a running process, which stays on the database it has open
+  /// ([DatabaseManager.activateAtNextLaunch]).
+  ///
+  /// False as well when that database is no longer there — an alarm armed
+  /// before it was renamed or deleted: the name is never stored, since the
+  /// next launch would create it empty.
   Future<bool> activateDatabase() async {
     try {
       final manager = await DatabaseManager.getInstance();
-      await manager.setActiveDatabaseName(payload.database);
+      await manager.activateAtNextLaunch(payload.database);
       return true;
     } catch (e) {
       debugPrint('[AlertRingController] database switch failed: $e');

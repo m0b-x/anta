@@ -56,15 +56,52 @@ class NotePositionService {
   static NotePositionService? _instance;
   late AppDatabase _db;
 
+  /// The open in flight, shared by every caller that arrives before it
+  /// finishes.
+  static Future<NotePositionService>? _opening;
+
   NotePositionService._();
 
-  static Future<NotePositionService> getInstance() async {
-    if (_instance == null) {
-      _instance = NotePositionService._();
-      _instance!._db = await AppDatabase.getInstance();
-      DatabaseLifecycle.registerResetHandler(reset);
+  /// Published only once its database is set, the `SettingsService` shape:
+  /// stored before the await, a second caller in that window — the editor's
+  /// restore and its save on the way out — got a service whose `_db` was not
+  /// yet initialized.
+  static Future<NotePositionService> getInstance() {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final inFlight = _opening;
+    if (inFlight != null) return inFlight;
+    final opening = _open();
+    _opening = opening;
+    // Only this open's own entry is cleared: a reset during it may already
+    // have let a newer open take the slot.
+    void settle() {
+      if (identical(_opening, opening)) _opening = null;
     }
-    return _instance!;
+
+    opening.then<void>((_) => settle(), onError: (Object _) => settle());
+    return opening;
+  }
+
+  /// How many times [_open] starts over before it gives up on a database
+  /// that keeps switching under it.
+  static const int _openAttempts = 3;
+
+  /// A switch landing during the open starts it over, so a service over the
+  /// closing database is never published.
+  static Future<NotePositionService> _open() async {
+    for (var attempt = 0; attempt < _openAttempts; attempt++) {
+      final generation = DatabaseLifecycle.generation;
+      final db = await AppDatabase.getInstance();
+      final raced = _instance;
+      if (raced != null) return raced;
+      if (DatabaseLifecycle.generation != generation) continue;
+      final service = NotePositionService._().._db = db;
+      _instance = service;
+      DatabaseLifecycle.registerResetHandler(reset);
+      return service;
+    }
+    throw StateError('the database switched while note positions were opened');
   }
 
   /// Drops the cached singleton so the next [getInstance] rebinds to the
@@ -72,6 +109,7 @@ class NotePositionService {
   /// active database changes.
   static void reset() {
     _instance = null;
+    _opening = null;
   }
 
   String _getPositionKey(String noteId) =>

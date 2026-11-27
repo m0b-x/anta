@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -556,10 +558,15 @@ class _CounterCardState extends State<_CounterCard> {
           icon: Icons.restart_alt_rounded,
         );
         if (!confirmed || !context.mounted) return;
-        bloc.add(ResetCounter(counterId: counter.id, noteId: _effectiveNoteId));
-        if (context.mounted) {
-          CustomSnackbar.showSuccess(context, l10n.counterResetSuccess);
-        }
+        final done = Completer<bool>();
+        bloc.add(
+          ResetCounter(
+            counterId: counter.id,
+            noteId: _effectiveNoteId,
+            done: done,
+          ),
+        );
+        await _report(done.future, l10n.counterResetSuccess, l10n);
         break;
 
       case 'delete':
@@ -571,11 +578,36 @@ class _CounterCardState extends State<_CounterCard> {
           icon: Icons.delete_rounded,
         );
         if (!confirmed || !context.mounted) return;
-        bloc.add(DeleteCounter(counterId: counter.id));
-        if (context.mounted) {
-          CustomSnackbar.showSuccess(context, l10n.counterDeleteSuccess);
-        }
+        final done = Completer<bool>();
+        bloc.add(DeleteCounter(counterId: counter.id, done: done));
+        await _report(done.future, l10n.counterDeleteSuccess, l10n);
         break;
     }
+  }
+
+  /// Says how a write went once the bloc has answered, never before, and
+  /// nothing when the bloc attempted nothing. On the page's context, not the
+  /// card's: a deleted counter's card may be gone by the time the answer
+  /// comes.
+  Future<void> _report(
+    Future<bool> outcome,
+    String success,
+    AppLocalizations l10n,
+  ) async {
+    final page =
+        context
+            .findAncestorStateOfType<_CounterManagementPageState>()
+            ?.context ??
+        context;
+    final bool written;
+    try {
+      written = await outcome;
+    } catch (_) {
+      if (page.mounted) {
+        CustomSnackbar.showError(page, l10n.categoryChangeFailed);
+      }
+      return;
+    }
+    if (written && page.mounted) CustomSnackbar.showSuccess(page, success);
   }
 }

@@ -315,6 +315,26 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// dispatches the delete twice.
   bool _deletingSelected = false;
 
+  /// Set when [_inFront] turned a reload away because another page was in
+  /// front: what the skipped reload would have shown is read when this page
+  /// is back in front ([didPopNext]).
+  bool _staleWhileCovered = false;
+
+  /// This page's route, kept from [didChangeDependencies] so [_inFront] can
+  /// ask for it where a lookup is not allowed — inside initState — and
+  /// without making every caller depend on the route.
+  ModalRoute<dynamic>? _route;
+
+  /// This page's rows as read while it was covered ([_readWhileCovered]),
+  /// drawn until the blocs bring its own: a page launch restore builds under
+  /// another would otherwise be revealed as a spinner.
+  OptimizedFolderLoaded? _coveredFolders;
+  OptimizedNoteLoaded? _coveredNotes;
+
+  /// How many pages of notes this page last drew, so a return re-reads that
+  /// deep rather than starting the list over at page one.
+  int _notePages = 1;
+
   /// Descendant-inclusive note count per visible folder id. Read for the
   /// whole page in one statement rather than two per row, which is what a
   /// row could do when it owned its own counts.
@@ -744,7 +764,85 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       }
       await _loadAncestors();
     }
-    _loadData();
+    if (_inFront()) {
+      _loadData();
+    } else {
+      _readWhileCovered();
+    }
+  }
+
+  /// This page's first rows, read for it while another page is in front —
+  /// launch restore builds a whole stack at once — through the blocs'
+  /// answer-only events, which move neither bloc off the page in front. The
+  /// reveal re-aims both blocs at this folder and replaces what this read.
+  void _readWhileCovered() {
+    if (!mounted || !(_route?.isActive ?? false)) return;
+    final folderId = widget.folderId;
+    final folders = Completer<PaginatedFolders>();
+    context.read<OptimizedFolderBloc>().add(
+      PeekFolders(
+        parentId: folderId,
+        sortOrder: _foldersSortOrder,
+        done: folders,
+      ),
+    );
+    final notes = folderId == null ? null : Completer<PaginatedNotes>();
+    if (folderId != null) {
+      context.read<OptimizedNoteBloc>().add(
+        PeekNotes(folderId: folderId, sortOrder: _notesSortOrder, done: notes!),
+      );
+    }
+    unawaited(() async {
+      try {
+        final readFolders = await folders.future;
+        final readNotes = await notes?.future;
+        if (!mounted) return;
+        setState(() {
+          _coveredFolders = OptimizedFolderLoaded(
+            paginatedFolders: readFolders,
+            parentId: folderId,
+          );
+          if (readNotes != null) {
+            _coveredNotes = OptimizedNoteLoaded(
+              paginatedNotes: readNotes,
+              folderId: folderId,
+            );
+          }
+        });
+      } catch (e, st) {
+        debugPrint('[FolderContent] covered read failed: $e\n$st');
+      }
+    }());
+  }
+
+  /// [state] as this page may draw it: its own, else what it read while
+  /// covered, else nothing. The builders' first build takes the bloc's state
+  /// whatever its parent, so a pushed page drew its parent's rows — tappable —
+  /// until its own load arrived. An Initial state is nobody's yet — the
+  /// context helpers answer true for it — and at a cold launch the note bloc
+  /// is still Initial when a restored page is revealed: the root loads no
+  /// notes, and the page over it never passes this page's filter.
+  ///
+  /// The covered read is dropped once the page's own Loaded state arrives,
+  /// so a builder made again later never draws rows as old as the launch.
+  OptimizedFolderState _ownFolders(OptimizedFolderState state) {
+    if (state is! OptimizedFolderInitial &&
+        state.matchesParentContext(widget.folderId)) {
+      if (state is OptimizedFolderLoaded) _coveredFolders = null;
+      return state;
+    }
+    return _coveredFolders ?? const OptimizedFolderInitial();
+  }
+
+  /// The note twin of [_ownFolders].
+  OptimizedNoteState _ownNotes(OptimizedNoteState state) {
+    if (widget.folderId == null) return state;
+    if (state is! OptimizedNoteInitial &&
+        state.matchesFolderContext(widget.folderId)) {
+      if (state is OptimizedNoteLoaded) _coveredNotes = null;
+      return state;
+    }
+    return _coveredNotes ?? const OptimizedNoteInitial();
   }
 
   /// Cut at the first tombstone: this page can show a live folder that still
@@ -807,6 +905,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
+    _route = route;
     if (route is PageRoute) {
       AppNavigator.routeObserver.subscribe(this, route);
     }
@@ -819,8 +918,40 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// Search is deliberately left standing: the page was never unmounted, so
   /// query, scope and scroll are still there. Only the hits are re-run, so a
   /// note edited through a result comes back with a fresh snippet.
+  ///
+  /// The page is in front again, so both app-wide blocs are aimed back at its
+  /// folder, in its orders: a folder opened above it moved them, and each
+  /// answers changes only for what it is aimed at. Both reads go straight to
+  /// Loaded, so the rows and the count stay drawn while they run, and the
+  /// notes come back as deep as the page had them.
+  ///
+  /// A bloc already aimed here is skipped, unless a reload was turned away
+  /// while the page was covered ([_staleWhileCovered]): then nothing it
+  /// should show has gone unread, and a pop from the settings page or the
+  /// editor costs no read. Every path that turns a reload away goes through
+  /// [_inFront], which marks the page stale.
   @override
   void didPopNext() {
+    final stale = _staleWhileCovered;
+    _staleWhileCovered = false;
+    final folderBloc = context.read<OptimizedFolderBloc>();
+    if (stale || !folderBloc.isAimedAt(widget.folderId, _foldersSortOrder)) {
+      folderBloc.add(
+        RefreshFolders(parentId: widget.folderId, sortOrder: _foldersSortOrder),
+      );
+    }
+    final folderId = widget.folderId;
+    final noteBloc = context.read<OptimizedNoteBloc>();
+    if (folderId != null &&
+        (stale || !noteBloc.isAimedAt(folderId, _notesSortOrder))) {
+      noteBloc.add(
+        ReturnToNotes(
+          folderId: folderId,
+          sortOrder: _notesSortOrder,
+          pages: _notePages,
+        ),
+      );
+    }
     _loadSettings();
     unawaited(_partnerLook.refresh());
     if (_searching) _search.refresh();
@@ -1225,8 +1356,9 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// the scroll offset away with it. A refresh keeps every page the list had
   /// and emits straight to Loaded.
   void _refreshData() {
+    if (!_inFront()) return;
     context.read<OptimizedFolderBloc>().add(
-      RefreshFolders(parentId: widget.folderId),
+      RefreshFolders(parentId: widget.folderId, sortOrder: _foldersSortOrder),
     );
     if (widget.folderId != null) {
       context.read<OptimizedNoteBloc>().add(
@@ -1235,7 +1367,36 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     }
   }
 
+  /// Whether this page may aim the app-wide folder and note blocs at its own
+  /// folder now; a page under another one may not.
+  ///
+  /// One bloc serves every stacked browser page and reloads only the parent
+  /// it has open, so a covered page that loads its own — the import listener
+  /// and the share refresh run on every mounted page, a first load can end
+  /// after a child was pushed over it or after it was popped — takes the
+  /// bloc from the page in front, which then stops hearing its own changes.
+  /// A dialog, a menu or a sheet over the page leaves it in front: they are
+  /// popup routes, and the observer records page routes only. A reload
+  /// turned away marks the page stale for [didPopNext].
+  bool _inFront() {
+    if (!mounted) return false;
+    // Unknown only inside initState — the root's first load runs there —
+    // when the page is the one being pushed.
+    final route = _route;
+    if (route == null || route.isCurrent) return true;
+    if (route.isActive) {
+      final navigator = route.navigator;
+      final pages = AppNavigator.routeObserver.pageRoutes.where(
+        (page) => page.isActive && identical(page.navigator, navigator),
+      );
+      if (pages.isNotEmpty && identical(pages.last, route)) return true;
+    }
+    _staleWhileCovered = true;
+    return false;
+  }
+
   void _loadData() {
+    if (!_inFront()) return;
     context.read<OptimizedFolderBloc>().add(
       LoadFoldersPaginated(
         parentId: widget.folderId,
@@ -1563,10 +1724,12 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   Widget _buildCountLabel(BuildContext context) {
     return BlocBuilder<OptimizedFolderBloc, OptimizedFolderState>(
       buildWhen: FolderBlocFilters.forParentFolder(widget.folderId),
-      builder: (context, folderState) {
+      builder: (context, blocFolderState) {
         return BlocBuilder<OptimizedNoteBloc, OptimizedNoteState>(
           buildWhen: NoteBlocFilters.forFolder(widget.folderId),
-          builder: (context, noteState) {
+          builder: (context, blocNoteState) {
+            final folderState = _ownFolders(blocFolderState);
+            final noteState = _ownNotes(blocNoteState);
             final folderCount = folderState is OptimizedFolderLoaded
                 ? folderState.paginatedFolders.totalCount
                 : 0;
@@ -1673,12 +1836,18 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         '${_failureMessage(state.operation, l10n)}: ${state.message}',
       );
     } else if (state is ImportExportImportSuccess) {
+      final summary = l10n.importedSummary(
+        state.result.foldersImported,
+        state.result.notesImported,
+      );
+      final skipped = state.result.notesSkipped;
+      // A file the import could not read is left out; without this line
+      // the loss would read as a clean import.
       CustomSnackbar.showSuccess(
         context,
-        l10n.importedSummary(
-          state.result.foldersImported,
-          state.result.notesImported,
-        ),
+        skipped == 0
+            ? summary
+            : '$summary\n${l10n.importSkippedFiles(skipped)}',
       );
       // The import wrote new folders/notes; refresh the visible list so
       // the user sees them immediately.
@@ -2241,12 +2410,28 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     final confirm = await settings.getConfirmDelete();
     if (!mounted) return;
     if (confirm) {
+      // Popped through the navigator taken now, as the folder row does: a
+      // count that throws, or a page unmounted during it, must not leave the
+      // undismissable dialog up for good.
+      final navigator = Navigator.of(context);
       AppDialogs.showLoading(context, message: l10n.loadingContent);
-      final noteCount = await _folderStorageService.getNoteCountForDeletion(
-        folder.id,
-      );
+      int? noteCount;
+      Object? failure;
+      try {
+        noteCount = await _folderStorageService.getNoteCountForDeletion(
+          folder.id,
+        );
+      } catch (e, st) {
+        debugPrint('[FolderContent] delete note count failed: $e\n$st');
+        failure = e;
+      } finally {
+        navigator.pop();
+      }
       if (!mounted) return;
-      AppNavigator.pop(context);
+      if (noteCount == null) {
+        CustomSnackbar.showError(context, l10n.error('$failure'));
+        return;
+      }
 
       final confirmed = await AppDialogs.confirm(
         context,
@@ -2337,16 +2522,32 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   Widget _buildMixedSliver({required bool isSelecting}) {
     return BlocBuilder<OptimizedFolderBloc, OptimizedFolderState>(
       buildWhen: FolderBlocFilters.forParentFolder(widget.folderId),
-      builder: (context, folderState) {
+      builder: (context, blocFolderState) {
         return BlocBuilder<OptimizedNoteBloc, OptimizedNoteState>(
           buildWhen: NoteBlocFilters.forFolder(widget.folderId),
-          builder: (context, noteState) {
+          builder: (context, blocNoteState) {
+            final folderState = _ownFolders(blocFolderState);
+            final noteState = _ownNotes(blocNoteState);
+            if (noteState is OptimizedNoteLoaded &&
+                noteState.folderId == widget.folderId) {
+              _notePages = noteState.paginatedNotes.currentPage;
+            }
             // Kick the bloc on cold-start only. After the first load, the
             // bloc transitions through Loading on every refresh / sort
             // change; we deliberately do NOT clear our cached [_localMixed]
             // in that window so the UI keeps showing the last known list
             // instead of flashing to a spinner.
-            if (folderState is OptimizedFolderInitial) {
+            // A stack restored at launch builds every page in one frame;
+            // only the one in front may take the bloc.
+            // Asked of the bloc, not of the state this builder holds: a
+            // page built before the bloc answered anything holds Initial
+            // for good — later states fail its `buildWhen` — and once
+            // revealed it would load through Loading on top of the quiet
+            // refresh its return already sent, emptying the count for the
+            // frames between.
+            if (context.read<OptimizedFolderBloc>().state
+                    is OptimizedFolderInitial &&
+                _inFront()) {
               context.read<OptimizedFolderBloc>().add(
                 LoadFoldersPaginated(
                   parentId: widget.folderId,
@@ -2866,6 +3067,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       return;
     }
     if (!mounted) return;
+    // Covered by now, the page reads its rows when it is back in front.
+    if (!_inFront()) return;
     if (changed.contains(MovableItemKind.folder)) {
       context.read<OptimizedFolderBloc>().add(
         flipped.contains(MovableItemKind.folder)
@@ -2873,7 +3076,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 parentId: widget.folderId,
                 sortOrder: FoldersSortOrder.positionAsc,
               )
-            : RefreshFolders(parentId: widget.folderId),
+            : RefreshFolders(
+                parentId: widget.folderId,
+                sortOrder: _foldersSortOrder,
+              ),
       );
     }
     if (widget.folderId != null && changed.contains(MovableItemKind.note)) {
@@ -2891,10 +3097,12 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   Widget _buildEmptyStateSection() {
     return BlocBuilder<OptimizedFolderBloc, OptimizedFolderState>(
       buildWhen: FolderBlocFilters.forParentFolder(widget.folderId),
-      builder: (context, folderState) {
+      builder: (context, blocFolderState) {
         return BlocBuilder<OptimizedNoteBloc, OptimizedNoteState>(
           buildWhen: NoteBlocFilters.forEmptyState(widget.folderId),
-          builder: (context, noteState) {
+          builder: (context, blocNoteState) {
+            final folderState = _ownFolders(blocFolderState);
+            final noteState = _ownNotes(blocNoteState);
             bool foldersEmpty = true;
             if (folderState is OptimizedFolderLoaded) {
               foldersEmpty = folderState.paginatedFolders.folders.isEmpty;

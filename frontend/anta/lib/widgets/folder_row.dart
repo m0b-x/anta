@@ -406,11 +406,27 @@ class FolderRow extends StatelessWidget {
     final confirm = await settings.getConfirmDelete();
     if (!context.mounted) return;
     if (confirm) {
+      // The dialog cannot be dismissed, so it is popped through the
+      // navigator taken now, whatever the count does: a read that throws, or
+      // a row unmounted during it, must not leave it up for good.
+      final navigator = Navigator.of(context);
       AppDialogs.showLoading(context, message: l10n.loadingContent);
-      final noteCount = await GetIt.I<FolderStorageService>()
-          .getNoteCountForDeletion(folder.id);
+      int? noteCount;
+      Object? failure;
+      try {
+        noteCount = await GetIt.I<FolderStorageService>()
+            .getNoteCountForDeletion(folder.id);
+      } catch (e, st) {
+        debugPrint('[FolderRow] delete note count failed: $e\n$st');
+        failure = e;
+      } finally {
+        navigator.pop();
+      }
       if (!context.mounted) return;
-      AppNavigator.pop(context);
+      if (noteCount == null) {
+        CustomSnackbar.showError(context, l10n.error('$failure'));
+        return;
+      }
 
       final confirmed = await AppDialogs.confirm(
         context,

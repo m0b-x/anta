@@ -153,7 +153,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
       if (result == null) return;
       final path = result.path;
-      if (path == null) return;
+      if (path == null || !mounted) return;
 
       setState(() => _isImporting = true);
 
@@ -170,22 +170,21 @@ class _OnboardingPageState extends State<OnboardingPage> {
       final backupService = await BackupService.getInstance();
       final validation = await backupService.validateBackupData(backup);
 
+      // Every return below leaves `_isImporting` to the `finally`, which
+      // checks `mounted`.
       if (!validation.isValid) {
         debugPrint('[Onboarding] invalid backup: ${validation.error}');
         if (mounted) {
           CustomSnackbar.showError(context, l10n.invalidBackupFile);
         }
-        setState(() => _isImporting = false);
         return;
       }
 
-      if (mounted) {
-        final shouldImport = await _showImportConfirmation(validation);
-        if (shouldImport != true) {
-          setState(() => _isImporting = false);
-          return;
-        }
-      }
+      // A page closed while the file was read cannot ask, and a restore
+      // nobody confirmed must not run.
+      if (!mounted) return;
+      final shouldImport = await _showImportConfirmation(validation);
+      if (shouldImport != true) return;
 
       final importResult = await backupService.importFromData(
         backup as Map<String, dynamic>,
@@ -193,12 +192,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
       if (mounted) {
         if (importResult.success) {
+          final imported = l10n.importSuccess(
+            importResult.foldersImported,
+            importResult.notesImported,
+          );
+          // What the restore left out is said, never only logged.
+          final skipped = importResult.skipped;
           CustomSnackbar.showSuccess(
             context,
-            l10n.importSuccess(
-              importResult.foldersImported,
-              importResult.notesImported,
-            ),
+            skipped > 0
+                ? '$imported\n${l10n.importSkipped(skipped)}'
+                : imported,
           );
 
           final settings = await SettingsService.getInstance();

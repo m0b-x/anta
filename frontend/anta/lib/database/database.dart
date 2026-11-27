@@ -197,6 +197,12 @@ class AppDatabase extends _$AppDatabase {
 
   static Future<AppDatabase> getInstance({String? databaseName}) async {
     final dbManager = await DatabaseManager.getInstance();
+    // After the last await and before the memo is read, with nothing awaited
+    // from here to the assignment of [_opening]: a caller can neither join a
+    // database [whileClosed] is closing nor open a name it is moving.
+    while (_closedGate != null) {
+      await _closedGate;
+    }
     final activeName = databaseName ?? dbManager.getActiveDatabaseName();
 
     final current = _opening;
@@ -271,44 +277,186 @@ class AppDatabase extends _$AppDatabase {
     await db.close();
   }
 
+  /// What the install's id is kept as, beside its databases.
+  static const String _deviceIdFile = 'device_id';
+
+  /// Stands in for [deleteAllData]'s delete of one file or folder, so a test
+  /// can fail one the way a file another process holds open fails on
+  /// Windows — which no test machine can be made to do on every platform.
+  @visibleForTesting
+  static void Function(FileSystemEntity entity)? debugDeleteEntity;
+
   /// Closes the database and deletes all data files.
   /// After calling this, the app should be restarted.
+  ///
+  /// The device id goes last, once everything else is gone. A delete that
+  /// stops half-way — on Windows any file another process holds open — used
+  /// to leave databases behind with the id already deleted: the next launch
+  /// minted a new one, and every row written from then on carried another
+  /// device's stamp beside the survivors', under a new pairing identity
+  /// (settings rework review, 2026-11-01). A failure now reaches the caller
+  /// with the id the surviving rows were written under still in place.
+  ///
+  /// Each database goes before its own sidecars: a `.db` that cannot be
+  /// deleted then keeps its `-wal`, and with it the commits not yet folded
+  /// into the file. The other order leaves a sidecar with no database, which
+  /// is safe only beside a file with no pages of its own: SQLite replays a
+  /// `-wal` it finds beside a database into it. Each of the three ways a
+  /// database arrives under a name is covered — created empty, SQLite itself
+  /// drops a `-wal` or a journal it finds beside the empty file (both pinned
+  /// in `test/database/delete_all_data_test.dart`); imported, the import
+  /// removes the target's sidecars before the file moves in; renamed, the
+  /// rename does the same.
+  ///
+  /// The listing, every delete and the folder run in one turn of the event
+  /// loop, as the one recursive delete before them did: a handful of unlinks
+  /// cost the UI nothing, and the page that waits on them sees no frame in
+  /// between. A file already gone when its turn comes — a `-wal` or journal
+  /// SQLite removed as another connection closed — is not a failure.
   static Future<void> deleteAllData() async {
+    // Looked up before the close, so nothing is awaited from the close to
+    // the last delete. An open that begins during this lookup is in the memo
+    // by the time it is read below, and is closed with the rest; one that
+    // begins once the memo is cleared has no turn of the event loop to read
+    // the device id in before the deletes, so it never opens a new database
+    // under the id being deleted.
+    final dbFolder = await getApplicationDocumentsDirectory();
+    final gymNotesDir = Directory(p.join(dbFolder.path, 'gym_notes'));
+
     // Close the current instance if it exists. The memo outlives the close: a
     // reset singleton asking for the database
     // meanwhile joins the closing instance instead of opening a fresh one
     // that would write into the directory being deleted.
     final opening = _opening;
-    if (opening != null) {
+    if (opening != null) await _dropOpen(opening);
+
+    if (!gymNotesDir.existsSync()) return;
+
+    // Listed whole before the first delete, so the order below is the
+    // order of the deletes and not the directory's.
+    final entities = gymNotesDir.listSync(followLinks: false);
+    final byName = {
+      for (final entity in entities) p.basename(entity.path): entity,
+    };
+    final databases = [
+      for (final entity in entities)
+        if (entity is File && entity.path.endsWith('.db')) entity,
+    ];
+    final sidecarsOf = <FileSystemEntity, List<FileSystemEntity>>{};
+    for (final database in databases) {
+      final name = p.basename(database.path);
+      sidecarsOf[database] = [
+        for (final suffix in _sidecarSuffixes) ?byName['$name$suffix'],
+      ];
+    }
+    final ofADatabase = {...databases, ...sidecarsOf.values.expand((s) => s)};
+
+    final deleteEntity = debugDeleteEntity ?? _deleteEntity;
+    void delete(FileSystemEntity entity) {
       try {
-        await opening;
-      } catch (_) {
-        // Nothing was opened; there is nothing to drop.
-      }
-      DatabaseLifecycle.notifyDatabaseSwitching();
-      // The memo is cleared below, so the next open has no previous one to
-      // switch from: the flag carries the notice to it (final review X-8).
-      _switchUnannounced = true;
-      await _closeOpened(opening);
-      if (identical(_opening, opening)) {
-        _opening = null;
-        _currentDatabaseName = null;
+        deleteEntity(entity);
+      } on PathNotFoundException {
+        // Already gone: what the delete was for.
       }
     }
 
-    // Get the database folder path
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final gymNotesDir = Directory(p.join(dbFolder.path, 'gym_notes'));
+    // What belongs to no database first: an import's leftover, a sidecar
+    // whose database is already gone.
+    for (final entity in entities) {
+      if (ofADatabase.contains(entity)) continue;
+      if (p.basename(entity.path) == _deviceIdFile) continue;
+      delete(entity);
+    }
+    for (final database in databases) {
+      delete(database);
+      for (final sidecar in sidecarsOf[database]!) {
+        delete(sidecar);
+      }
+    }
+    if (byName[_deviceIdFile] case final deviceId?) delete(deviceId);
+    // Whatever appeared meanwhile goes with the folder, as it always did.
+    gymNotesDir.deleteSync(recursive: true);
+  }
 
-    // Delete the entire gym_notes directory (includes db, device_id, etc.)
-    if (await gymNotesDir.exists()) {
-      await gymNotesDir.delete(recursive: true);
+  /// What SQLite keeps beside a database: the WAL, its index, and a rollback
+  /// journal.
+  static const List<String> _sidecarSuffixes = ['-wal', '-shm', '-journal'];
+
+  static void _deleteEntity(FileSystemEntity entity) => entity is Directory
+      ? entity.deleteSync(recursive: true)
+      : entity.deleteSync();
+
+  /// Tells the singletons to drop [opening]'s database, closes it and
+  /// forgets it, so the next [getInstance] opens afresh.
+  static Future<void> _dropOpen(Future<AppDatabase> opening) async {
+    try {
+      await opening;
+    } catch (_) {
+      // Nothing was opened; there is nothing to drop.
+    }
+    DatabaseLifecycle.notifyDatabaseSwitching();
+    // The memo is cleared below, so the next open has no previous one to
+    // switch from: the flag carries the notice to it (final review X-8).
+    _switchUnannounced = true;
+    await _closeOpened(opening);
+    if (identical(_opening, opening)) {
+      _opening = null;
+      _currentDatabaseName = null;
+    }
+  }
+
+  /// Held while [whileClosed] runs; every [getInstance] waits it out.
+  static Future<void>? _closedGate;
+
+  /// Awaited once [whileClosed] holds its gate and before it closes
+  /// anything, so a test can ask for the database at that point.
+  @visibleForTesting
+  static Future<void> Function()? debugGateTaken;
+
+  /// Closes [name] when it is the open database — the singletons told
+  /// first, as for a switch — runs [work], told whether it did, and keeps
+  /// every [getInstance] waiting until [work] has ended.
+  ///
+  /// For a rename: a file cannot be renamed under a live connection on
+  /// Windows, and where it can the connection would go on writing to a file
+  /// that no longer carries its name, with every singleton that read the
+  /// name at its construction (the alert scheduler stamps it on each alarm
+  /// it arms) still holding the old one. The caller renames the closed file
+  /// and asks for a restart; whatever asks for the database before the exit
+  /// opens it afresh under its new name.
+  ///
+  /// The close, the move and the names are one section: a caller let
+  /// through during the close joined the instance being closed, and one let
+  /// through once the file had moved, with the stored name not yet changed,
+  /// opened the old name — an empty database SQLite created there, which
+  /// took that caller's writes while the rename reported success. [work]
+  /// must never itself ask for the database: it would wait on its own gate.
+  static Future<T> whileClosed<T>(
+    String name,
+    Future<T> Function(bool wasOpen) work,
+  ) async {
+    // Another operation may take the gate between its release and this
+    // waiter's turn.
+    while (_closedGate != null) {
+      await _closedGate;
+    }
+    final release = Completer<void>();
+    _closedGate = release.future;
+    try {
+      await debugGateTaken?.call();
+      final opening = _opening;
+      final wasOpen = opening != null && _currentDatabaseName == name;
+      if (wasOpen) await _dropOpen(opening);
+      return await work(wasOpen);
+    } finally {
+      _closedGate = null;
+      release.complete();
     }
   }
 
   static Future<String> _getOrCreateDeviceId() async {
     final directory = await getApplicationDocumentsDirectory();
-    final deviceFile = File(p.join(directory.path, 'gym_notes', 'device_id'));
+    final deviceFile = File(p.join(directory.path, 'gym_notes', _deviceIdFile));
 
     if (await deviceFile.exists()) {
       return await deviceFile.readAsString();

@@ -713,7 +713,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
-      getIt<CounterService>().flush();
+      // The live instance, not GetIt's: after a database switch GetIt still
+      // holds the one on the closed database, and the taps waiting on the
+      // new one would die with the process.
+      CounterService.instanceOrNull?.flush();
       // The remembered location is written on a debounce, and this is the
       // moment the whole feature exists for: Android kills paused processes,
       // so a pending stack has to reach SQLite before the window goes away.
@@ -788,6 +791,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   void _onOnboardingComplete() {
+    // A restore wrote the language and theme beneath the bloc, which read
+    // them once at launch; the navigator's context sits under its provider.
+    AppNavigator.navigatorKey.currentContext?.read<AppSettingsBloc>().add(
+      const LoadAppSettings(),
+    );
     setState(() => _showOnboarding = false);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => unawaited(_promptForPermissions()),

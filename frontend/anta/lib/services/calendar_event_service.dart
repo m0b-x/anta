@@ -1019,14 +1019,18 @@ class CalendarEventService {
 
   /// Replaces every persisted event with the contents of [data] (the list
   /// produced by [exportData]). Tolerates missing/malformed entries: bad
-  /// rows are skipped, the rest still imports.
-  Future<void> importData(List<dynamic> data) async {
+  /// rows are skipped, the rest still imports. Returns how many object rows
+  /// were skipped, for the restore to report; a row that is not an object the
+  /// restore counts itself, and the skips, descriptions and alerts of a
+  /// skipped event count with it, never again on their own.
+  Future<int> importData(List<dynamic> data) async {
     await _dao.deleteAll();
     // Parsed first, written once (**5.1**). The per-row `try` still guards
     // *parsing* — one malformed archive row is skipped, never fatal — but the
     // write is a single batched transaction instead of one nested transaction
     // and one guaranteed-miss `SELECT` per event.
     final companions = <CalendarEventsCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -1041,6 +1045,7 @@ class CalendarEventService {
             category == null ||
             startMs is! int ||
             ruleKind == null) {
+          skipped++;
           continue;
         }
         final createdMs = map['createdAtMs'] is int
@@ -1161,6 +1166,7 @@ class CalendarEventService {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[CalendarEventService] Import row error: $e');
       }
     }
@@ -1169,6 +1175,7 @@ class CalendarEventService {
     // Only the revision: the restore that called this still has skips,
     // descriptions and alerts to import, and tells the blocs once it has.
     externalRevision++;
+    return skipped;
   }
 
   // ── Row ↔ Domain mapping ──────────────────────────────────────────────

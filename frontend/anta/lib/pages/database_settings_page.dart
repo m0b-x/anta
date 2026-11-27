@@ -806,10 +806,27 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     );
 
     try {
-      await dbManager.renameDatabase(oldName, newName);
+      final wasOpen = await dbManager.renameDatabase(oldName, newName);
 
       if (!mounted) return;
       AppNavigator.pop(this.context);
+
+      // The open database was closed to be renamed: nothing on this page or
+      // beneath it holds a live handle any more, so the way on is a restart,
+      // as after a switch.
+      if (wasOpen) {
+        await AppDialogs.action(
+          this.context,
+          title: AppLocalizations.of(this.context)!.restartRequiredTitle,
+          content: AppLocalizations.of(
+            this.context,
+          )!.restartRequiredAfterRename,
+          actionText: AppLocalizations.of(this.context)!.exitApp,
+          icon: Icons.restart_alt_rounded,
+          onAction: () => SystemNavigator.pop(),
+        );
+        return;
+      }
 
       await _loadDatabaseInfo();
 
@@ -894,8 +911,10 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     );
 
     try {
+      // For the next launch only: the pages beneath, and anything that asks
+      // for the database before the exit, stay on the one that is open.
       final dbManager = await DatabaseManager.getInstance();
-      await dbManager.setActiveDatabaseName(databaseName);
+      await dbManager.activateAtNextLaunch(databaseName);
 
       if (!mounted) return;
       AppNavigator.pop(this.context);
@@ -1179,7 +1198,16 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     );
 
     try {
-      final db = await AppDatabase.getInstance();
+      // The connection that is open, never an open of its own:
+      // `AppDatabase.getInstance` switches the whole app to the stored
+      // active name when that has moved since the page read it — after a
+      // rename of the open database, it closed the live connection and
+      // opened the renamed file from under every page.
+      final open = AppDatabase.openInstanceOf(_activeDatabaseName);
+      if (open == null) {
+        throw StateError('"$_activeDatabaseName" is not the open database');
+      }
+      final db = await open;
       // What the file held free before the run is what the run gives back,
       // never a size delta: the size before counts the `-wal` sidecar, whose
       // pages the run's checkpoint folds back, so a delta counted them as

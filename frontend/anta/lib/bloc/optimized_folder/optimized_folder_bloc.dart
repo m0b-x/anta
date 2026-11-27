@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../constants/app_constants.dart';
 import '../../models/folder_change.dart';
 import '../../services/folder_storage_service.dart';
 import 'optimized_folder_event.dart';
@@ -15,6 +16,14 @@ class OptimizedFolderBloc
   int _currentPageSize = FolderStorageService.defaultPageSize;
   FoldersSortOrder _currentSortOrder = FoldersSortOrder.nameAsc;
   StreamSubscription<FolderChange>? _changesSubscription;
+
+  /// Counts the times the bloc was aimed at a parent, by a load or by a
+  /// refresh that re-aims it. Events run concurrently, so a read for the
+  /// parent the bloc was aimed at before can end after the read for the one
+  /// it is aimed at now: it then emits nothing, and its parent is never put
+  /// back as the open one. The page that asked for it is no longer in front,
+  /// and reads its own again when it is.
+  int _aim = 0;
 
   /// The parents a refresh has been asked for but not yet dispatched for.
   ///
@@ -39,8 +48,34 @@ class OptimizedFolderBloc
     on<DeleteOptimizedFolder>(_onDeleteFolder);
     on<DeleteOptimizedFolders>(_onDeleteFolders);
     on<RefreshFolders>(_onRefreshFolders);
+    on<PeekFolders>(_onPeekFolders);
 
     _changesSubscription = _storageService.changes.listen(_onExternalChange);
+  }
+
+  /// Whether the bloc is aimed at [parentId] in [sortOrder]: a page come back
+  /// in front with nothing marked stale is then already what the bloc
+  /// serves, and a pop costs no read.
+  bool isAimedAt(String? parentId, FoldersSortOrder sortOrder) =>
+      _currentParentId == parentId && _currentSortOrder == sortOrder;
+
+  Future<void> _onPeekFolders(
+    PeekFolders event,
+    Emitter<OptimizedFolderState> emit,
+  ) async {
+    try {
+      await _storageService.initialize();
+      event.done.complete(
+        await _storageService.loadFoldersPaginated(
+          parentId: event.parentId,
+          pageSize: AppConstants.folderLoadCeiling,
+          sortOrder: event.sortOrder,
+        ),
+      );
+    } catch (e, stackTrace) {
+      _logError('Failed to read folders for a covered page', e, stackTrace);
+      event.done.completeError(e, stackTrace);
+    }
   }
 
   void _onExternalChange(FolderChange change) {
@@ -63,6 +98,12 @@ class OptimizedFolderBloc
   /// coalesced arrive one microtask apart (a broadcast stream delivers them
   /// that way), so a microtask flush would run *between* two of them and
   /// coalesce nothing.
+  ///
+  /// Only the parent the bloc has open is reloaded: the one bloc serves every
+  /// stacked folder page, and reloading another parent here moved it off the
+  /// page in front — a rename from a folder's own page left that page deaf
+  /// to its next change. A page under it re-aims the bloc at its own parent
+  /// when it is back in front (`didPopNext`).
   void _scheduleRefresh(String? parentId) {
     _pendingRefreshParents.add(parentId);
     _refreshTimer ??= Timer(Duration.zero, () {
@@ -73,7 +114,7 @@ class OptimizedFolderBloc
       // before the flush runs, and `add` on a closed bloc throws.
       if (isClosed) return;
       for (final parent in parents) {
-        add(RefreshFolders(parentId: parent));
+        if (parent == _currentParentId) add(RefreshFolders(parentId: parent));
       }
     });
   }
@@ -89,15 +130,18 @@ class OptimizedFolderBloc
     LoadFoldersPaginated event,
     Emitter<OptimizedFolderState> emit,
   ) async {
+    // Aimed before the first await, so the order the pages asked in is the
+    // order the bloc is aimed in.
+    final aim = ++_aim;
+    _currentParentId = event.parentId;
+    _currentPage = event.page;
+    _currentPageSize = event.pageSize;
+    _currentSortOrder = event.sortOrder;
+
     emit(OptimizedFolderLoading(parentId: event.parentId));
 
     try {
       await _storageService.initialize();
-
-      _currentParentId = event.parentId;
-      _currentPage = event.page;
-      _currentPageSize = event.pageSize;
-      _currentSortOrder = event.sortOrder;
 
       final paginatedFolders = await _storageService.loadFoldersPaginated(
         parentId: event.parentId,
@@ -106,6 +150,7 @@ class OptimizedFolderBloc
         sortOrder: event.sortOrder,
       );
 
+      if (aim != _aim) return;
       emit(
         OptimizedFolderLoaded(
           paginatedFolders: paginatedFolders,
@@ -114,6 +159,7 @@ class OptimizedFolderBloc
       );
     } catch (e, stackTrace) {
       _logError('Failed to load folders', e, stackTrace);
+      if (aim != _aim) return;
       emit(
         OptimizedFolderError(
           'Failed to load folders: $e',
@@ -328,27 +374,28 @@ class OptimizedFolderBloc
   ///
   /// Re-reading `pageSize * loadedPages` in one statement keeps the rows that
   /// were there and leaves `hasMore` answering about the same boundary the
-  /// next [LoadMoreFolders] reads from. A refresh aimed at a *different*
-  /// parent than the one on screen is a different list, not this one, so it
-  /// still goes through the full load.
+  /// next [LoadMoreFolders] reads from.
+  ///
+  /// A refresh for another parent, or in another order, is a page come back
+  /// in front asking for its own list: the bloc is re-aimed there — so the
+  /// coalescer serves that page from now on — and read from its first page
+  /// straight to Loaded. Never through Loading, which blanked the count and
+  /// the rows the returning page still had drawn.
   Future<void> _onRefreshFolders(
     RefreshFolders event,
     Emitter<OptimizedFolderState> emit,
   ) async {
     _storageService.invalidateCache();
 
-    final parentId = event.parentId ?? _currentParentId;
-    if (parentId != _currentParentId) {
+    final parentId = event.parentId;
+    final sortOrder = event.sortOrder ?? _currentSortOrder;
+    if (parentId != _currentParentId || sortOrder != _currentSortOrder) {
+      _aim++;
+      _currentParentId = parentId;
+      _currentSortOrder = sortOrder;
       _currentPage = 1;
-      add(
-        LoadFoldersPaginated(
-          parentId: parentId,
-          pageSize: _currentPageSize,
-          sortOrder: _currentSortOrder,
-        ),
-      );
-      return;
     }
+    final aim = _aim;
 
     try {
       final paginatedFolders = await _loadLoadedPages(
@@ -356,6 +403,7 @@ class OptimizedFolderBloc
         pages: _currentPage,
       );
 
+      if (aim != _aim) return;
       emit(
         OptimizedFolderLoaded(
           paginatedFolders: paginatedFolders,
@@ -364,6 +412,7 @@ class OptimizedFolderBloc
       );
     } catch (e, stackTrace) {
       _logError('Failed to refresh folders', e, stackTrace);
+      if (aim != _aim) return;
       emit(
         OptimizedFolderError(
           'Failed to refresh folders: $e',

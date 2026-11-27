@@ -1,12 +1,18 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:anta/bloc/counter_per_note/counter_per_note_bloc.dart';
+import 'package:anta/bloc/counter_per_note/counter_per_note_event.dart';
+import 'package:anta/bloc/counter_per_note/counter_per_note_state.dart';
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/chunking/content_chunker.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/counter.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 
 import '../support/scale_fixtures.dart';
@@ -191,6 +197,26 @@ void main() {
         expect(forOne, forThirty);
       },
     );
+
+    test('more folders than one id batch are counted a batch to a '
+        'statement, every one of them', () async {
+      const roots = AppConstants.sqlIdBatch + 1;
+      await _seedTree(db, roots: roots, depth: 1, notesPerFolder: 1);
+
+      counter.reset();
+      final counts = await db.folderDao.noteCountsWithDescendants([
+        for (var i = 0; i < roots; i++) 'root$i',
+      ]);
+
+      expect(
+        counter.count,
+        2,
+        reason: 'the browser asks for every subfolder of a parent at once, '
+            'and SQLite binds at most 32,766 variables',
+      );
+      expect(counts, hasLength(roots));
+      expect(counts.values.toSet(), {1});
+    });
 
     test('an empty folder list touches the database not at all', () async {
       counter.reset();
@@ -1482,6 +1508,53 @@ void main() {
         expect(counter.matching('sync_outbox'), hasLength(1));
         expect(counter.count, 3);
       },
+    );
+  });
+
+  test('a sync pull that refreshes the per-note page reads the counter once, '
+      'whatever the number of notes it is on', () async {
+    final service = await CounterService.forTesting(db);
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+
+    Future<int> pullOver(int notes) async {
+      for (var i = 0; i < notes; i++) {
+        await service.setValueForNote(laps, i, noteId: 'n$i');
+      }
+      await service.flush();
+      final bloc = CounterPerNoteBloc(
+        counterService: service,
+        noteRepository: NoteRepository(database: db),
+      );
+      bloc.add(CounterPerNoteOpened(counterId: laps));
+      await pumpEventQueue();
+      counter.reset();
+
+      // The reload empties the note cache and the page refreshes over it.
+      await service.reload();
+      await pumpEventQueue();
+
+      expect((bloc.state as CounterPerNoteLoaded).entries, hasLength(notes));
+      expect(
+        service.cachedNoteValues('n1') == null,
+        isTrue,
+        reason: 'a refresh fills no note cache',
+      );
+      await bloc.close();
+      return counter.count;
+    }
+
+    final few = await pullOver(3);
+    final many = await pullOver(50);
+    expect(
+      many,
+      few,
+      reason:
+          'the page reads the counter in one query whatever the notes; a '
+          'read per note is several hundred queries per pull for a counter '
+          'used through a season. Issued:\n${counter.statements.join('\n')}',
     );
   });
 }

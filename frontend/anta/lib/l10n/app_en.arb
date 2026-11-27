@@ -332,6 +332,14 @@
   "@publicHolidayNationalDayRomania": {
     "description": "Romanian public holiday on December 1"
   },
+  "publicHolidayDayAfterNewYear": "Day after New Year's Day",
+  "@publicHolidayDayAfterNewYear": {
+    "description": "Romanian public holiday on January 2"
+  },
+  "publicHolidayStJohnTheBaptist": "St John the Baptist",
+  "@publicHolidayStJohnTheBaptist": {
+    "description": "Romanian public holiday on January 7, the Synaxis of Saint John the Baptist"
+  },
   "publicHolidayMartinLutherKingDay": "Martin Luther King Jr. Day",
   "@publicHolidayMartinLutherKingDay": {
     "description": "US public holiday on the third Monday of January"
@@ -1802,6 +1810,24 @@
       }
     }
   },
+  "importSkippedFiles": "{count, plural, =1{1 file skipped: could not be read} other{{count} files skipped: could not be read}}",
+  "@importSkippedFiles": {
+    "description": "Second line of the import snackbar when some files of an archive could not be read",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "importSkipped": "{count, plural, =1{1 item skipped: could not be read} other{{count} items skipped: could not be read}}",
+  "@importSkipped": {
+    "description": "Second line of the restore's success message: how many damaged rows or sections of the backup's optional parts were left out",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "importFailed": "Import failed",
   "@importFailed": {
     "description": "Error message when import fails"
@@ -2764,6 +2790,10 @@
   "restartRequiredAfterDeletion": "All data has been deleted. Please restart the app to continue.",
   "@restartRequiredAfterDeletion": {
     "description": "Message after data deletion requiring restart"
+  },
+  "restartRequiredAfterRename": "The database was renamed. Please restart the app to continue.",
+  "@restartRequiredAfterRename": {
+    "description": "Message after the open database was renamed, which closes it; the dialog's one button exits the app"
   },
   "exitApp": "Exit App",
   "@exitApp": {

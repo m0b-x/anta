@@ -169,7 +169,11 @@ void main() {
       );
       final both = await service.exportFolder(folderId: rootId);
 
-      expect(p.dirname(folder.filePath), exportDirectory().path);
+      // Each in an export folder of its own.
+      expect(p.dirname(p.dirname(folder.filePath)), exportDirectory().path);
+      expect({
+        for (final r in [folder, note, both]) p.dirname(r.filePath),
+      }, hasLength(3));
       expect(p.basename(folder.filePath), startsWith('Training_'));
       expect(p.basename(note.filePath), startsWith('Loose_'));
       expect(p.basename(both.filePath), startsWith('Training_'));
@@ -178,12 +182,48 @@ void main() {
       }
       expect(
         [
-          for (final file in exportDirectory().listSync())
-            p.extension(file.path),
+          for (final file in exportDirectory().listSync(recursive: true))
+            if (file is File) p.extension(file.path),
         ],
         everyElement('.zip'),
         reason: 'no provisional file is left once an archive is whole',
       );
+    });
+
+    test('two note exports of the same file name never share a path, and '
+        'the first keeps its own text', () async {
+      final a = await db.folderDao.createFolder(name: 'A');
+      final b = await db.folderDao.createFolder(name: 'B');
+      // "Plan: May" cleans up to the other's name.
+      final first = await noteStorage.createNote(
+        folderId: a.id,
+        title: 'Plan: May',
+        content: 'first note text',
+      );
+      final second = await noteStorage.createNote(
+        folderId: b.id,
+        title: 'Plan_ May',
+        content: 'second note text',
+      );
+
+      final one = await service.exportNote(
+        metadata: first,
+        format: ExportFormat.markdown,
+      );
+      final two = await service.exportNote(
+        metadata: second,
+        format: ExportFormat.markdown,
+      );
+
+      expect(p.basename(one.filePath), 'Plan_ May.md');
+      expect(p.basename(two.filePath), 'Plan_ May.md');
+      expect(one.filePath, isNot(two.filePath));
+      expect(File(one.filePath).readAsStringSync(), contains('first note'));
+
+      // Cleanup takes the file with its folder.
+      await service.cleanupExport(one);
+      expect(Directory(p.dirname(one.filePath)).existsSync(), isFalse);
+      expect(File(two.filePath).existsSync(), isTrue);
     });
 
     test(
@@ -399,6 +439,83 @@ void main() {
       );
       File(path).deleteSync();
     });
+
+    test('a note that is not UTF-8 is skipped like any unreadable note, and '
+        'the rest of the archive still imports', () async {
+      final target = await db.folderDao.createFolder(name: 'Target');
+      final path = p.join(tempDir.path, 'latin1.zip');
+      // "café" in Latin-1: the é is a lone 0xE9, no UTF-8 sequence.
+      const latin1 = [0x63, 0x61, 0x66, 0xE9];
+      final archive = Archive()
+        ..add(ArchiveFile.string('A/good.md', '# Good\n\nbody'))
+        ..add(ArchiveFile('A/latin1.txt', latin1.length, latin1))
+        ..add(ArchiveFile.string('B/later.md', '# Later\n\nbody'));
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+
+      final result = await service.importArchive(
+        filePath: path,
+        targetParentFolderId: target.id,
+      );
+
+      expect(result.foldersImported, 2);
+      expect(result.notesImported, 2);
+      final titles = [
+        for (final folder in await db.folderDao.getFoldersByParent(target.id))
+          for (final note in await db.noteDao.getNotesByFolder(folder.id))
+            note.title,
+      ];
+      expect(titles, unorderedEquals(['Good', 'Later']));
+      File(path).deleteSync();
+    });
+
+    test('a manifest that is not UTF-8 is read as malformed: the archive '
+        'still imports', () async {
+      final target = await db.folderDao.createFolder(name: 'Target');
+      final path = p.join(tempDir.path, 'manifest.zip');
+      const manifest = [0x7B, 0xE9, 0x7D];
+      final archive = Archive()
+        ..add(ArchiveFile('manifest.json', manifest.length, manifest))
+        ..add(ArchiveFile.string('A/good.md', '# Good\n\nbody'));
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+
+      final result = await service.importArchive(
+        filePath: path,
+        targetParentFolderId: target.id,
+      );
+
+      expect(result.foldersImported, 1);
+      expect(result.notesImported, 1);
+      File(path).deleteSync();
+    });
+
+    test('only the entry named manifest.json is the manifest: a path that '
+        'normalises to that name never stands in for it', () async {
+      final target = await db.folderDao.createFolder(name: 'Target');
+      final path = p.join(tempDir.path, 'two_manifests.zip');
+      // The real manifest says a version this build reads; the crafted
+      // entry says one it must refuse. Read as the manifest, it would turn
+      // a good archive away.
+      final archive = Archive()
+        ..add(
+          ArchiveFile.string(
+            'manifest.json',
+            '{"version": ${ImportExportService.archiveVersion}}',
+          ),
+        )
+        ..add(ArchiveFile.string('x/../manifest.json', '{"version": 999}'))
+        ..add(ArchiveFile.string('A/good.md', '# Good\n\nbody'));
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+
+      final result = await service.importArchive(
+        filePath: path,
+        targetParentFolderId: target.id,
+      );
+
+      expect(result.notesImported, greaterThanOrEqualTo(1));
+      final notes = await db.noteDao.getAllNotes(includeDeleted: false);
+      expect(notes.map((note) => note.title), contains('Good'));
+      File(path).deleteSync();
+    });
   });
 
   group('the launch sweep', () {
@@ -444,6 +561,28 @@ void main() {
       for (final file in theirs) {
         expect(file.existsSync(), isTrue, reason: file.path);
       }
+    });
+
+    test('takes an export\'s own folder with what it holds, and leaves a '
+        'folder in the export directory it did not make', () async {
+      final folder = await db.folderDao.createFolder(name: 'F');
+      final note = await noteStorage.createNote(
+        folderId: folder.id,
+        title: 'Swept',
+        content: 'x',
+      );
+      final exported = await service.exportNote(
+        metadata: note,
+        format: ExportFormat.markdown,
+      );
+      final stranger = writeFile(
+        '${ImportExportService.exportDirectoryName}/kept_by_hand/note.md',
+      );
+
+      await service.sweepStaleExports(maxAge: const Duration(seconds: -5));
+
+      expect(Directory(p.dirname(exported.filePath)).existsSync(), isFalse);
+      expect(stranger.existsSync(), isTrue);
     });
 
     test('keeps what is ANTA\'s own but recent', () async {

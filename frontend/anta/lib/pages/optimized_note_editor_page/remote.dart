@@ -430,14 +430,11 @@ mixin _NoteEditorRemote on _NoteEditorSharing {
     });
   }
 
-  /// [title], then ` (n)` from the second try on, cut so the whole fits the
-  /// title column.
-  static String _numberedTitle(String title, int copy) {
-    if (copy < 2) return title;
-    final suffix = ' ($copy)';
-    final room = AppConstants.maxNoteTitleLength - suffix.length;
-    return '${title.length > room ? title.substring(0, room) : title}$suffix';
-  }
+  /// [title], then ` (n)` from the second try on, cut on a whole character
+  /// so the whole fits the title column.
+  static String _numberedTitle(String title, int copy) => copy < 2
+      ? title
+      : TextFit.withSuffix(title, ' ($copy)', AppConstants.maxNoteTitleLength);
 
   /// A clean page has nothing left to show and closes, the message raised
   /// before the pop so it stays up over the page beneath — but only from the

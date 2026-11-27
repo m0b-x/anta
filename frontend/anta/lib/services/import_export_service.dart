@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../constants/app_constants.dart';
 import '../constants/json_keys.dart';
 import '../constants/temp_file_names.dart';
 import '../models/calendar_event.dart';
@@ -18,6 +19,7 @@ import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../repositories/note_repository.dart';
 import '../utils/ics_serializer.dart';
+import '../utils/text_fit.dart';
 import 'database_manager.dart';
 import 'duplicate_name_exception.dart';
 import 'folder_storage_service.dart';
@@ -94,6 +96,11 @@ class ConvertImportResult {
   final int foldersImported;
   final int notesImported;
 
+  /// Note files of an archive that could not be read (not UTF-8, malformed
+  /// JSON) and were left out while the rest imported; the import's message
+  /// says so, or the loss would go unnoticed.
+  final int notesSkipped;
+
   /// Folder ids freshly created by the import. Useful for the UI to
   /// expand or scroll to the imported root.
   final List<String> createdRootFolderIds;
@@ -101,6 +108,7 @@ class ConvertImportResult {
   const ConvertImportResult({
     this.foldersImported = 0,
     this.notesImported = 0,
+    this.notesSkipped = 0,
     this.createdRootFolderIds = const [],
   });
 }
@@ -189,7 +197,7 @@ class ImportExportService {
         : _sanitizeFileName(metadata.title);
     final fileName = '$baseName.${format.extension}';
 
-    final file = File(p.join((await _exportDirectory()).path, fileName));
+    final file = File(p.join((await _newExportFolder()).path, fileName));
     await file.writeAsString(body);
 
     return ExportResult(filePath: file.path, format: format);
@@ -310,8 +318,19 @@ class ImportExportService {
       // the walk's own read, so the name is the one of the item exported.
       String? resolvedName;
 
+      // The archive's top level follows the items' stored order, never the
+      // order they were picked in: the import recreates entries in the
+      // order it reads them.
+      final pickedNotes = [
+        for (final id in noteIds) ?await _noteStorage.getNoteMetadata(id),
+      ]..sort((a, b) => _byPosition(a.position, a.id, b.position, b.id));
+      final pickedFolders = [
+        for (final id in folderIds) ?await _folderStorage.getFolderById(id),
+      ]..sort((a, b) => _byPosition(a.position, a.id, b.position, b.id));
+
       // Loose notes first so their filenames have first claim on root names.
-      for (final id in noteIds) {
+      for (final picked in pickedNotes) {
+        final id = picked.id;
         final lazy = await _noteStorage.loadNoteWithContent(id);
         if (lazy == null) continue;
         final note = lazy.metadata;
@@ -335,9 +354,7 @@ class ImportExportService {
       }
 
       // Then folders, each as a top-level subtree.
-      for (final id in folderIds) {
-        final folder = await _folderStorage.getFolderById(id);
-        if (folder == null) continue;
+      for (final folder in pickedFolders) {
         resolvedName = folder.name;
         final segment = _uniqueName(
           _sanitizeFileName(folder.name),
@@ -406,16 +423,24 @@ class ImportExportService {
         ? segment
         : p.posix.join(pathPrefix, segment);
 
+    final updatedAt = await _folderStorage.updatedAtOf(folder.id);
     archive.addJson(p.posix.join(dirPath, _folderMetaFileName), {
       JsonKeys.type: 'folder',
       JsonKeys.name: folder.name,
       JsonKeys.createdAt: folder.createdAt.toIso8601String(),
+      // Optional for the reader: an archive from an older build has none,
+      // and an older build reads only the keys it knows.
+      if (updatedAt != null) JsonKeys.updatedAt: updatedAt.toIso8601String(),
       JsonKeys.noteSortOrder: folder.noteSortOrder,
       JsonKeys.subfolderSortOrder: folder.subfolderSortOrder,
       JsonKeys.label: folder.label.storageName,
     });
 
-    final notes = await _noteStorage.loadAllMetadataForFolder(folder.id);
+    // Sorted here, not by the query: the folder's notes come back in
+    // whatever order SQLite's plan yields, and the import keeps the order
+    // of the entries.
+    final notes = [...await _noteStorage.loadAllMetadataForFolder(folder.id)]
+      ..sort((a, b) => _byPosition(a.position, a.id, b.position, b.id));
     final usedNames = <String>{_folderMetaFileName.toLowerCase()};
     for (final note in notes) {
       counts.notes++;
@@ -454,6 +479,13 @@ class ImportExportService {
     }
   }
 
+  /// The manual order an archive is written in: position, then id for two
+  /// rows a merge left on the same position — the folders' query's order.
+  static int _byPosition(int aPosition, String aId, int bPosition, String bId) {
+    final byPosition = aPosition.compareTo(bPosition);
+    return byPosition != 0 ? byPosition : aId.compareTo(bId);
+  }
+
   void _addNoteFile({
     required _ArchiveWriter archive,
     required String path,
@@ -481,7 +513,7 @@ class ImportExportService {
   Future<File> _writeArchive(
     Future<String> Function(_ArchiveWriter archive) write,
   ) async {
-    final directory = await _exportDirectory();
+    final directory = await _newExportFolder();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     final partial = File(p.join(directory.path, 'archive_$timestamp.part'));
     final handle = openArchiveHandle(partial.path);
@@ -499,7 +531,7 @@ class ImportExportService {
         /* the delete below is what matters */
       }
       try {
-        if (await partial.exists()) await partial.delete();
+        await directory.delete(recursive: true);
       } catch (_) {
         /* left for sweepStaleExports */
       }
@@ -522,14 +554,23 @@ class ImportExportService {
     return directory;
   }
 
+  /// A folder of its own in [_exportDirectory] for one export
+  /// ([TempFileNames.exportFolderPrefix] and a unique suffix). The file in it
+  /// keeps its plain name — the note's title is what the recipient sees —
+  /// and a later export of the same name can never overwrite it while a
+  /// desktop share sheet is still reading it ([shareExport]).
+  Future<Directory> _newExportFolder() async =>
+      (await _exportDirectory()).createTemp(TempFileNames.exportFolderPrefix);
+
   // ─── Calendar export ────────────────────────────────────────────────────
 
-  /// Write [events] to a single `.ics` file in the system temp directory.
+  /// Write [events] to a single `.ics` file in an export folder of its own
+  /// ([_newExportFolder]).
   ///
   /// Reports [ExportResult.format] as `null`: iCalendar is not one of the
   /// note [ExportFormat]s and must not become one, or it would show up in
-  /// every note-format picker. The `.ics` extension is registered with
-  /// [sweepStaleExports] so abandoned exports are still cleaned up.
+  /// every note-format picker. Abandoned exports go with their folder in
+  /// [sweepStaleExports].
   ///
   /// A partner's events are left out whatever the caller hands in, and the
   /// count says so: no door out of this phone carries another account's
@@ -545,18 +586,19 @@ class ImportExportService {
         if (!event.fromPartner) event,
     ];
     final body = IcsSerializer.serialize(events: mine);
-    final tempDir = await getTemporaryDirectory();
+    final folder = await _newExportFolder();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final file = File(p.join(tempDir.path, 'anta_events_$timestamp.ics'));
+    final file = File(p.join(folder.path, 'anta_events_$timestamp.ics'));
     await file.writeAsString(body);
     return ExportResult(filePath: file.path, eventsExported: mine.length);
   }
 
   /// Write [text] — already composed by its caller, the report's Markdown —
-  /// to [fileName] in the system temp directory, beside the `.ics` export,
-  /// for [shareExport]. [fileName] carries [format]'s extension, so
-  /// [sweepStaleExports] knows the file. A write that fails takes its
-  /// half-written file with it, so no partial report waits for the sweep.
+  /// to [fileName] in an export folder of its own ([_newExportFolder]), for
+  /// [shareExport]: the name is the same for every export of one span, and
+  /// an earlier one may still be read by a desktop share sheet. A write that
+  /// fails takes its half-written file and folder with it, so no partial
+  /// report waits for the sweep.
   Future<ExportResult> exportText({
     required String fileName,
     required String text,
@@ -568,9 +610,9 @@ class ImportExportService {
       'exportText takes a bare file name with the format\'s extension: '
       '$fileName',
     );
-    final tempDir = await getTemporaryDirectory();
+    final folder = await _newExportFolder();
     final result = ExportResult(
-      filePath: p.join(tempDir.path, fileName),
+      filePath: p.join(folder.path, fileName),
       format: format,
     );
     try {
@@ -588,12 +630,15 @@ class ImportExportService {
       file.writeAsString(text);
 
   /// Convenience: hand the exported file to the OS share sheet, then
-  /// delete it from the temp directory. The OS copies/streams the bytes
-  /// through its own share intent before we get control back, so removing
-  /// the file afterwards is safe and prevents the temp dir from
-  /// accumulating exports across sessions.
+  /// delete it from the temp directory. On Android the share intent has its
+  /// own copy of the bytes before we get control back, so removing the file
+  /// afterwards is safe and prevents the temp dir from accumulating exports
+  /// across sessions.
   ///
-  /// A database snapshot ([ExportResult.isSnapshot]) is the exception: it
+  /// A desktop sheet may still be reading the path when `share()` returns
+  /// (a mail client attaching it), so there a share that reached the sheet
+  /// leaves the export for the launch sweep ([_desktopMayStillRead]). A
+  /// database snapshot ([ExportResult.isSnapshot]) is stricter still: it
   /// goes only once the sheet is done reading it ([_shareReleased]), else it
   /// waits for the next share or the launch sweep.
   Future<void> shareExport(ExportResult result) async {
@@ -603,11 +648,27 @@ class ImportExportService {
         ShareParams(files: [XFile(result.filePath)]),
       );
     } finally {
-      if (!result.isSnapshot || _shareReleased(shared)) {
-        await cleanupExport(result);
-      }
+      final release = result.isSnapshot
+          ? _shareReleased(shared)
+          : !_desktopMayStillRead(shared);
+      if (release) await cleanupExport(result);
     }
   }
+
+  /// Whether a desktop share sheet may still read the path after `share()`
+  /// returned — [_shareReleased]'s desktop case, for every other export. A
+  /// share that threw ([shared] is null) never reached a sheet. Read through
+  /// [defaultTargetPlatform] for [_shareReleased]'s reason.
+  static bool _desktopMayStillRead(ShareResult? shared) =>
+      shared != null &&
+      switch (defaultTargetPlatform) {
+        TargetPlatform.windows ||
+        TargetPlatform.macOS ||
+        TargetPlatform.linux => true,
+        TargetPlatform.android ||
+        TargetPlatform.iOS ||
+        TargetPlatform.fuchsia => false,
+      };
 
   /// Whether the share sheet is done with the file once `share()` returns.
   /// A share that threw ([shared] is null) never reached a sheet, and
@@ -623,17 +684,18 @@ class ImportExportService {
       (defaultTargetPlatform == TargetPlatform.android &&
           shared.status != ShareResultStatus.unavailable);
 
-  /// Best-effort delete of a previously-produced export file — a snapshot's
-  /// whole folder. Swallows IO errors — failing to delete a temp file is
-  /// never worth blocking the user on.
+  /// Best-effort delete of a previously-produced export file, with the
+  /// folder of its own it was written in ([_newExportFolder]) — a
+  /// snapshot's whole folder. Swallows IO errors — failing to delete a temp
+  /// file is never worth blocking the user on.
   Future<void> cleanupExport(ExportResult result) async {
     if (!result.isTemporary) return;
     try {
+      final folder = File(result.filePath).parent;
+      final tempDir = await getTemporaryDirectory();
       if (result.isSnapshot) {
-        final folder = File(result.filePath).parent;
         // Never more than a folder the snapshot made, whatever path it got:
         // prefixed, and directly in the temp directory.
-        final tempDir = await getTemporaryDirectory();
         if (p
                 .basename(folder.path)
                 .startsWith(DatabaseManager.shareSnapshotPrefix) &&
@@ -647,6 +709,18 @@ class ImportExportService {
       if (await file.exists()) {
         await file.delete();
       }
+      // The same guard for an export's own folder: prefixed, and directly
+      // in the export directory.
+      if (p
+              .basename(folder.path)
+              .startsWith(TempFileNames.exportFolderPrefix) &&
+          p.equals(
+            p.dirname(folder.path),
+            p.join(tempDir.path, exportDirectoryName),
+          ) &&
+          await folder.exists()) {
+        await folder.delete(recursive: true);
+      }
     } catch (_) {
       /* non-fatal */
     }
@@ -656,10 +730,11 @@ class ImportExportService {
   /// Intended to be called from app startup so files left behind by a
   /// crash, a denied share dialog, or a previous build version don't
   /// accumulate. Only what is older than [maxAge] and named with
-  /// [tempPrefix] is considered: every file in [exportDirectoryName] (a
-  /// partial archive included), a database snapshot's folder, and a
-  /// prefixed file at the top with one of the extensions this service
-  /// writes (`anta_events_….ics`, the report's `anta_report_….md`).
+  /// [tempPrefix] is considered: every export's own folder in
+  /// [exportDirectoryName] with what it holds, a file there an older build
+  /// wrote, a database snapshot's folder, and a prefixed file at the top
+  /// with one of the extensions an older build wrote there
+  /// (`anta_events_….ics`, the report's `anta_report_….md`).
   Future<void> sweepStaleExports({
     Duration maxAge = const Duration(hours: 24),
   }) async {
@@ -688,8 +763,14 @@ class ImportExportService {
         if (!name.startsWith(tempPrefix)) continue;
         if (entity is Directory) {
           if (name == exportDirectoryName) {
-            await for (final file in entity.list(followLinks: false)) {
-              if (file is File) await deleteIfStale(file);
+            await for (final entry in entity.list(followLinks: false)) {
+              final ours =
+                  entry is File ||
+                  (entry is Directory &&
+                      p
+                          .basename(entry.path)
+                          .startsWith(TempFileNames.exportFolderPrefix));
+              if (ours) await deleteIfStale(entry);
             }
           } else if (name.startsWith(DatabaseManager.shareSnapshotPrefix)) {
             await deleteIfStale(entity);
@@ -746,6 +827,9 @@ class ImportExportService {
     DateTime? createdAt;
     DateTime? updatedAt;
     var label = ItemLabel.none;
+    // The file's text holds its title only for a Markdown file that opens
+    // with one; a name taken from the file itself is in no body.
+    var titleInText = false;
 
     switch (format) {
       case ExportFormat.json:
@@ -753,8 +837,16 @@ class ImportExportService {
         if (decoded is! Map<String, dynamic>) {
           throw const FormatException('JSON note must be an object');
         }
-        title = (decoded[JsonKeys.title] as String?) ?? fallbackTitle;
-        content = (decoded[JsonKeys.content] as String?) ?? '';
+        final rawTitle = decoded[JsonKeys.title];
+        final rawContent = decoded[JsonKeys.content];
+        // A cast would throw a TypeError past the archive's skip of a
+        // malformed note, abandoning every entry after it.
+        if ((rawTitle != null && rawTitle is! String) ||
+            (rawContent != null && rawContent is! String)) {
+          throw const FormatException('JSON note text must be strings');
+        }
+        title = (rawTitle as String?) ?? fallbackTitle;
+        content = (rawContent as String?) ?? '';
         createdAt = _tryParseDate(decoded[JsonKeys.createdAt]);
         updatedAt = _tryParseDate(decoded[JsonKeys.updatedAt]);
         final rawLabel = decoded[JsonKeys.label];
@@ -763,7 +855,14 @@ class ImportExportService {
         final lines = raw.split('\n');
         if (lines.isNotEmpty && lines.first.startsWith('# ')) {
           title = lines.first.substring(2).trim();
-          content = lines.skip(1).join('\n').trimLeft();
+          titleInText = true;
+          // Only the one blank line [_encodeNote] writes after the title
+          // goes — Markdown's blank line, spaces or tabs at most: an
+          // indented first line or further blank lines are the note's own
+          // text.
+          final hasSeparator =
+              lines.length > 1 && _blankLine.hasMatch(lines[1]);
+          content = lines.skip(hasSeparator ? 2 : 1).join('\n');
         } else {
           title = fallbackTitle;
           content = raw;
@@ -771,6 +870,17 @@ class ImportExportService {
       case ExportFormat.text:
         title = fallbackTitle;
         content = raw;
+    }
+
+    // A title past the column would fail the insert and the rest of the
+    // archive with it. It is cut, and none of it is lost: the body keeps it
+    // whole — the file's own text for a Markdown file that opens with its
+    // title, a heading on top for JSON and for a title taken from the file
+    // name, which the content never held.
+    final fitted = TextFit.cut(title, AppConstants.maxNoteTitleLength);
+    if (fitted != title) {
+      content = titleInText ? raw : '# $title\n\n$content';
+      title = fitted;
     }
 
     await _createNoteWithUniqueTitle(
@@ -782,6 +892,10 @@ class ImportExportService {
       label: label,
     );
   }
+
+  /// A blank line in Markdown: nothing but spaces or tabs (and the `\r` of
+  /// a file written with Windows line ends).
+  static final RegExp _blankLine = RegExp(r'^[ \t]*\r?$');
 
   /// Parse an ISO-8601 string defensively. Returns null when the value
   /// is missing or malformed so the caller can fall back to "now".
@@ -821,14 +935,35 @@ class ImportExportService {
     ArchiveFile? manifestFile;
     for (final file in archive.files) {
       if (!file.isFile) continue;
-      final path = file.name;
-      if (path == _manifestFileName) {
+      // The manifest is the entry written under exactly that name: a path
+      // that only normalises to it (`x/../manifest.json`) is some other
+      // file, and must not stand in for the manifest when the version is
+      // checked.
+      if (file.name == _manifestFileName) {
         manifestFile = file;
         continue;
       }
+      final path = _entryPath(file.name);
+      if (path.isEmpty) continue;
 
       final dir = p.posix.dirname(path);
       final base = p.posix.basename(path);
+      // An archive another tool wrote may hold `a/b/c/n.md` with no entry
+      // of `a/b`'s own: its missing ancestors are added first, outermost
+      // first, so the tree is rebuilt whole, each where its first
+      // descendant appears.
+      final missing = <String>[];
+      for (var d = dir; d != '.' && !entries.containsKey(d);) {
+        missing.add(d);
+        final parent = p.posix.dirname(d);
+        // `/` is its own parent. [_entryPath] leaves none today; without
+        // this line a path that ever got past it would loop for good.
+        if (parent == d) break;
+        d = parent;
+      }
+      for (final ancestor in missing.reversed) {
+        entries[ancestor] = _DirEntry();
+      }
       final dirEntry = entries.putIfAbsent(dir, _DirEntry.new);
       if (base == _folderMetaFileName) {
         dirEntry.folderMeta = file;
@@ -855,27 +990,34 @@ class ImportExportService {
 
     var folderCount = 0;
     var noteCount = 0;
+    var skippedCount = 0;
     final createdRootIds = <String>[];
 
     // The roots are the dirs whose parent dir is not present in [entries].
     // The synthetic '.' / '' dir holds loose top-level notes from a
     // multi-select export — those import directly into [targetParentFolderId]
     // without spawning a wrapper folder.
+    //
+    // Directories are recreated in the order of their first entry, never
+    // sorted: the export walks siblings in their stored order, and an
+    // imported folder is appended to its parent, so that order survives.
     final allDirs = entries.keys.toSet();
     final folderRoots = allDirs.where((d) {
       if (d == '.' || d == '') return false;
       final parent = p.posix.dirname(d);
       return parent == '.' || parent == '' || !allDirs.contains(parent);
-    }).toList()..sort();
+    }).toList();
 
     Future<void> importNoteFile(
       ArchiveFile noteFile,
       String targetFolderId,
     ) async {
-      final raw = _consume(noteFile);
       final ext = p.extension(noteFile.name).toLowerCase().replaceAll('.', '');
       final format = ExportFormat.fromExtension(ext) ?? ExportFormat.json;
       try {
+        // Inside the skip: a file that is not UTF-8 is as unreadable as
+        // malformed JSON, and must not abandon the entries after it.
+        final raw = _consume(noteFile);
         await _importNote(
           raw: raw,
           format: format,
@@ -884,7 +1026,8 @@ class ImportExportService {
         );
         noteCount++;
       } on FormatException {
-        // Skip malformed note files; keep importing the rest.
+        // Skip malformed note files; keep importing the rest, and say so.
+        skippedCount++;
       }
     }
 
@@ -897,12 +1040,15 @@ class ImportExportService {
           : null;
       // Fall back to the directory name in the archive when the meta
       // file is missing or its `name` field is blank.
-      final folderName = meta?.name ?? p.posix.basename(dirPath);
+      final dirName = p.posix.basename(dirPath);
+      final folderName = meta?.name ?? dirName;
 
       final folder = await _createFolderWithUniqueName(
         name: folderName,
+        fallbackName: dirName,
         parentId: newParentId,
         createdAt: meta?.createdAt,
+        updatedAt: meta?.updatedAt,
         noteSortOrder: meta?.noteSortOrder,
         subfolderSortOrder: meta?.subfolderSortOrder,
         label: meta?.label ?? ItemLabel.none,
@@ -917,8 +1063,9 @@ class ImportExportService {
       }
 
       // Children: directories whose parent equals this dirPath.
-      final children =
-          allDirs.where((d) => p.posix.dirname(d) == dirPath).toList()..sort();
+      final children = allDirs
+          .where((d) => p.posix.dirname(d) == dirPath)
+          .toList();
       for (final child in children) {
         await recreate(child, folder.id);
       }
@@ -946,6 +1093,7 @@ class ImportExportService {
     return ConvertImportResult(
       foldersImported: folderCount,
       notesImported: noteCount,
+      notesSkipped: skippedCount,
       createdRootFolderIds: createdRootIds,
     );
   }
@@ -964,6 +1112,7 @@ class ImportExportService {
       return _FolderMeta(
         name: (name is String && name.trim().isNotEmpty) ? name : null,
         createdAt: _tryParseDate(decoded[JsonKeys.createdAt]),
+        updatedAt: _tryParseDate(decoded[JsonKeys.updatedAt]),
         noteSortOrder: decoded[JsonKeys.noteSortOrder] as String?,
         subfolderSortOrder: decoded[JsonKeys.subfolderSortOrder] as String?,
         label: ItemLabel.fromName(rawLabel is String ? rawLabel : null),
@@ -998,6 +1147,17 @@ class ImportExportService {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
+
+  /// An archive entry's [name] as the import groups it: `.` and `..`
+  /// resolved, then any `..` left at the front, any `.` and the empty
+  /// segments of a leading or doubled `/` dropped — so no folder is ever
+  /// named `.` or `..` and no entry climbs out of the import's target. Empty
+  /// when nothing is left.
+  static String _entryPath(String name) => p.posix
+      .normalize(name)
+      .split('/')
+      .where((s) => s.isNotEmpty && s != '.' && s != '..')
+      .join('/');
 
   /// [file]'s text, after which its bytes are dropped ([ArchiveFile.clear]),
   /// so an import holds one entry at a time. Never `close` / `closeSync`:
@@ -1044,14 +1204,24 @@ class ImportExportService {
   /// create path would produce, so a single code path is enough.
   Future<Folder> _createFolderWithUniqueName({
     required String name,
+    required String fallbackName,
     String? parentId,
     DateTime? createdAt,
+    DateTime? updatedAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
     ItemLabel label = ItemLabel.none,
   }) async {
     final effectiveCreatedAt = createdAt ?? DateTime.now();
-    var attempt = name;
+    // A name past the column would fail the insert and the rest of the
+    // archive with it; a folder's name is all it has, so it is only cut. A
+    // cut that leaves nothing, which the column refuses as well, takes the
+    // directory's own name in the archive instead.
+    var fitted = TextFit.cut(name, AppConstants.maxFolderNameLength);
+    if (fitted.isEmpty) {
+      fitted = TextFit.cut(fallbackName, AppConstants.maxFolderNameLength);
+    }
+    var attempt = fitted;
     var i = 2;
     while (true) {
       try {
@@ -1059,12 +1229,13 @@ class ImportExportService {
           name: attempt,
           parentId: parentId,
           createdAt: effectiveCreatedAt,
+          updatedAt: updatedAt,
           noteSortOrder: noteSortOrder,
           subfolderSortOrder: subfolderSortOrder,
           label: label,
         );
       } on DuplicateNameException {
-        attempt = '$name ($i)';
+        attempt = _numbered(fitted, i, AppConstants.maxFolderNameLength);
         i++;
       }
     }
@@ -1097,11 +1268,17 @@ class ImportExportService {
           label: label,
         );
       } on DuplicateNameException {
-        attempt = '$title ($i)';
+        attempt = _numbered(title, i, AppConstants.maxNoteTitleLength);
         i++;
       }
     }
   }
+
+  /// [base] numbered ` (n)`, cut on a whole character so the whole fits
+  /// [limit], the column's: a name already at the limit would otherwise be
+  /// refused by the insert, and the rest of the archive with it.
+  static String _numbered(String base, int n, int limit) =>
+      TextFit.withSuffix(base, ' ($n)', limit);
 }
 
 /// One `.zip` written entry by entry: each entry is compressed and handed to
@@ -1144,6 +1321,7 @@ class _Counts {
 class _FolderMeta {
   final String? name;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
   final String? noteSortOrder;
   final String? subfolderSortOrder;
   final ItemLabel label;
@@ -1151,6 +1329,7 @@ class _FolderMeta {
   const _FolderMeta({
     this.name,
     this.createdAt,
+    this.updatedAt,
     this.noteSortOrder,
     this.subfolderSortOrder,
     this.label = ItemLabel.none,

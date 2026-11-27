@@ -167,6 +167,22 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('a Reset that failed says so, never that it worked', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      // Gone beneath the page, as a sync pull can do: the card is still drawn.
+      await tester.runAsync(() => service.deleteCounter(laps));
+
+      await chooseFromMenu(tester, laps, l10n.resetCounter);
+      await answerDialog(tester, SemanticsIds.sheetConfirm);
+
+      expect(find.text(l10n.counterResetSuccess), findsNothing);
+      expect(find.text(l10n.categoryChangeFailed), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('opened for a note, confirmed resets the note\'s own value '
         'row and leaves the global row alone', (tester) async {
       const note = 'note-1';
@@ -256,6 +272,34 @@ void main() {
     });
   });
 
+  group('not attempted', () {
+    // The real bloc answers false only when its counters are not loaded,
+    // and the card that offers a Reset or a Delete is drawn only over loaded
+    // counters: this bloc gives that answer to a loaded page.
+    setUp(() async {
+      await bloc.close();
+      bloc = _UnattemptedCounterBloc(counterService: service);
+    });
+
+    for (final (what, label, success) in [
+      ('a Reset', l10n.resetCounter, l10n.counterResetSuccess),
+      ('a Delete', l10n.deleteCounter, l10n.counterDeleteSuccess),
+    ]) {
+      testWidgets('$what says nothing at all', (tester) async {
+        await pumpPage(tester);
+
+        await chooseFromMenu(tester, laps, label);
+        await answerDialog(tester, SemanticsIds.sheetConfirm);
+
+        expect(find.text(success), findsNothing);
+        expect(find.text(l10n.categoryChangeFailed), findsNothing);
+        expect(service.getGlobalValue(laps), 7);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+  });
+
   group('Return', () {
     // The per-note counter page writes through the service, which announces
     // no single value change: only the re-read on return can show it, and a
@@ -313,4 +357,20 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });
+}
+
+/// The real [CounterBloc], answering every Reset and Delete that nothing was
+/// attempted, as it does when its counters are not loaded.
+class _UnattemptedCounterBloc extends CounterBloc {
+  _UnattemptedCounterBloc({required super.counterService});
+
+  @override
+  void add(CounterEvent event) {
+    switch (event) {
+      case ResetCounter(:final done) || DeleteCounter(:final done):
+        done?.complete(false);
+      default:
+        super.add(event);
+    }
+  }
 }

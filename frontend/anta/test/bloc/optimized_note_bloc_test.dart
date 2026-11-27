@@ -36,6 +36,9 @@ class _FakeNoteStorage extends NoteStorageService {
   /// Set to make every label write throw, for the error path.
   bool failLabels = false;
 
+  /// Parks the next read, so a test can land another event while it is out.
+  Completer<void>? loadGate;
+
   /// The change stream the bloc follows, which a test feeds by hand.
   final StreamController<NoteChange> changeEvents =
       StreamController<NoteChange>.broadcast();
@@ -57,6 +60,8 @@ class _FakeNoteStorage extends NoteStorageService {
       failNextLoads--;
       throw StateError('storage unavailable');
     }
+    final gate = loadGate;
+    if (gate != null) await gate.future;
     final start = (page - 1) * pageSize;
     final slice = all.skip(start).take(pageSize).toList(growable: false);
     return PaginatedNotes(
@@ -496,5 +501,106 @@ void main() {
       await sub.cancel();
       await bloc.close();
     });
+  });
+
+  // A folder page back in front (third review, item 4).
+  group('a folder page coming back', () {
+    test('re-aims the bloc at its folder, as deep as it had read, straight '
+        'to Loaded', () async {
+      final bloc = await openedOnPageOne();
+      // A subfolder's page opened over it.
+      bloc.add(const LoadNotesPaginated(folderId: 'f2', pageSize: 20));
+      await pumpEventQueue();
+      storage.loads.clear();
+      final seen = <OptimizedNoteState>[];
+      final sub = bloc.stream.listen(seen.add);
+
+      bloc.add(
+        const ReturnToNotes(
+          folderId: 'f1',
+          sortOrder: NotesSortOrder.updatedDesc,
+          pages: 2,
+        ),
+      );
+      await pumpEventQueue();
+      await sub.cancel();
+
+      expect(seen.whereType<OptimizedNoteLoading>(), isEmpty);
+      expect(storage.loads, [(page: 1, pageSize: 40)]);
+      expect((bloc.state as OptimizedNoteLoaded).folderId, 'f1');
+      expect(idsIn(bloc.state), hasLength(40));
+      expect(bloc.isAimedAt('f1', NotesSortOrder.updatedDesc), isTrue);
+
+      // Its changes reach it again.
+      storage.loads.clear();
+      storage.changeEvents.add(
+        const NoteChange(
+          type: NoteChangeType.updated,
+          noteId: 'n000',
+          folderId: 'f1',
+        ),
+      );
+      await pumpEventQueue();
+      expect(storage.loads, isNotEmpty);
+      await bloc.close();
+    });
+
+    // The page came back and a subfolder was opened at once: the return's
+    // read lands after the subfolder's load re-aimed the bloc.
+    test(
+      'a return overtaken by another folder\'s load emits nothing',
+      () async {
+        final bloc = await openedOnPageOne();
+        final gate = Completer<void>();
+        storage.loadGate = gate;
+        bloc.add(
+          const ReturnToNotes(
+            folderId: 'f1',
+            sortOrder: NotesSortOrder.updatedDesc,
+            pages: 2,
+          ),
+        );
+        await pumpEventQueue();
+        storage.loadGate = null;
+        bloc.add(const LoadNotesPaginated(folderId: 'f2', pageSize: 20));
+        await pumpEventQueue();
+        expect((bloc.state as OptimizedNoteLoaded).folderId, 'f2');
+
+        gate.complete();
+        await pumpEventQueue();
+
+        final state = bloc.state as OptimizedNoteLoaded;
+        expect(state.folderId, 'f2');
+        expect(state.paginatedNotes.notes, hasLength(20));
+        expect(bloc.isAimedAt('f2', NotesSortOrder.updatedDesc), isTrue);
+        await bloc.close();
+      },
+    );
+
+    test(
+      'a peek answers the notes and neither emits nor moves the aim',
+      () async {
+        final bloc = await openedOnPageOne();
+        final seen = <OptimizedNoteState>[];
+        final sub = bloc.stream.listen(seen.add);
+
+        final done = Completer<PaginatedNotes>();
+        bloc.add(
+          PeekNotes(
+            folderId: 'covered',
+            sortOrder: NotesSortOrder.titleAsc,
+            done: done,
+          ),
+        );
+        final answer = await done.future;
+        await pumpEventQueue();
+        await sub.cancel();
+
+        expect(answer.notes, hasLength(20));
+        expect(seen, isEmpty);
+        expect(bloc.isAimedAt('f1', NotesSortOrder.updatedDesc), isTrue);
+        await bloc.close();
+      },
+    );
   });
 }

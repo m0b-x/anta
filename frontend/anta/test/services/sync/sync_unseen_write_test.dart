@@ -470,7 +470,9 @@ void main() {
     expect(await entryOn(b(), note.id), isNotNull);
     final waits = printed.where((l) => l.contains('unseen version')).single;
     expect(waits, contains('notes/${note.id}'));
-    expect(waits, isNot(contains('e1')));
+    // By its table, never by the bare id: the note's id is random, and one
+    // in eight of them holds the letters "e1".
+    expect(waits, isNot(contains('calendar_events')));
   });
 
   test('a hold inside a bisect: the refused row parks, the unseen note is '

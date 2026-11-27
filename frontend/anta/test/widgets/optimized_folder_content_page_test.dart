@@ -287,15 +287,19 @@ void main() {
 
   /// Pushes a real folder route, the way tapping a folder card does, so the
   /// ancestor menu has a stack to walk. The push future completes when the
-  /// route is popped, so it is deliberately not awaited.
+  /// route is popped, so it is deliberately not awaited. Not settled by
+  /// `pumpAndSettle`: the pushed page shows its spinner until its own rows
+  /// arrive — it never draws the parent's — and those need real async.
   Future<void> pushFolder(WidgetTester tester, Folder target) async {
     AppNavigator.toFolder(
       tester.element(find.byType(OptimizedFolderContentPage).first),
       folderId: target.id,
       title: target.name,
     ).ignore();
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     await settle(tester);
+    await tester.pumpAndSettle();
   }
 
   Future<void> openMenu(WidgetTester tester) async {
@@ -3608,6 +3612,32 @@ void main() {
 
       await teardownPage(tester);
     });
+
+    for (final skipped in [0, 2]) {
+      testWidgets('an import with $skipped files skipped says so only when '
+          'some were', (tester) async {
+        await pumpPage(tester);
+        await hear(
+          tester,
+          ImportExportImportSuccess(
+            operation: ImportExportOperation.importArchive,
+            result: ConvertImportResult(
+              foldersImported: 1,
+              notesImported: 3,
+              notesSkipped: skipped,
+            ),
+          ),
+        );
+
+        expect(find.textContaining(l10n.importedSummary(1, 3)), findsOneWidget);
+        expect(
+          find.textContaining(l10n.importSkippedFiles(2)),
+          skipped == 0 ? findsNothing : findsOneWidget,
+        );
+
+        await teardownPage(tester);
+      });
+    }
   });
 
   /// Record D24/D24a: "Confirm before delete" gates the rows' Delete, the
@@ -3797,6 +3827,57 @@ void main() {
       await tester.tap(find.text(l10n.cancel));
       await flush(tester);
       expect(events.of<DeleteOptimizedFolder>(), isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('on: a folder row\'s count that fails takes its loading dialog '
+        'down and says so', (tester) async {
+      await setConfirm(tester, true);
+      final spy = spyOnCounts()..failCounts = true;
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+
+      await deleteFromRow(tester, 'Kept open folder');
+
+      expect(spy.countLookups, 1);
+      expect(find.text(l10n.loadingContent), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.text(l10n.error('${StateError('count failed')}')),
+        findsOneWidget,
+      );
+      expect(events.of<DeleteOptimizedFolder>(), isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('on: the open folder\'s count that fails takes its loading '
+        'dialog down and stays on the folder', (tester) async {
+      await setConfirm(tester, true);
+      final spy = spyOnCounts()..failCounts = true;
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+      await pushFolder(tester, keptOpen);
+
+      await openMenu(tester);
+      await tester.tap(find.text(l10n.deleteFolder));
+      await flush(tester);
+
+      expect(spy.countLookups, 1);
+      expect(find.text(l10n.loadingContent), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.text(l10n.error('${StateError('count failed')}')),
+        findsOneWidget,
+      );
+      expect(events.of<DeleteOptimizedFolder>(), isEmpty);
+      expect(
+        tester
+            .widget<OptimizedFolderContentPage>(
+              find.byType(OptimizedFolderContentPage).last,
+            )
+            .folderId,
+        keptOpen.id,
+      );
 
       await teardownPage(tester);
     });
@@ -4078,9 +4159,13 @@ class _CountingFolderStorageService extends FolderStorageService {
 
   int countLookups = 0;
 
+  /// Set, every lookup throws: the read a loading dialog waits on failing.
+  bool failCounts = false;
+
   @override
   Future<int> getNoteCountForDeletion(String folderId) {
     countLookups++;
+    if (failCounts) return Future.error(StateError('count failed'));
     return super.getNoteCountForDeletion(folderId);
   }
 }

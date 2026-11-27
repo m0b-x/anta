@@ -131,6 +131,7 @@ void rebindRepositoriesTo(AppDatabase database) {
 Future<void> _registerServices() async {
   final folderStorageService = FolderStorageService(
     repository: getIt<FolderRepository>(),
+    noteRepository: getIt<NoteRepository>(),
   );
   await folderStorageService.initialize();
   getIt.registerSingleton<FolderStorageService>(folderStorageService);

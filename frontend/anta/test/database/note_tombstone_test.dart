@@ -92,6 +92,44 @@ void main() {
     expect(await db.noteDao.updateNote(id: 'nope', title: 'x'), isNull);
   });
 
+  test('a position written after a soft delete leaves the tombstone and the '
+      'outbox untouched', () async {
+    final note = await seedNote();
+    await db.noteDao.softDeleteNoteWithChunks(note.id);
+    final tombstone = await rowFor(note.id);
+    final queued = [
+      for (final e in await db.syncOutboxDao.pending()) (e.rowKey, e.hlc),
+    ];
+
+    final result = await db.noteDao.updateNotePosition(
+      id: note.id,
+      newPosition: 7,
+    );
+
+    expect(result, isNull, reason: 'a tombstone is not repositionable');
+    final after = await rowFor(note.id);
+    expect(after.position, tombstone.position);
+    expect(after.version, tombstone.version);
+    expect(after.hlcTimestamp, tombstone.hlcTimestamp);
+    expect(after.deviceId, tombstone.deviceId);
+    expect(after.updatedAt, tombstone.updatedAt);
+    expect([
+      for (final e in await db.syncOutboxDao.pending()) (e.rowKey, e.hlc),
+    ], queued);
+  });
+
+  test('a live note still takes a position', () async {
+    final note = await seedNote();
+
+    final result = await db.noteDao.updateNotePosition(
+      id: note.id,
+      newPosition: 7,
+    );
+
+    expect(result?.position, 7);
+    expect(result?.version, note.version + 1);
+  });
+
   /// The read side of the same guard. Every caller of [getNoteMetadata] —
   /// the editor's label, move and export rows, and the search index's
   /// stale-note refresh — treats null as "the note is gone"; handing them a

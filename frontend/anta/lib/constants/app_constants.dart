@@ -80,6 +80,12 @@ class AppConstants {
   static const int defaultPageSize = 20;
   static const int notePickerPageSize = 6;
 
+  /// What one browser load reads of a parent's subfolders. They come whole —
+  /// a parent holds few, the page never asks for a second page of them, and
+  /// select-all and a drag reorder must cover every one — so this is a
+  /// ceiling against a runaway tree, not a page size.
+  static const int folderLoadCeiling = 10000;
+
   /// How many "most recently edited" notes anything showing recents lists:
   /// the Recent page and the search surface's idle list, which used to
   /// disagree (50 against 20) under one label.
@@ -147,6 +153,10 @@ class AppConstants {
   /// a title built in code (a sync conflict copy's) is cut to fit it, or the
   /// insert fails.
   static const int maxNoteTitleLength = 500;
+
+  /// The `folders.name` column's `withLength` maximum, in UTF-16 code units:
+  /// a name built in code (an import's numbered copy) is cut to fit it.
+  static const int maxFolderNameLength = 255;
 
   // ============================================================
   // SEARCH CONSTANTS

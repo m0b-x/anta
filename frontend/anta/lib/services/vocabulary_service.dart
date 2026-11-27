@@ -185,6 +185,12 @@ class VocabularyService {
 
   // ── Cache load ───────────────────────────────────────────────────────
 
+  /// A failed read keeps the lists as they were held and publishes nothing:
+  /// an empty cache takes every suggestion away from the editor until the
+  /// next reload — and a republish of what this instance holds would, when
+  /// the read failed because the database closed under it at a switch, put
+  /// the closed database's lists back into the facade the switch had just
+  /// cleared.
   Future<void> _load() async {
     try {
       final rows = await _dao.getAllVocabularies();
@@ -214,7 +220,7 @@ class VocabularyService {
       ]);
     } catch (e) {
       debugPrint('[VocabularyService] Load error: $e');
-      _cache = const [];
+      return;
     }
     Vocabularies.updateCache(_cache);
   }
@@ -252,16 +258,26 @@ class VocabularyService {
     ];
   }
 
-  /// Replaces every vocabulary with [data]. Malformed rows are skipped.
-  Future<void> importData(List<dynamic> data) async {
+  /// Replaces every vocabulary with [data]. Malformed rows are skipped, and
+  /// counted for the restore to report: a list that cannot be read counts
+  /// once, its items with it — a second list under an id already restored
+  /// among them, the first kept, as the counters keep theirs; past that, an
+  /// `items` that is not a list and each item that cannot be read count one
+  /// each, and an item costs only itself. A list row that is not an object
+  /// the restore counts itself.
+  Future<int> importData(List<dynamic> data) async {
     await _dao.deleteAll();
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final id = map['id'] as String?;
         final name = map['name'] as String?;
-        if (id == null || name == null) continue;
+        if (id == null || name == null) {
+          skipped++;
+          continue;
+        }
 
         final createdMs = map['createdAtMs'] is int
             ? map['createdAtMs'] as int
@@ -285,41 +301,57 @@ class VocabularyService {
         );
 
         final items = map['items'];
-        if (items is! List) continue;
+        if (items is! List) {
+          if (items != null) skipped++;
+          continue;
+        }
         for (var i = 0; i < items.length; i++) {
-          final rawItem = items[i];
-          if (rawItem is! Map) continue;
-          final itemMap = rawItem.cast<String, dynamic>();
-          final term = itemMap['term'] as String?;
-          if (term == null || term.trim().isEmpty) continue;
+          try {
+            final rawItem = items[i];
+            if (rawItem is! Map) {
+              skipped++;
+              continue;
+            }
+            final itemMap = rawItem.cast<String, dynamic>();
+            final term = itemMap['term'] as String?;
+            if (term == null || term.trim().isEmpty) {
+              skipped++;
+              continue;
+            }
 
-          final itemCreatedMs = itemMap['createdAtMs'] is int
-              ? itemMap['createdAtMs'] as int
-              : createdMs;
-          final itemUpdatedMs = itemMap['updatedAtMs'] is int
-              ? itemMap['updatedAtMs'] as int
-              : itemCreatedMs;
+            final itemCreatedMs = itemMap['createdAtMs'] is int
+                ? itemMap['createdAtMs'] as int
+                : createdMs;
+            final itemUpdatedMs = itemMap['updatedAtMs'] is int
+                ? itemMap['updatedAtMs'] as int
+                : itemCreatedMs;
 
-          await _dao.importItem(
-            VocabularyItemsCompanion(
-              id: Value(itemMap['id'] as String? ?? _uuid.v4()),
-              vocabularyId: Value(id),
-              term: Value(term),
-              sortOrder: Value(
-                itemMap['sortOrder'] is int ? itemMap['sortOrder'] as int : i,
+            await _dao.importItem(
+              VocabularyItemsCompanion(
+                id: Value(itemMap['id'] as String? ?? _uuid.v4()),
+                vocabularyId: Value(id),
+                term: Value(term),
+                sortOrder: Value(
+                  itemMap['sortOrder'] is int ? itemMap['sortOrder'] as int : i,
+                ),
+                createdAt: Value(_fromMs(itemCreatedMs)),
+                updatedAt: Value(_fromMs(itemUpdatedMs)),
+                ownerId: Value(JsonKeys.ownerIdOf(itemMap)),
               ),
-              createdAt: Value(_fromMs(itemCreatedMs)),
-              updatedAt: Value(_fromMs(itemUpdatedMs)),
-              ownerId: Value(JsonKeys.ownerIdOf(itemMap)),
-            ),
-          );
+            );
+          } catch (e) {
+            skipped++;
+            debugPrint('[VocabularyService] Import item error: $e');
+          }
         }
       } catch (e) {
+        skipped++;
         debugPrint('[VocabularyService] Import row error: $e');
       }
     }
     await _load();
     _changes.add(null);
+    return skipped;
   }
 
   /// Empties the tables when a backup carries no vocabularies but the caller

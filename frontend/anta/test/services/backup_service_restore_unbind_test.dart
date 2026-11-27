@@ -23,6 +23,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/database_replacing.dart';
+import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_space_service.dart';
@@ -146,17 +147,34 @@ void main() {
       'the floor', () async {
     final db = await AppDatabase.getInstance();
     await (await SettingsService.getInstance()).setSyncBinding(binding);
+    final counters = await CounterService.getInstance();
+    final laps = await counters.addCounter(name: 'Laps');
     final backup = await BackupService.getInstance();
     final data = await exportBackupArchive();
     data['folders'] = [
       {JsonKeys.id: 'f1', JsonKeys.name: 'Restored'},
     ];
-    // The second note's null title throws halfway, after the first note and
-    // the folder were written.
     data['notes'] = [
       {JsonKeys.folderId: 'f1', JsonKeys.title: 'Kept', JsonKeys.content: 'a'},
-      {JsonKeys.folderId: 'f1', JsonKeys.title: null, JsonKeys.content: 'b'},
     ];
+    data['publicHolidays'] = [];
+    // A database error in the last section, after the folder and the note
+    // were written: the holiday wipe meets a row the trigger will not
+    // delete, and the transaction rolls back. (A null title is refused
+    // before the unbind, and a bad row is skipped.)
+    await (await PublicHolidayService.getInstance()).addCustom(
+      DateTime.utc(2026, 5, 5),
+      'Kept holiday',
+    );
+    await db.customStatement(
+      'CREATE TEMP TRIGGER unbind_fault BEFORE DELETE ON public_holidays '
+      "BEGIN SELECT RAISE(ABORT, 'unbind fault'); END",
+    );
+    addTearDown(() => db.customStatement('DROP TRIGGER unbind_fault'));
+    // A tap still pending: the restore's flush writes it after the unbind and
+    // before the transaction, so the rollback cannot take its queue entry
+    // back — only the clear can.
+    await counters.incrementGlobal(laps);
     var notified = 0;
     final sub = CalendarEventService.externalChanges.listen((_) => notified++);
     addTearDown(sub.cancel);
@@ -165,12 +183,21 @@ void main() {
     await pumpEventQueue();
 
     expect(result.success, isFalse);
+    expect(result.error, contains('unbind fault'));
     expect(await (await SyncBindingService.getInstance()).read(), isNull);
     expect(await db.syncOutboxDao.count(), 0);
+    final tap = (await db.counterDao.getAllValues()).singleWhere(
+      (v) => v.counterId == laps && v.noteId.isEmpty,
+    );
     final floor = await db.syncDao.getValue(SyncDao.keyBindFloor);
     expect(floor, isNotNull);
     expect(
-      floor!.compareTo((await db.syncOutboxDao.maxHlc())!),
+      floor!.compareTo(tap.hlcTimestamp),
+      greaterThanOrEqualTo(0),
+      reason: 'the flushed tap stands at or below the floor',
+    );
+    expect(
+      floor.compareTo((await db.syncOutboxDao.maxHlc())!),
       greaterThanOrEqualTo(0),
     );
     expect(SyncSuspension.isSuspended, isFalse);

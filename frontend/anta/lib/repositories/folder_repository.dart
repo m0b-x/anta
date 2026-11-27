@@ -272,6 +272,7 @@ class FolderRepository {
     required String name,
     String? parentId,
     required DateTime createdAt,
+    DateTime? updatedAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
     ItemLabel label = ItemLabel.none,
@@ -280,6 +281,7 @@ class FolderRepository {
       name: name,
       parentId: parentId,
       createdAt: createdAt,
+      updatedAt: updatedAt,
       noteSortOrder: noteSortOrder,
       subfolderSortOrder: subfolderSortOrder,
       label: label,
@@ -419,12 +421,22 @@ class FolderRepository {
     return changed;
   }
 
-  Future<void> deleteFolder(String id) async {
+  /// Tombstones [id] with its whole subtree and drops every folder of it
+  /// from the caches, by the ids the delete hands back: a walk read after it
+  /// skips tombstones and would find none. The notes it tombstoned are
+  /// returned for the note side to drop and announce
+  /// (`NoteRepository.announceCascadeDeleted`), which this repository does
+  /// not hold.
+  Future<FolderCascade> deleteFolder(String id) async {
     final folder = await getFolderById(id);
 
-    await _folderDao.softDeleteFolderWithDescendants(id);
+    final cascade = await _folderDao.softDeleteFolderWithDescendants(id);
 
     _folderCache.remove(id);
+    for (final folderId in cascade.folderIds) {
+      _folderCache.remove(folderId);
+      _invalidateParentCache(folderId);
+    }
     shareCensus.forgetIfShared();
     if (folder != null) {
       _invalidateParentCache(folder.parentId);
@@ -438,11 +450,7 @@ class FolderRepository {
         ),
       );
     }
-
-    final descendants = await _folderDao.getAllDescendantIds(id);
-    for (final descendantId in descendants) {
-      _folderCache.remove(descendantId);
-    }
+    return cascade;
   }
 
   Future<Folder?> moveFolder({

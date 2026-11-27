@@ -61,8 +61,67 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     on<DeleteOptimizedNotes>(_onDeleteNotes);
     on<PreloadNoteContent>(_onPreloadContent);
     on<RefreshNotes>(_onRefreshNotes);
+    on<ReturnToNotes>(_onReturnToNotes);
+    on<PeekNotes>(_onPeekNotes);
 
     _changesSubscription = _storageService.changes.listen(_onExternalChange);
+  }
+
+  /// Whether the bloc is aimed at [folderId] in [sortOrder], as a folder page
+  /// loads it: a page come back in front with nothing marked stale is then
+  /// already what the bloc serves, and a pop costs no read.
+  bool isAimedAt(String folderId, NotesSortOrder sortOrder) =>
+      _currentFolderId == folderId &&
+      _currentSortOrder == sortOrder &&
+      !_currentOwnOnly;
+
+  Future<void> _onReturnToNotes(
+    ReturnToNotes event,
+    Emitter<OptimizedNoteState> emit,
+  ) async {
+    _currentFolderId = event.folderId;
+    _currentSortOrder = event.sortOrder;
+    _currentPageSize = event.pageSize;
+    _currentOwnOnly = false;
+    _currentPage = event.pages < 1 ? 1 : event.pages;
+    try {
+      final paginatedNotes = await _loadLoadedPages(
+        folderId: event.folderId,
+        pages: _currentPage,
+      );
+      // Aimed elsewhere meanwhile — a subfolder opened the moment the page
+      // came back: emitting this folder's rows would leave them as the state
+      // that folder's next load-more builds on.
+      if (!isAimedAt(event.folderId, event.sortOrder)) return;
+      _lastPaginatedNotes = paginatedNotes;
+      emit(
+        OptimizedNoteLoaded(
+          paginatedNotes: paginatedNotes,
+          folderId: event.folderId,
+        ),
+      );
+    } catch (e, stackTrace) {
+      // The page keeps the rows it has; its next change or pull reads again.
+      _logError('Failed to read notes on return', e, stackTrace);
+    }
+  }
+
+  Future<void> _onPeekNotes(
+    PeekNotes event,
+    Emitter<OptimizedNoteState> emit,
+  ) async {
+    try {
+      await _storageService.initialize();
+      event.done.complete(
+        await _storageService.loadNotesPaginated(
+          folderId: event.folderId,
+          sortOrder: event.sortOrder,
+        ),
+      );
+    } catch (e, stackTrace) {
+      _logError('Failed to read notes for a covered page', e, stackTrace);
+      event.done.completeError(e, stackTrace);
+    }
   }
 
   void _onExternalChange(NoteChange change) {

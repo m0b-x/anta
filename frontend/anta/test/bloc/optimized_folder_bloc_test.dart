@@ -19,10 +19,10 @@ import 'package:anta/services/folder_storage_service.dart';
 /// calls is overridden, so nothing here reaches SQLite, and the service can
 /// still grow members without a wall of stubs going stale.
 ///
-/// The one thing worth pinning beyond "the service is called": a single-folder
-/// label reloads the list the *labelled folder* lives in, falling back to the
-/// page's own parent when the write came back null. Refreshing the wrong
-/// parent leaves the row on screen showing its old colour.
+/// The one thing worth pinning beyond "the service is called": a write
+/// reloads only the parent the bloc has open. The one bloc serves every
+/// stacked folder page, so reloading another parent moved it off the page in
+/// front; a page under it reads its own parent again on its return.
 class _FakeFolderStorage extends FolderStorageService {
   _FakeFolderStorage(FolderRepository repository)
     : super(repository: repository);
@@ -34,6 +34,10 @@ class _FakeFolderStorage extends FolderStorageService {
   /// so the cases that only care about "which parent, which page" can keep
   /// comparing whole records.
   final List<int> loadSizes = [];
+
+  /// The `sortOrder` of each read in [loads], kept beside it as [loadSizes]
+  /// is.
+  final List<FoldersSortOrder> loadOrders = [];
   final List<({String id, ItemLabel label})> labels = [];
   final List<({List<String> ids, ItemLabel label})> bulkLabels = [];
 
@@ -61,8 +65,14 @@ class _FakeFolderStorage extends FolderStorageService {
   /// Makes the next read throw, for the load-more failure path.
   bool failNextLoad = false;
 
+  /// Parks [initialize], so a test can land an event while a load waits on
+  /// its first await.
+  Completer<void>? initGate;
+
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() async {
+    if (initGate != null) await initGate!.future;
+  }
 
   @override
   void invalidateCache() {}
@@ -76,6 +86,7 @@ class _FakeFolderStorage extends FolderStorageService {
   }) async {
     loads.add((parentId: parentId, page: page));
     loadSizes.add(pageSize);
+    loadOrders.add(sortOrder);
     if (failNextLoad) {
       failNextLoad = false;
       throw StateError('storage unavailable');
@@ -243,29 +254,96 @@ void main() {
       },
     );
 
-    test(
-      'a refresh aimed at another parent still runs the full load',
-      () async {
-        storage.all = [
-          for (var i = 0; i < 6; i++) _folder(i),
-          _folder(9, parentId: 'elsewhere'),
-        ];
-        final bloc = await openedOn('p1');
-        storage.loads.clear();
-        final (seen, stop) = record(bloc);
+    // A page back in front names its parent and its order: the bloc is
+    // re-aimed there without a Loading, which blanked the count and the rows
+    // that page still had drawn (second review, finding 3).
+    test('a refresh for another parent re-aims the bloc there quietly, in '
+        'the order of the page that asked', () async {
+      storage.all = [
+        for (var i = 0; i < 6; i++) _folder(i),
+        _folder(9, parentId: 'elsewhere'),
+      ];
+      final bloc = await openedOn('p1');
+      storage.loads.clear();
+      storage.loadOrders.clear();
+      final (seen, stop) = record(bloc);
 
-        bloc.add(const RefreshFolders(parentId: 'elsewhere'));
-        await pumpEventQueue();
-        await stop();
+      bloc.add(
+        const RefreshFolders(
+          parentId: 'elsewhere',
+          sortOrder: FoldersSortOrder.nameDesc,
+        ),
+      );
+      await pumpEventQueue();
+      await stop();
 
-        expect(seen.whereType<OptimizedFolderLoading>(), hasLength(1));
-        expect(storage.loads, [(parentId: 'elsewhere', page: 1)]);
-        final loaded = bloc.state as OptimizedFolderLoaded;
-        expect(loaded.parentId, 'elsewhere');
-        expect(loaded.paginatedFolders.folders.single.id, 'f009');
-        await bloc.close();
-      },
-    );
+      expect(seen.whereType<OptimizedFolderLoading>(), isEmpty);
+      expect(storage.loads, [(parentId: 'elsewhere', page: 1)]);
+      expect(
+        storage.loadOrders,
+        [FoldersSortOrder.nameDesc],
+        reason:
+            'read in the order the bloc had open, the root showed a '
+            'child\'s order (finding 2)',
+      );
+      final loaded = bloc.state as OptimizedFolderLoaded;
+      expect(loaded.parentId, 'elsewhere');
+      expect(loaded.paginatedFolders.folders.single.id, 'f009');
+      await bloc.close();
+    });
+
+    test('a re-aimed bloc reads its new parent from the first page', () async {
+      storage.all = [
+        for (var i = 0; i < 70; i++) _folder(i),
+        _folder(99, parentId: 'elsewhere'),
+      ];
+      final bloc = await openedOn('p1');
+      bloc.add(const LoadMoreFolders(parentId: 'p1'));
+      await pumpEventQueue();
+      bloc.add(const LoadMoreFolders(parentId: 'p1'));
+      await pumpEventQueue();
+      storage.loadSizes.clear();
+
+      bloc.add(
+        const RefreshFolders(
+          parentId: 'elsewhere',
+          sortOrder: FoldersSortOrder.nameAsc,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        storage.loadSizes,
+        [20],
+        reason: 'the three pages were p1\'s; the new parent has read none',
+      );
+      expect(
+        (bloc.state as OptimizedFolderLoaded).paginatedFolders.currentPage,
+        1,
+      );
+      await bloc.close();
+    });
+
+    test('a refresh with no order keeps the one the open parent was loaded '
+        'in', () async {
+      final bloc = OptimizedFolderBloc(storageService: storage);
+      bloc.add(
+        const LoadFoldersPaginated(
+          parentId: 'p1',
+          pageSize: 20,
+          sortOrder: FoldersSortOrder.createdDesc,
+        ),
+      );
+      await pumpEventQueue();
+      storage.loadOrders.clear();
+
+      // What the bloc's own coalescer sends.
+      bloc.add(const RefreshFolders(parentId: 'p1'));
+      await pumpEventQueue();
+
+      expect(storage.loadOrders, [FoldersSortOrder.createdDesc]);
+      await bloc.close();
+    });
 
     test('a change on the open parent reloads it in place', () async {
       final bloc = await openedOn('p1');
@@ -391,7 +469,8 @@ void main() {
       await bloc.close();
     });
 
-    test('a burst touching two parents reloads both, once each', () async {
+    test('a burst on the open parent, overtaken by a refresh a page asked of '
+        'another, reads only that one', () async {
       final bloc = await openedOn('p1');
       storage.loads.clear();
 
@@ -414,16 +493,14 @@ void main() {
       bloc.add(const RefreshFolders(parentId: 'elsewhere'));
       await pumpEventQueue();
 
-      // Unordered: the directly added refresh does not go through the
-      // coalescer, so it runs ahead of the flushed one. What is pinned is
-      // that each parent is read exactly once.
-      expect(
-        storage.loads,
-        unorderedEquals(<({String? parentId, int page})>[
-          (parentId: 'p1', page: 1),
-          (parentId: 'elsewhere', page: 1),
-        ]),
-      );
+      // The directly added refresh does not go through the coalescer, so it
+      // runs ahead of the flush and moves the bloc to the page that asked.
+      // The flush reloads only the parent open by then: reading p1 again
+      // would move the bloc back off the page in front, and p1's own page
+      // reads it on its return (`didPopNext`).
+      expect(storage.loads, <({String? parentId, int page})>[
+        (parentId: 'elsewhere', page: 1),
+      ]);
       await bloc.close();
     });
 
@@ -475,7 +552,8 @@ void main() {
       await bloc.close();
     });
 
-    test('reloads the parent the labelled folder actually lives in', () async {
+    test('a folder labelled under another parent leaves the open list where '
+        'it is', () async {
       final bloc = await openedOn('p1');
       storage.loads.clear();
       storage.labelResult = _folder(0, parentId: 'elsewhere');
@@ -485,7 +563,14 @@ void main() {
       );
       await pumpEventQueue();
 
-      expect(storage.loads, [(parentId: 'elsewhere', page: 1)]);
+      expect(
+        storage.loads,
+        isEmpty,
+        reason:
+            'loading that parent moved the one bloc off the page in front; the '
+            'page of that parent reads it again on its return',
+      );
+      expect((bloc.state as OptimizedFolderLoaded).parentId, 'p1');
       await bloc.close();
     });
 
@@ -583,5 +668,180 @@ void main() {
       expect((bloc.state as OptimizedFolderError).parentId, 'p1');
       await bloc.close();
     });
+  });
+
+  group('one bloc under stacked pages', () {
+    test('a load as the browser asks for it reads the parent whole', () async {
+      storage.all = [for (var i = 0; i < 25; i++) _folder(i)];
+      final bloc = OptimizedFolderBloc(storageService: storage);
+
+      bloc.add(const LoadFoldersPaginated(parentId: 'p1'));
+      await pumpEventQueue();
+
+      final loaded = bloc.state as OptimizedFolderLoaded;
+      expect(
+        loaded.paginatedFolders.folders,
+        hasLength(25),
+        reason: 'the page never asks for a second page of folders',
+      );
+      expect(loaded.paginatedFolders.hasMore, isFalse);
+      await bloc.close();
+    });
+
+    // The root back in front after a child: its refresh re-aims the bloc, so
+    // the coalescer now answers the root's changes, in the root's order, and
+    // no longer the child's.
+    test('a change after a re-aim reloads the parent re-aimed at, in its '
+        'order, and no longer the one before', () async {
+      storage.all = [
+        for (var i = 0; i < 3; i++) _folder(i, parentId: null),
+        _folder(9),
+      ];
+      final bloc = await openedOn(null);
+      bloc.add(
+        const LoadFoldersPaginated(
+          parentId: 'p1',
+          sortOrder: FoldersSortOrder.nameDesc,
+        ),
+      );
+      await pumpEventQueue();
+      bloc.add(
+        const RefreshFolders(
+          parentId: null,
+          sortOrder: FoldersSortOrder.nameAsc,
+        ),
+      );
+      await pumpEventQueue();
+      storage.loads.clear();
+      storage.loadOrders.clear();
+
+      storage.emitChange(
+        const FolderChange(
+          type: FolderChangeType.created,
+          folderId: 'f100',
+          parentId: 'p1',
+        ),
+      );
+      await pumpEventQueue();
+      expect(storage.loads, isEmpty, reason: 'p1 is no longer open');
+
+      storage.emitChange(
+        const FolderChange(
+          type: FolderChangeType.created,
+          folderId: 'f101',
+          parentId: null,
+        ),
+      );
+      await pumpEventQueue();
+      expect(storage.loads, [(parentId: null, page: 1)]);
+      expect(storage.loadOrders, [FoldersSortOrder.nameAsc]);
+      expect((bloc.state as OptimizedFolderLoaded).parentId, isNull);
+      await bloc.close();
+    });
+
+    // Two loads in flight (second review, finding 4): the bloc's last state
+    // and the parent it reloads must not come apart, and the page in front
+    // must not lose the bloc to a read that ends late.
+    test('a load overtaken by a re-aim neither emits its rows nor takes the '
+        'bloc back', () async {
+      storage.all = [
+        for (var i = 0; i < 3; i++) _folder(i),
+        _folder(9, parentId: 'stale'),
+      ];
+      final bloc = await openedOn('p1');
+
+      final gate = Completer<void>();
+      storage.loadGate = gate;
+      bloc.add(const LoadFoldersPaginated(parentId: 'stale', pageSize: 20));
+      await pumpEventQueue();
+      storage.loadGate = null;
+      bloc.add(
+        const RefreshFolders(
+          parentId: 'p1',
+          sortOrder: FoldersSortOrder.nameAsc,
+        ),
+      );
+      await pumpEventQueue();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect((bloc.state as OptimizedFolderLoaded).parentId, 'p1');
+      storage.loads.clear();
+      storage.emitChange(
+        const FolderChange(
+          type: FolderChangeType.created,
+          folderId: 'f100',
+          parentId: 'p1',
+        ),
+      );
+      await pumpEventQueue();
+      expect(storage.loads, [(parentId: 'p1', page: 1)]);
+      await bloc.close();
+    });
+
+    // The load is aimed before its first await: a re-aim asked while that
+    // await is still out is the later request and must win.
+    test('a re-aim asked while a load waits on its first await wins over '
+        'it', () async {
+      storage.all = [
+        for (var i = 0; i < 3; i++) _folder(i),
+        _folder(9, parentId: 'stale'),
+      ];
+      final bloc = await openedOn('p1');
+
+      final gate = Completer<void>();
+      storage.initGate = gate;
+      bloc.add(const LoadFoldersPaginated(parentId: 'stale', pageSize: 20));
+      await pumpEventQueue();
+      storage.initGate = null;
+      bloc.add(
+        const RefreshFolders(
+          parentId: 'p1',
+          sortOrder: FoldersSortOrder.nameAsc,
+        ),
+      );
+      await pumpEventQueue();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(bloc.isAimedAt('p1', FoldersSortOrder.nameAsc), isTrue);
+      expect((bloc.state as OptimizedFolderLoaded).parentId, 'p1');
+      await bloc.close();
+    });
+
+    // A page launch restore builds under another reads its rows without
+    // taking the bloc from the page in front (third review, item 1).
+    test(
+      'a peek answers the rows and neither emits nor moves the aim',
+      () async {
+        storage.all = [
+          for (var i = 0; i < 3; i++) _folder(i),
+          _folder(9, parentId: 'covered'),
+        ];
+        final bloc = await openedOn('p1');
+        storage.loadOrders.clear();
+        final seen = <OptimizedFolderState>[];
+        final sub = bloc.stream.listen(seen.add);
+
+        final done = Completer<PaginatedFolders>();
+        bloc.add(
+          PeekFolders(
+            parentId: 'covered',
+            sortOrder: FoldersSortOrder.nameDesc,
+            done: done,
+          ),
+        );
+        final answer = await done.future;
+        await pumpEventQueue();
+        await sub.cancel();
+
+        expect(answer.folders.single.id, 'f009');
+        expect(storage.loadOrders, [FoldersSortOrder.nameDesc]);
+        expect(seen, isEmpty);
+        expect(bloc.isAimedAt('p1', FoldersSortOrder.nameAsc), isTrue);
+        expect((bloc.state as OptimizedFolderLoaded).parentId, 'p1');
+        await bloc.close();
+      },
+    );
   });
 }

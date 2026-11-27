@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/import_export/import_export_bloc.dart';
 import 'package:anta/bloc/import_export/import_export_event.dart';
 import 'package:anta/bloc/import_export/import_export_state.dart';
+import 'package:anta/constants/temp_file_names.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/export_format.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -94,9 +95,20 @@ void main() {
     expect(end.operation, ImportExportOperation.exportText);
     expect(result.format, ExportFormat.markdown);
     expect(result.eventsExported, 0);
+    // In an export folder of its own, under its own name.
+    final folder = File(result.filePath).parent;
     expect(
-      result.filePath,
-      '${tempDir.path}${Platform.pathSeparator}anta_report_20260301-20260331.md',
+      folder.parent.path,
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${ImportExportService.exportDirectoryName}',
+    );
+    expect(
+      folder.path.split(Platform.pathSeparator).last,
+      startsWith(TempFileNames.exportFolderPrefix),
+    );
+    expect(
+      result.filePath.split(Platform.pathSeparator).last,
+      'anta_report_20260301-20260331.md',
     );
     expect(service.shared, hasLength(1));
     expect(service.shared.single.filePath, result.filePath);
@@ -123,6 +135,14 @@ void main() {
 
   test('a write that fails mid-file fails the export and leaves no file '
       '(D46)', () async {
+    final exports = Directory(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${ImportExportService.exportDirectoryName}',
+    );
+    List<String> exportFolders() => exports.existsSync()
+        ? [for (final entry in exports.listSync()) entry.path]
+        : const [];
+    final before = exportFolders();
     final failing = ImportExportBloc(
       service: _FailingWriteService(
         noteStorage: NoteStorageService(
@@ -152,12 +172,8 @@ void main() {
       (end as ImportExportFailure).operation,
       ImportExportOperation.exportText,
     );
-    expect(
-      File(
-        '${tempDir.path}${Platform.pathSeparator}anta_report_half.md',
-      ).existsSync(),
-      isFalse,
-    );
+    // Neither the half-written file nor the folder it was written in.
+    expect(exportFolders(), before);
   });
 
   test('the file name is a bare name with the format\'s extension', () async {

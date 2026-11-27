@@ -40,7 +40,19 @@ class CounterService {
 
   /// Per-note values cache. Key = noteId, value = { counterId: value }.
   /// Populated lazily on first access per note; avoids repeated DB reads.
+  ///
+  /// A note's map, once here, is the one every tap writes into and every
+  /// reader holds until [_load] drops the cache as a whole: a later read
+  /// that replaced it left a reader — a page's refresh — holding a map no
+  /// tap reached any more, and it emitted that older value after the tap.
   final Map<String, Map<String, int>> _noteValuesCache = {};
+
+  /// The cold read of a note in flight, shared by every caller that arrives
+  /// before it lands — see [_noteValuesCache]. A read files what it read
+  /// only while it is still its note's entry here: [_load] and
+  /// [deleteNoteValue] drop the entry, because the table that read answered
+  /// is no longer the one memory should show.
+  final Map<String, Future<void>> _noteReads = {};
 
   // ---------------------------------------------------------------------------
   // Debounce infrastructure
@@ -75,18 +87,65 @@ class CounterService {
 
   CounterService._();
 
-  static Future<CounterService> getInstance() async {
-    if (_instance == null) {
-      _instance = CounterService._();
-      _instance!._db = await AppDatabase.getInstance();
-      _instance!._dao = _instance!._db.counterDao;
-      await _instance!._load();
-      DatabaseLifecycle.registerResetHandler(reset);
-      // A page still showing the values of the database before a switch hears
-      // that another instance answers now.
-      _changes.add(null);
+  /// The open in flight, shared by every caller that arrives before it
+  /// finishes.
+  static Future<CounterService>? _opening;
+
+  /// Bumped by every [reset]. With [DatabaseLifecycle.generation] it is how
+  /// an open tells, past each of its awaits, that it was overtaken — the
+  /// `CategoryService` guard: this counter covers a reset that reached this
+  /// service, the lifecycle's a switch that landed before any instance had
+  /// registered its handler.
+  static int _generation = 0;
+
+  /// The service over the active database, published only once it is whole:
+  /// it used to be stored before its first await, and a caller in that
+  /// window — a sync apply hook, the counter shortcut, the launch restore
+  /// after a switch — got an instance with no DAO or an empty index, and a
+  /// tap on it threw and was lost.
+  static Future<CounterService> getInstance() {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final inFlight = _opening;
+    if (inFlight != null) return inFlight;
+    late final Future<CounterService> opening;
+    // Only this open's own entry is cleared: a reset during it may already
+    // have let a newer open take the slot.
+    void settle() {
+      if (identical(_opening, opening)) _opening = null;
     }
-    return _instance!;
+
+    opening = () async {
+      final generation = _generation;
+      final lifecycle = DatabaseLifecycle.generation;
+      bool overtaken() =>
+          generation != _generation ||
+          lifecycle != DatabaseLifecycle.generation;
+      // An open a switch overtook read the database that is closing: it
+      // hands its caller the one built over the new database instead.
+      Future<CounterService> restart() {
+        settle();
+        return getInstance();
+      }
+
+      try {
+        final service = CounterService._();
+        service._db = await AppDatabase.getInstance();
+        service._dao = service._db.counterDao;
+        if (overtaken()) return await restart();
+        await service._load();
+        if (overtaken()) return await restart();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        // A page still showing the values of the database before a switch
+        // hears that another instance answers now.
+        _changes.add(null);
+        return service;
+      } finally {
+        settle();
+      }
+    }();
+    return _opening = opening;
   }
 
   /// The loaded singleton, or null before the first [getInstance] and after a
@@ -112,8 +171,10 @@ class CounterService {
   }
 
   static void reset() {
+    _generation++;
     _instance?._flushTimer?.cancel();
     _instance = null;
+    _opening = null;
   }
 
   List<Counter> get counters => List.unmodifiable(_counters);
@@ -172,6 +233,7 @@ class CounterService {
     _rebuildIndex();
     _globalValues = results[1] as Map<String, int>;
     _noteValuesCache.clear();
+    _noteReads.clear();
   }
 
   void _rebuildIndex() {
@@ -194,11 +256,17 @@ class CounterService {
   }
 
   /// A set or a reset: [value] replaces the stored number and the taps before
-  /// it.
-  void _recordAbsolute<K>(Map<K, _PendingCount> dirty, K key, int value) {
+  /// it. [onlyOverStoredRow] — see [_PendingCount.onlyOverStoredRow].
+  void _recordAbsolute<K>(
+    Map<K, _PendingCount> dirty,
+    K key,
+    int value, {
+    bool onlyOverStoredRow = false,
+  }) {
     dirty.putIfAbsent(key, _PendingCount.new)
       ..absolute = value
-      ..delta = 0;
+      ..delta = 0
+      ..onlyOverStoredRow = onlyOverStoredRow;
   }
 
   /// Writes each pending change over the value the table holds now, not the
@@ -231,10 +299,12 @@ class CounterService {
             debugPrint('[CounterService] Flush dropped $cid/$nid: no counter');
             continue;
           }
+          final overNothing =
+              change.onlyOverStoredRow && await _dao.getValue(cid, nid) == null;
           final value = await _dao.applyCount(
             cid,
             nid,
-            absolute: change.absolute,
+            absolute: overNothing ? null : change.absolute,
             delta: change.delta,
             startValue: counter.startValue,
           );
@@ -353,13 +423,18 @@ class CounterService {
     await _dao.deleteCounter(counterId);
   }
 
-  Future<void> deleteNoteValue(String counterId, String noteId) async {
-    _noteValuesCache[noteId]?.remove(counterId);
-    // A pending tap is written over the stored value, and would bring the
-    // deleted one back.
-    _dirtyNoteValues.remove((counterId, noteId));
-    await _dao.deleteValue(counterId, noteId);
-  }
+  /// Inside the flush queue: a flush in flight writes its value back into
+  /// the note's cache when it ends, and would put the deleted one back.
+  Future<void> deleteNoteValue(String counterId, String noteId) =>
+      _serialized(() async {
+        _noteValuesCache[noteId]?.remove(counterId);
+        // A pending tap is written over the stored value, and would bring the
+        // deleted one back; so would a cold read of the note that answered
+        // before the delete, and the next read is queued behind it.
+        _dirtyNoteValues.remove((counterId, noteId));
+        _noteReads.remove(noteId);
+        await _dao.deleteValue(counterId, noteId);
+      });
 
   // ---------------------------------------------------------------------------
   // Global values
@@ -392,33 +467,27 @@ class CounterService {
   /// recording the Reset would write a row and an outbox entry where an
   /// unbound database had neither (A6 review R117). A merged page has
   /// committed its row by the time memory goes stale, so R24's window stays
-  /// closed — and the look is taken inside the flush queue, or a flush in
-  /// flight with the first tap for this counter would still be writing the
-  /// row this read answers for.
+  /// closed.
+  ///
+  /// The Reset is recorded at once and the look is left to the flush, inside
+  /// its transaction: a Reset that waited for the flush queue to record
+  /// itself wiped a tap made in the meantime, and a flush in flight with the
+  /// first tap for this counter is still writing the row the look answers
+  /// for. A tap or a set already pending is the one case that needs no look;
+  /// an earlier Reset still pending hands its own look on, or Reset, Reset
+  /// would write the row the first one held back.
   Future<void> resetGlobal(String counterId) async {
     final counter = _counterIndex[counterId];
     if (counter == null) throw StateError('Counter not found: $counterId');
     _globalValues[counterId] = counter.startValue;
-    await _serialized(() async {
-      if (!_dirtyGlobalValues.containsKey(counterId) &&
-          !await _hasStoredGlobalValue(counterId)) {
-        return;
-      }
-      _recordAbsolute(_dirtyGlobalValues, counterId, counter.startValue);
-      _scheduleDirtyFlush();
-    });
-  }
-
-  /// Whether the table holds a live global value row for [counterId]. A read
-  /// that failed answers true: a Reset recorded for nothing is one write the
-  /// DAO suppresses, a Reset dropped is gone.
-  Future<bool> _hasStoredGlobalValue(String counterId) async {
-    try {
-      return await _dao.getValue(counterId, '') != null;
-    } catch (e) {
-      debugPrint('[CounterService] Reset read failed: $e');
-      return true;
-    }
+    final pending = _dirtyGlobalValues[counterId];
+    _recordAbsolute(
+      _dirtyGlobalValues,
+      counterId,
+      counter.startValue,
+      onlyOverStoredRow: pending == null || pending.onlyOverStoredRow,
+    );
+    _scheduleDirtyFlush();
   }
 
   Future<int> decrementGlobal(String counterId) async {
@@ -443,20 +512,45 @@ class CounterService {
   // Per-note values
   // ---------------------------------------------------------------------------
 
+  /// The cache's own map for [noteId] — see [_noteValuesCache]. A holder
+  /// that awaits anything after this returns reads [cachedNoteValues] again
+  /// before it trusts the map: a reload in between drops it.
   Future<Map<String, int>> getNoteValues(String noteId) async {
-    if (_noteValuesCache.containsKey(noteId)) {
-      return _noteValuesCache[noteId]!;
+    while (true) {
+      if (_noteValuesCache[noteId] case final cached?) return cached;
+      // Not filed when a reload or a delete dropped it: the loop reads again.
+      await (_noteReads[noteId] ??= _readNoteValues(noteId));
     }
-    final fromDb = await _dao.getValuesForNote(noteId);
-    // A reload dropped this note's cache while its taps were still pending.
-    for (final MapEntry(key: (cid, nid), value: pending)
-        in _dirtyNoteValues.entries) {
-      final counter = _counterIndex[cid];
-      if (nid != noteId || counter == null) continue;
-      fromDb[cid] = pending.over(fromDb[cid] ?? counter.startValue);
-    }
-    _noteValuesCache[noteId] = fromDb;
-    return fromDb;
+  }
+
+  /// [noteId]'s map when the cache holds it, with nothing awaited — so a
+  /// caller can build what it emits from the maps taps write into now.
+  Map<String, int>? cachedNoteValues(String noteId) => _noteValuesCache[noteId];
+
+  /// The caller files the returned future in [_noteReads] before the read's
+  /// first await returns, so the read can tell whether it is still the
+  /// note's.
+  Future<void> _readNoteValues(String noteId) {
+    late final Future<void> read;
+    bool current() => identical(_noteReads[noteId], read);
+    read = () async {
+      try {
+        final fromDb = await _dao.getValuesForNote(noteId);
+        if (!current()) return;
+        // A reload dropped this note's cache while its taps were still
+        // pending.
+        for (final MapEntry(key: (cid, nid), value: pending)
+            in _dirtyNoteValues.entries) {
+          final counter = _counterIndex[cid];
+          if (nid != noteId || counter == null) continue;
+          fromDb[cid] = pending.over(fromDb[cid] ?? counter.startValue);
+        }
+        _noteValuesCache[noteId] = fromDb;
+      } finally {
+        if (current()) _noteReads.remove(noteId);
+      }
+    }();
+    return read;
   }
 
   Future<int> getValueForNote(String counterId, String noteId) async {
@@ -613,149 +707,188 @@ class CounterService {
   /// id would hang under a note that exists nowhere. A map that names any note
   /// names every note the restore creates, so a per-note value, pin, position
   /// or owner whose archived id it lacks belongs to a note the archive did
-  /// not carry (one deleted before the export) and is dropped; an empty map —
-  /// an archive without notes, or without their ids — keeps every archived
-  /// id. The global value's empty note id is never translated.
-  Future<void> importData(
+  /// not carry (one deleted before the export) and is dropped — an empty map
+  /// included: an archive without notes had every note deleted at its
+  /// source, so no id it names exists here either. The global value's empty
+  /// note id is never translated.
+  ///
+  /// Returns how many archived rows could not be read and were skipped, for
+  /// the restore to report.
+  Future<int> importData(
     Map<String, dynamic> data, {
     Map<String, String> noteIdMap = const {},
   }) async {
-    await _serialized(() => _importData(data, noteIdMap));
+    var skipped = 0;
+    await _serialized(() async {
+      skipped = await _importData(data, noteIdMap);
+    });
     _changes.add(null);
+    return skipped;
   }
 
-  Future<void> _importData(
+  /// Parsed whole before the wipe, written in one awaited transaction — the
+  /// `CategoryService._persistImport` shape. What cannot be read is skipped
+  /// and counted, never thrown: the restore around this runs in one
+  /// transaction, and a damaged counter must not cost the notes.
+  ///
+  /// The counters the database holds are replaced only by a `counters` list
+  /// from which at least one row survives, or by an empty one — an archive of
+  /// a database that had none. They are kept, and nothing of [data] written,
+  /// when `counters` is absent (an absent section; nothing counted), when it
+  /// does not decode to a list (counted once), and when every row of a list
+  /// that has rows is unreadable (each row counted): their values would
+  /// otherwise be traded for nothing. Past that, each unreadable or
+  /// duplicate counter row, each value sub-section that does not decode to
+  /// an object (read as absent), each per-note group that is not an object,
+  /// each value that is not an int and each extra that cannot be read
+  /// counts one; a value or placement of a note the restore does not create,
+  /// or of a counter it does not restore, is dropped uncounted, with its
+  /// owner.
+  Future<int> _importData(
     Map<String, dynamic> data,
     Map<String, String> noteIdMap,
   ) async {
-    await _dao.deleteAll();
+    var skipped = 0;
+
+    // Null for a note the restore does not create.
+    String? restoredNoteId(String archived) =>
+        archived.isEmpty ? archived : noteIdMap[archived];
+
+    Object? decoded(String key) {
+      final raw = data[key];
+      if (raw == null) return null;
+      try {
+        return jsonDecode(raw as String);
+      } catch (e) {
+        debugPrint('[CounterService] Import $key skipped: $e');
+        return null;
+      }
+    }
+
+    Map<String, dynamic>? section(String key) {
+      final value = decoded(key);
+      if (value is Map<String, dynamic>) return value;
+      if (data[key] != null) skipped++;
+      return null;
+    }
+
+    if (data['counters'] == null) return 0;
+    final counterRows = decoded('counters');
+    if (counterRows is! List) return 1;
+
+    final companions = <CountersCompanion>[];
+    final restoredIds = <String>{};
+    for (final raw in counterRows) {
+      try {
+        final map = raw as Map<String, dynamic>;
+        final counter = Counter.fromJson(map);
+        // The first of two rows under one id wins: the second would fail
+        // the insert, and with it the restore.
+        if (restoredIds.contains(counter.id)) {
+          skipped++;
+          continue;
+        }
+        final companion = _counterToCompanion(
+          counter,
+          companions.length,
+        ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(map)));
+        // Only once its row is built: a values row of an id whose mapping
+        // threw would be written for a counter that does not exist.
+        restoredIds.add(counter.id);
+        companions.add(companion);
+      } catch (e) {
+        skipped++;
+        debugPrint('[CounterService] Import counter row skipped: $e');
+      }
+    }
+    if (companions.isEmpty && counterRows.isNotEmpty) return skipped;
+
+    final extras = section('noteValueExtras');
+    final globalValues = section('globalValues');
+    final noteValues = section('noteValues');
+
+    final valueOwners = <String, String>{};
+    // (counterId, noteId) → (isPinned, position)
+    final placements = <(String, String), (bool, int)>{};
+    for (final entry in (extras ?? const <String, dynamic>{}).entries) {
+      try {
+        final extra = entry.value as Map<String, dynamic>;
+        final parts = entry.key.split('::');
+        final ownerId = JsonKeys.ownerIdOf(extra);
+        if (parts.length != 2) {
+          if (ownerId != null) valueOwners[entry.key] = ownerId;
+          continue;
+        }
+        final noteId = restoredNoteId(parts[1]);
+        if (noteId == null) continue;
+        if (ownerId != null) valueOwners['${parts[0]}::$noteId'] = ownerId;
+        placements[(parts[0], noteId)] = (
+          extra['isPinned'] as bool? ?? false,
+          extra['position'] as int? ?? 0,
+        );
+      } catch (e) {
+        skipped++;
+        debugPrint('[CounterService] Import value extra skipped: $e');
+      }
+    }
+
+    final values = <(String, String), int>{};
+    void addValue(String counterId, String noteId, Object? value) {
+      if (!restoredIds.contains(counterId)) return;
+      if (value is! int) {
+        skipped++;
+        debugPrint('[CounterService] Import value skipped: $counterId');
+        return;
+      }
+      values[(counterId, noteId)] = value;
+    }
+
+    for (final entry in (globalValues ?? const <String, dynamic>{}).entries) {
+      addValue(entry.key, '', entry.value);
+    }
+    for (final noteEntry in (noteValues ?? const <String, dynamic>{}).entries) {
+      final noteId = restoredNoteId(noteEntry.key);
+      final perNote = noteEntry.value;
+      if (noteId == null) continue;
+      if (perNote is! Map<String, dynamic>) {
+        skipped++;
+        continue;
+      }
+      for (final valEntry in perNote.entries) {
+        addValue(valEntry.key, noteId, valEntry.value);
+      }
+    }
+
     _noteValuesCache.clear();
     _dirtyGlobalValues.clear();
     _dirtyNoteValues.clear();
     _flushTimer?.cancel();
 
-    // Null for a note the restore does not create.
-    String? restoredNoteId(String archived) {
-      if (archived.isEmpty || noteIdMap.isEmpty) return archived;
-      return noteIdMap[archived];
-    }
-
-    final extrasRaw = data['noteValueExtras'] as String?;
-    final valueOwners = <String, String>{};
-    if (extrasRaw != null) {
-      try {
-        final Map<String, dynamic> decoded = jsonDecode(extrasRaw);
-        for (final entry in decoded.entries) {
-          final ownerId = JsonKeys.ownerIdOf(
-            entry.value as Map<String, dynamic>,
-          );
-          if (ownerId == null) continue;
-          final parts = entry.key.split('::');
-          if (parts.length != 2) {
-            valueOwners[entry.key] = ownerId;
-            continue;
-          }
-          final noteId = restoredNoteId(parts[1]);
-          if (noteId == null) continue;
-          valueOwners['${parts[0]}::$noteId'] = ownerId;
+    await _db.transaction(() async {
+      await _dao.deleteAll();
+      for (final companion in companions) {
+        await _dao.insertCounter(companion);
+      }
+      for (final MapEntry(key: (counterId, noteId), :value) in values.entries) {
+        await _dao.upsertValue(
+          counterId,
+          noteId,
+          value,
+          ownerId: valueOwners['$counterId::$noteId'],
+        );
+      }
+      for (final MapEntry(key: (counterId, noteId), value: (pinned, position))
+          in placements.entries) {
+        if (!restoredIds.contains(counterId)) continue;
+        if (pinned) await _dao.setNoteValuePinned(counterId, noteId, true);
+        if (position != 0) {
+          await _dao.updateNoteValuePositions(counterId, {noteId: position});
         }
-      } catch (e) {
-        debugPrint('[CounterService] Import value owners error: $e');
       }
-    }
-
-    final countersRaw = data['counters'] as String?;
-    if (countersRaw != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(countersRaw);
-        final maps = decoded.cast<Map<String, dynamic>>();
-        await Future.wait([
-          for (var i = 0; i < maps.length; i++)
-            _dao.insertCounter(
-              _counterToCompanion(
-                Counter.fromJson(maps[i]),
-                i,
-              ).copyWith(ownerId: Value(JsonKeys.ownerIdOf(maps[i]))),
-            ),
-        ]);
-      } catch (e) {
-        debugPrint('[CounterService] Import counters error: $e');
-      }
-    }
-
-    final valuesRaw = data['globalValues'] as String?;
-    if (valuesRaw != null) {
-      try {
-        final Map<String, dynamic> decoded = jsonDecode(valuesRaw);
-        await Future.wait([
-          for (final entry in decoded.entries)
-            _dao.upsertValue(
-              entry.key,
-              '',
-              entry.value as int,
-              ownerId: valueOwners['${entry.key}::'],
-            ),
-        ]);
-      } catch (e) {
-        debugPrint('[CounterService] Import global values error: $e');
-      }
-    }
-
-    final noteValuesRaw = data['noteValues'] as String?;
-    if (noteValuesRaw != null) {
-      try {
-        final Map<String, dynamic> decoded = jsonDecode(noteValuesRaw);
-        final futures = <Future>[];
-        for (final noteEntry in decoded.entries) {
-          final noteId = restoredNoteId(noteEntry.key);
-          if (noteId == null) continue;
-          final values = noteEntry.value as Map<String, dynamic>;
-          for (final valEntry in values.entries) {
-            futures.add(
-              _dao.upsertValue(
-                valEntry.key,
-                noteId,
-                valEntry.value as int,
-                ownerId: valueOwners['${valEntry.key}::$noteId'],
-              ),
-            );
-          }
-        }
-        await Future.wait(futures);
-      } catch (e) {
-        debugPrint('[CounterService] Import note values error: $e');
-      }
-    }
-
-    if (extrasRaw != null) {
-      try {
-        final Map<String, dynamic> decoded = jsonDecode(extrasRaw);
-        final futures = <Future>[];
-        for (final entry in decoded.entries) {
-          final parts = entry.key.split('::');
-          if (parts.length != 2) continue;
-          final counterId = parts[0];
-          final noteId = restoredNoteId(parts[1]);
-          if (noteId == null) continue;
-          final extra = entry.value as Map<String, dynamic>;
-          final isPinned = extra['isPinned'] as bool? ?? false;
-          final position = extra['position'] as int? ?? 0;
-          if (isPinned) {
-            futures.add(_dao.setNoteValuePinned(counterId, noteId, true));
-          }
-          if (position != 0) {
-            futures.add(
-              _dao.updateNoteValuePositions(counterId, {noteId: position}),
-            );
-          }
-        }
-        await Future.wait(futures);
-      } catch (e) {
-        debugPrint('[CounterService] Import note value extras error: $e');
-      }
-    }
+    });
 
     await _load();
+    return skipped;
   }
 
   // ---------------------------------------------------------------------------
@@ -768,7 +901,12 @@ class CounterService {
     final counter = _counters[index];
     final newPinned = !counter.isPinned;
     _counters[index] = counter.copyWith(isPinned: newPinned);
-    _counters.sort(_counterSortComparator);
+    // A partition, not `sort`: `List.sort` is unstable past 32 elements, and
+    // every position below is a synced row.
+    _counters = [
+      ..._counters.where((c) => c.isPinned),
+      ..._counters.where((c) => !c.isPinned),
+    ];
     _rebuildIndex();
     final positions = <String, int>{};
     for (var i = 0; i < _counters.length; i++) {
@@ -792,15 +930,32 @@ class CounterService {
     await _dao.updateNoteValuePositions(counterId, positions);
   }
 
+  /// [counterId]'s value rows in the per-note page's order, each value the
+  /// one the service holds: a cached note's, else the row's with the taps
+  /// not flushed yet laid over it. One query whatever the number of notes,
+  /// and no note cache filled — a read per note cost a query per cold note
+  /// on every refresh, and every sync pull touching counters starts one.
+  ///
+  /// Read in the flush queue: a flush between the read and the overlay
+  /// would take the taps out of the pending map after the row was read
+  /// without them, and the page would show the value before them.
   Future<List<CounterValueRow>> getOrderedNoteValuesForCounter(
     String counterId,
-  ) {
-    return _dao.getValuesForCounterOrdered(counterId);
-  }
-
-  static int _counterSortComparator(Counter a, Counter b) {
-    if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
-    return 0;
+  ) async {
+    var rows = const <CounterValueRow>[];
+    await _serialized(() async {
+      final stored = await _dao.getValuesForCounterOrdered(counterId);
+      rows = [
+        for (final row in stored)
+          row.copyWith(
+            value:
+                _noteValuesCache[row.noteId]?[counterId] ??
+                _dirtyNoteValues[(counterId, row.noteId)]?.over(row.value) ??
+                row.value,
+          ),
+      ];
+    });
+    return rows;
   }
 
   // ---------------------------------------------------------------------------
@@ -873,6 +1028,10 @@ class _PendingCount {
   int? absolute;
   int delta = 0;
 
+  /// A Reset with nothing pending before it: [absolute] is written only over
+  /// a live row, so a counter with none stays without one (A6 review R117).
+  bool onlyOverStoredRow = false;
+
   int over(int base) => (absolute ?? base) + delta;
 
   /// This change followed by [later]: a later set or reset replaces it, later
@@ -882,6 +1041,7 @@ class _PendingCount {
     if (later.absolute != null) return later;
     return _PendingCount()
       ..absolute = absolute
-      ..delta = delta + later.delta;
+      ..delta = delta + later.delta
+      ..onlyOverStoredRow = onlyOverStoredRow;
   }
 }

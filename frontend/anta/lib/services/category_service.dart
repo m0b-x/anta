@@ -201,6 +201,12 @@ class CategoryService {
   /// phone are read only while one of the partner's is held — one more
   /// statement — and published with the catalogue
   /// ([CalendarCategories.partnerShown]).
+  ///
+  /// A failed read publishes nothing: the catalogue and the hidden set stay
+  /// as they were. It used to publish an empty catalogue, which no reader
+  /// can tell from a calendar with no categories — every picker and filter
+  /// went blank and every event drew as the fallback until the next reload
+  /// (settings rework review, 2026-11-01).
   Future<void> _load() async {
     var hidden = const <String>{};
     try {
@@ -217,7 +223,7 @@ class CategoryService {
       ]);
     } catch (e) {
       debugPrint('[CategoryService] Load error: $e');
-      _cache = const [];
+      return;
     }
     // Apart from the catalogue's read: a choice of what shows that cannot
     // be read hides nothing, and must not cost the person every category.
@@ -699,11 +705,16 @@ class CategoryService {
   /// mutations un-awaited, so an in-flight `create` landing mid-restore would
   /// leave an orphan row and a stale `_load()` could publish a half-imported
   /// catalog to the facade every render path reads.
-  Future<void> importData(List<dynamic> data) {
+  ///
+  /// Returns how many object rows could not be read and were left out, for
+  /// the restore to report; a row that is not an object the restore counts
+  /// itself. A damaged built-in row counts too, though the seed puts the
+  /// built-in back: what the person had made of it is lost.
+  Future<int> importData(List<dynamic> data) {
     return _serialize(() => _persistImport(data));
   }
 
-  Future<void> _persistImport(List<dynamic> data) async {
+  Future<int> _persistImport(List<dynamic> data) async {
     await _dao.deleteAll();
     // Parsed first, written once — the shape `EventTemplateService.importData`
     // established. The per-row `try` still costs a malformed row and nothing
@@ -711,6 +722,7 @@ class CategoryService {
     // per archived category, and a throw while parsing can no longer leave the
     // table half-restored.
     final companions = <CalendarCategoriesCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
@@ -723,6 +735,7 @@ class CategoryService {
             name is! String ||
             colorValue is! int ||
             iconKey is! String) {
+          skipped++;
           continue;
         }
         final createdMs = map['createdAtMs'] is int
@@ -759,12 +772,14 @@ class CategoryService {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[CategoryService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _seedBuiltIns();
     await _load();
+    return skipped;
   }
 
   // ── Row ↔ Domain ─────────────────────────────────────────────────────

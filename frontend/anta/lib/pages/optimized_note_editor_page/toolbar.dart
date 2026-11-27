@@ -28,43 +28,6 @@ mixin _NoteEditorToolbar on _NoteEditorTaps {
     List<UtilityButtonConfig> reorderedUtilities,
   ) => _editorSettings.setToolbarUtilityConfig(reorderedUtilities);
 
-  /// Increments the given counter and returns its post-increment value.
-  /// Also refreshes counter state in the BLoC.
-  Future<int> _incrementCounter(String counterId) async {
-    final bloc = context.read<CounterBloc>();
-    final counterState = bloc.state;
-    if (counterState is! CounterLoaded) return 0;
-
-    final counter = counterState.counters
-        .where((c) => c.id == counterId)
-        .firstOrNull;
-    if (counter == null) return 0;
-
-    final currentValue =
-        counterState.counterValues[counterId] ?? counter.startValue;
-    final noteId = _saves.effectiveNoteId ?? widget.noteId;
-    bloc.add(IncrementCounter(counterId: counterId, noteId: noteId));
-    return currentValue + counter.step;
-  }
-
-  /// Decrements the given counter and returns its post-decrement value.
-  Future<int> _decrementCounter(String counterId) async {
-    final bloc = context.read<CounterBloc>();
-    final counterState = bloc.state;
-    if (counterState is! CounterLoaded) return 0;
-
-    final counter = counterState.counters
-        .where((c) => c.id == counterId)
-        .firstOrNull;
-    if (counter == null) return 0;
-
-    final currentValue =
-        counterState.counterValues[counterId] ?? counter.startValue;
-    final noteId = _saves.effectiveNoteId ?? widget.noteId;
-    bloc.add(DecrementCounter(counterId: counterId, noteId: noteId));
-    return currentValue - counter.step;
-  }
-
   Future<void> _showCounterPicker() async {
     final counterState = context.read<CounterBloc>().state;
     if (counterState is! CounterLoaded) return;
@@ -96,7 +59,12 @@ mixin _NoteEditorToolbar on _NoteEditorTaps {
 
     if (selected == null || !mounted) return;
 
-    final currentValue = await _incrementCounter(selected.id);
+    final currentValue = await _mutateShortcutCounter(
+      selected.id,
+      CounterOp.increment,
+    );
+    // Nothing was counted, so the note is not told a number.
+    if (currentValue == null || !mounted) return;
     _edits.runGuarded(() {
       _contentController.runRevocableOp(() {
         _contentController.replaceSelection(currentValue.toString());
@@ -280,26 +248,16 @@ mixin _NoteEditorToolbar on _NoteEditorTaps {
     });
   }
 
-  /// Resolves one `{cN}` binding for [ShortcutApplier.resolve]: applies the
-  /// bound operation and reports the value the token expands to, or `null`
-  /// when the counter is unknown to the loaded state.
+  /// Resolves one `{cN}` binding for [ShortcutApplier.resolve] — see
+  /// [CounterBloc.shortcutValue].
   Future<int?> _mutateShortcutCounter(String counterId, CounterOp op) async {
     if (!mounted) return null;
-    final counterState = context.read<CounterBloc>().state;
-    if (counterState is! CounterLoaded) return null;
-    if (!counterState.counters.any((c) => c.id == counterId)) return null;
-    switch (op) {
-      case CounterOp.increment:
-        return _incrementCounter(counterId);
-      case CounterOp.decrement:
-        return _decrementCounter(counterId);
-      case CounterOp.keep:
-        // Counter existence already confirmed by the .any() guard above.
-        final counter = counterState.counters.firstWhere(
-          (c) => c.id == counterId,
-        );
-        return counterState.counterValues[counterId] ?? counter.startValue;
-    }
+    return context.read<CounterBloc>().shortcutValue(
+      counterId,
+      op,
+      noteId: _saves.effectiveNoteId ?? widget.noteId,
+      unfiled: _unfiledCounterPresses,
+    );
   }
 
   /// Opens the bar switcher bottom sheet and applies the selection.

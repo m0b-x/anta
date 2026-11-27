@@ -299,20 +299,25 @@ class EventPresenceService {
 
   /// Wipe-then-reinsert, mirroring [CalendarEventService.importData]. Audit
   /// timestamps are preserved from the backup; identity is stamped fresh by
-  /// the DAO, so a tombstone never round-trips a restore.
-  Future<void> importData(List<dynamic> data) async {
+  /// the DAO, so a tombstone never round-trips a restore. Returns how many
+  /// object rows were skipped, for the restore to report.
+  Future<int> importData(List<dynamic> data) async {
     await _dao.deleteAll();
     // Parsed first, written once (**5.1**): the per-row `try` still guards
     // parsing, but the write is one batched transaction instead of one
     // awaited insert — and one WAL commit — per archived row.
     final companions = <EventAbsencesCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final eventId = map['eventId'];
         final dayMs = map['dayMs'];
-        if (eventId is! String || dayMs is! int) continue;
+        if (eventId is! String || dayMs is! int) {
+          skipped++;
+          continue;
+        }
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
         final now = DateTime.now();
@@ -345,11 +350,13 @@ class EventPresenceService {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[EventPresenceService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _load();
+    return skipped;
   }
 
   /// Clears every mark. Used when restoring a backup that carried events but

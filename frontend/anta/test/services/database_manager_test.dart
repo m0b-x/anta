@@ -260,39 +260,37 @@ void main() {
     expect(AppDatabase.openInstanceOf('office'), isNull);
   });
 
-  test(
-    'a sidecar rename that fails still reports the failure, yet the sync '
-    'claim and the active name follow the `.db` (review BA-M6, RA2-1)',
-    () async {
-      const space = SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1');
-      await manager.createDatabase('work');
-      await manager.spaceRegistry.claim(space, 'work');
-      await manager.setActiveDatabaseName('work');
-      addTearDown(() async {
-        await (await SharedPreferences.getInstance()).remove(
-          SettingsKeys.syncBoundSpaces,
-        );
-        await manager.setActiveDatabaseName('gym_notes');
-      });
-      // A stray `-shm` beside a closed database, and a directory where its
-      // renamed twin must go: the `.db` moves, then the sidecar's rename fails.
-      // Closed, because Windows cannot rename an open file.
-      final oldPath = await manager.getDatabasePath('work');
-      File('$oldPath-shm').writeAsStringSync('stray');
-      final newPath = await manager.getDatabasePath('office');
-      Directory('$newPath-shm/blocked').createSync(recursive: true);
-
-      await expectLater(
-        manager.renameDatabase('work', 'office'),
-        throwsA(isA<FileSystemException>()),
+  // Changed 2026-11-27: the failure is logged, no longer thrown. Once the
+  // `.db` has moved, a throw told the page the rename had failed while the
+  // stored name had already moved (review of the database-safety slice,
+  // item 4); the claim and the name still follow the `.db` as before.
+  test('a sidecar rename that fails is logged, and the sync claim and the '
+      'active name follow the `.db` (review BA-M6, RA2-1)', () async {
+    const space = SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1');
+    await manager.createDatabase('work');
+    await manager.spaceRegistry.claim(space, 'work');
+    await manager.setActiveDatabaseName('work');
+    addTearDown(() async {
+      await (await SharedPreferences.getInstance()).remove(
+        SettingsKeys.syncBoundSpaces,
       );
+      await manager.setActiveDatabaseName('gym_notes');
+    });
+    // A stray `-shm` beside a closed database, and a directory where its
+    // renamed twin must go: the `.db` moves, then the sidecar's rename fails.
+    // Closed, because Windows cannot rename an open file.
+    final oldPath = await manager.getDatabasePath('work');
+    File('$oldPath-shm').writeAsStringSync('stray');
+    final newPath = await manager.getDatabasePath('office');
+    Directory('$newPath-shm/blocked').createSync(recursive: true);
 
-      expect(File(newPath).existsSync(), isTrue);
-      expect(manager.spaceRegistry.claims().single.databaseName, 'office');
-      expect(await manager.spaceRegistry.holderOf(space), 'office');
-      expect(manager.getActiveDatabaseName(), 'office');
-    },
-  );
+    expect(await manager.renameDatabase('work', 'office'), isFalse);
+
+    expect(File(newPath).existsSync(), isTrue);
+    expect(manager.spaceRegistry.claims().single.databaseName, 'office');
+    expect(await manager.spaceRegistry.holderOf(space), 'office');
+    expect(manager.getActiveDatabaseName(), 'office');
+  });
 
   test('a registry write that fails during a rename is logged: every file '
       'still moves and the rename completes (final review X-3)', () async {
@@ -327,6 +325,75 @@ void main() {
     expect(File('$newPath-wal').existsSync(), isFalse);
     expect(manager.getActiveDatabaseName(), 'office');
   });
+
+  // SQLite replays a `-wal` it finds beside a file into it, so a leftover
+  // under the new name — what a delete leaves when the `.db` goes and its
+  // `-wal` refuses — wrote the deleted database's last commits over the
+  // renamed one's, and the integrity check still said ok (review of the
+  // database-safety slice, item 2).
+  test('a -wal left under the new name is removed before the file moves '
+      'in: the renamed database keeps its own rows', () async {
+    await manager.createDatabase('work');
+    final work = await AppDatabase.getInstance(databaseName: 'work');
+    await work.folderDao.createFolder(name: 'WorkFolder');
+    await AppDatabase.whileClosed('work', (_) async {});
+
+    // A database whose last commits are in its -wal alone, then its .db
+    // deleted while the -wal stays.
+    await manager.createDatabase('office');
+    final officePath = await manager.getDatabasePath('office');
+    final office = await AppDatabase.getInstance(databaseName: 'office');
+    await office.folderDao.createFolder(name: 'OfficeFolder');
+    final leftover = File('$officePath-wal').readAsBytesSync();
+    expect(leftover, isNotEmpty);
+    await AppDatabase.whileClosed('office', (_) async {});
+    for (final suffix in ['', '-wal', '-shm']) {
+      final file = File('$officePath$suffix');
+      if (file.existsSync()) file.deleteSync();
+    }
+    File('$officePath-wal').writeAsBytesSync(leftover);
+
+    await manager.renameDatabase('work', 'office');
+
+    final renamed = sqlite3.open(officePath);
+    try {
+      expect(
+        [
+          for (final row in renamed.select('SELECT name FROM folders'))
+            row['name'],
+        ],
+        ['WorkFolder'],
+      );
+    } finally {
+      renamed.close();
+    }
+  });
+
+  test(
+    'on Windows a sidecar under the new name that another handle holds '
+    'fails the rename before anything has moved',
+    () async {
+      await manager.createDatabase('work');
+      final oldPath = await manager.getDatabasePath('work');
+      final newPath = await manager.getDatabasePath('office');
+      final orphan = File('$newPath-wal')..writeAsStringSync('leftover');
+      final held = orphan.openSync();
+      try {
+        await expectLater(
+          manager.renameDatabase('work', 'office'),
+          throwsA(isA<FileSystemException>()),
+        );
+      } finally {
+        held.closeSync();
+      }
+
+      expect(File(oldPath).existsSync(), isTrue);
+      expect(File(newPath).existsSync(), isFalse);
+    },
+    skip: Platform.isWindows
+        ? false
+        : 'an open file unlinks on POSIX: nothing fails there',
+  );
 
   group('a blocked checkpoint throws', () {
     test('on the live connection, which stays writable and folds once the '

@@ -813,6 +813,25 @@ class NoteRepository {
     }
   }
 
+  /// Tells [noteChanges] about the notes a folder delete tombstoned beneath
+  /// this repository (`FolderRepository.deleteFolder`), each with the folder
+  /// it lay in — the local twin of [announceRemoved]: dropped from every
+  /// cache, or [getNoteById] would keep serving them as live and the editor
+  /// could open one, and announced as a local deletion, the way [deleteNotes]
+  /// announces a selection.
+  void announceCascadeDeleted(Map<String, String> noteFolders) {
+    for (final MapEntry(key: id, value: folder) in noteFolders.entries) {
+      _noteCache.remove(id);
+      _contentCache.remove(id);
+      _invalidateFolderCache(folder);
+    }
+    for (final MapEntry(key: id, value: folder) in noteFolders.entries) {
+      _noteChangesController.add(
+        NoteChange(type: NoteChangeType.deleted, noteId: id, folderId: folder),
+      );
+    }
+  }
+
   /// Writes a sync conflict copy inside a pulled page's transaction: stamped
   /// and queued by the DAO like any new note, so it syncs, but nothing cached
   /// and nothing announced — a page that rolls back would leave a listener

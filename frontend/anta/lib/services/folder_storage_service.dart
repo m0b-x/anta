@@ -2,6 +2,7 @@ import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
 import '../database/daos/shared_row_dao.dart' show SharedRowException;
 import '../repositories/folder_repository.dart';
+import '../repositories/note_repository.dart';
 import '../models/folder.dart' as model;
 import '../models/item_label.dart';
 import '../models/movable_item.dart';
@@ -65,10 +66,18 @@ class FolderStorageService {
   static const int defaultPageSize = AppConstants.defaultPageSize;
 
   final FolderRepository _repository;
+
+  /// Told of the notes a folder delete tombstoned, so its caches stop serving
+  /// them as live. Optional only for the suites that exercise folders alone;
+  /// the app always wires it.
+  final NoteRepository? _notes;
   bool _isInitialized = false;
 
-  FolderStorageService({required FolderRepository repository})
-    : _repository = repository;
+  FolderStorageService({
+    required FolderRepository repository,
+    NoteRepository? noteRepository,
+  }) : _repository = repository,
+       _notes = noteRepository;
 
   /// [FolderRepository.bindings]: a reader that awaits a load takes it
   /// before and compares it after, to tell whether what it read is still
@@ -180,6 +189,15 @@ class FolderStorageService {
     return _toModel(folder);
   }
 
+  /// When [folderId]'s row was last written, or null if there is none. The
+  /// folder archive carries it so an import keeps it; the model leaves it
+  /// out, since no page draws it and its equality would then change on
+  /// writes no page shows.
+  Future<DateTime?> updatedAtOf(String folderId) async {
+    await initialize();
+    return (await _repository.getFolderById(folderId))?.updatedAt;
+  }
+
   Future<int> getSubfolderCount(String folderId) async {
     await initialize();
     return _repository.getFolderCount(folderId);
@@ -221,11 +239,13 @@ class FolderStorageService {
   /// Service-level entry point for the import pipeline. Performs the same
   /// uniqueness check as [createFolder] but routes through
   /// [FolderRepository.importFolder] so the original `createdAt` and
-  /// per-folder sort preferences from the source archive are preserved.
+  /// per-folder sort preferences from the source archive are preserved, and
+  /// its `updatedAt` when the archive carries one.
   Future<model.Folder> importFolder({
     required String name,
     String? parentId,
     required DateTime createdAt,
+    DateTime? updatedAt,
     String? noteSortOrder,
     String? subfolderSortOrder,
     ItemLabel label = ItemLabel.none,
@@ -242,6 +262,7 @@ class FolderStorageService {
       name: name,
       parentId: parentId,
       createdAt: createdAt,
+      updatedAt: updatedAt,
       noteSortOrder: noteSortOrder,
       subfolderSortOrder: subfolderSortOrder,
       label: label,
@@ -345,7 +366,8 @@ class FolderStorageService {
   Future<void> deleteFolder(String folderId) async {
     await initialize();
     await ensureOwn([folderId]);
-    await _repository.deleteFolder(folderId);
+    final cascade = await _repository.deleteFolder(folderId);
+    _notes?.announceCascadeDeleted(cascade.noteFolders);
   }
 
   /// Deletes a whole selection of folders, each with its subtree.
@@ -359,7 +381,8 @@ class FolderStorageService {
     await initialize();
     await ensureOwn(folderIds);
     for (final folderId in folderIds) {
-      await _repository.deleteFolder(folderId);
+      final cascade = await _repository.deleteFolder(folderId);
+      _notes?.announceCascadeDeleted(cascade.noteFolders);
     }
   }
 

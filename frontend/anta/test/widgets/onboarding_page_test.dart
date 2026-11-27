@@ -297,6 +297,101 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    testWidgets('a backup with a damaged optional part restores, and says '
+        'how much it skipped', (tester) async {
+      final path = p.join(tempDir.path, 'picked', 'damaged.json');
+      await tester.runAsync(() async {
+        await Directory(p.dirname(path)).create(recursive: true);
+        await File(path).writeAsString(
+          jsonEncode({
+            'version': 7,
+            'folders': [
+              {JsonKeys.id: 'f1', JsonKeys.name: 'Training'},
+            ],
+            'notes': [
+              {
+                JsonKeys.id: 'n1',
+                JsonKeys.folderId: 'f1',
+                JsonKeys.title: 'Leg day',
+                JsonKeys.content: 'squats',
+              },
+            ],
+            'settings': 'theme_mode=dark',
+          }),
+        );
+      });
+      picker.nextPath = path;
+      final robot = OnboardingRobot(tester);
+      await robot.pump();
+
+      await robot.restoreFromBackup();
+      await robot.settleUntil(() => robot.shows(l10n.confirmImport));
+      await robot.confirmDialog();
+      await robot.settleUntil(() => robot.completions == 1);
+
+      final (folders, notes) = await stored(tester);
+      expect(folders, ['Training']);
+      expect(notes, ['Leg day']);
+      expect(
+        find.text('${l10n.importSuccess(1, 1)}\n${l10n.importSkipped(1)}'),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a file that is not text — a .zip picked by mistake — is '
+        'refused as not a backup', (tester) async {
+      final path = p.join(tempDir.path, 'picked', 'notes.zip');
+      await tester.runAsync(() async {
+        await Directory(p.dirname(path)).create(recursive: true);
+        await File(
+          path,
+        ).writeAsBytes([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x80]);
+      });
+      picker.nextPath = path;
+      final robot = OnboardingRobot(tester);
+      await robot.pump();
+
+      await robot.restoreFromBackup();
+      await robot.settleUntil(
+        () =>
+            robot.shows(l10n.invalidBackupFile) ||
+            robot.shows(l10n.importFailed),
+      );
+
+      expect(robot.shows(l10n.invalidBackupFile), isTrue);
+      expect(robot.showsDialog, isFalse);
+      expect(robot.completions, 0);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a page closed while the backup is read imports nothing', (
+      tester,
+    ) async {
+      picker.nextPath = await writeBackup(tester);
+      final robot = OnboardingRobot(tester);
+      await robot.pump();
+      final restore = find.bySemanticsIdentifier(
+        SemanticsIds.onboardingRestore,
+      );
+      await tester.ensureVisible(restore);
+      await tester.pump();
+
+      await tester.tap(restore);
+      await tester.pump();
+      // Gone before the confirmation could be asked: the restore it never
+      // confirmed must not run.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await robot.settle(rounds: 60);
+
+      final (folders, notes) = await stored(tester);
+      expect(folders, isEmpty);
+      expect(notes, isEmpty);
+      expect(await onboardingDone(tester), isFalse);
+    });
   });
 
   testWidgets('a SQLite file is restored as a new active database and the '
@@ -412,13 +507,9 @@ void main() {
   testWidgets('an unreadable file shows the error and leaves the flag unset', (
     tester,
   ) async {
-    final path = p.join(tempDir.path, 'picked', 'garbled.json');
-    await tester.runAsync(() async {
-      await Directory(p.dirname(path)).create(recursive: true);
-      // Not SQLite, and not UTF-8 either: the read itself throws.
-      await File(path).writeAsBytes([0xff, 0xfe, 0xc3, 0x28, 0xa0, 0xa1]);
-    });
-    picker.nextPath = path;
+    // Gone between the pick and the read: the read itself throws. Bytes that
+    // are not UTF-8 are "not a backup" instead (the `.zip` case above).
+    picker.nextPath = p.join(tempDir.path, 'picked', 'gone.json');
     final robot = OnboardingRobot(tester);
     await robot.pump();
 

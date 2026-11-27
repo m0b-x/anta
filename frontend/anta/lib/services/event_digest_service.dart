@@ -269,20 +269,25 @@ class EventDigestService implements DigestWriter {
   /// Wipe-then-reinsert, [OverviewViewService.importData]'s shape: audit
   /// timestamps preserved, identity stamped fresh by the DAO, malformed rows
   /// skipped. A payload that no longer parses is stored as written and reads
-  /// as the default digest, which keeps the user's named row alive.
-  Future<void> importData(List<dynamic> data) {
+  /// as the default digest, which keeps the user's named row alive. Returns
+  /// how many object rows were skipped, for the restore to report.
+  Future<int> importData(List<dynamic> data) {
     return _serialize(() => _importData(data));
   }
 
-  Future<void> _importData(List<dynamic> data) async {
+  Future<int> _importData(List<dynamic> data) async {
     await _dao.deleteAll();
     final companions = <EventDigestsCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final id = map['id'];
-        if (id is! String || id.isEmpty) continue;
+        if (id is! String || id.isEmpty) {
+          skipped++;
+          continue;
+        }
         final name = map['name'];
         final enabled = map['enabled'];
         final now = DateTime.now();
@@ -309,11 +314,13 @@ class EventDigestService implements DigestWriter {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[EventDigestService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _load();
+    return skipped;
   }
 
   static EventDigest _rowToDigest(EventDigestRow row) {

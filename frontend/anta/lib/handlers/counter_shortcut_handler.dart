@@ -6,6 +6,10 @@ import '../interfaces/markdown_shortcut_handler.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../services/counter_service.dart';
 
+/// Nothing calls [execute] today: the note editor counts and inserts through
+/// `ShortcutApplier.resolve` (`optimized_note_editor_page/toolbar.dart`), and
+/// only [setActiveNoteId] is reached in the app. Kept to the editor's rule
+/// all the same — with no valid place to write, nothing is counted.
 class CounterShortcutHandler implements MarkdownShortcutHandler {
   String? _activeNoteId;
 
@@ -27,11 +31,19 @@ class CounterShortcutHandler implements MarkdownShortcutHandler {
     final counterService = await CounterService.getInstance();
     final counter = counterService.getCounterById(counterId);
     if (counter == null) return;
+    // A per-note count reads the note's values first; read here, before the
+    // caret is looked at, the count below has nothing left to wait for, and
+    // no input can move the caret between the look and the write.
+    final noteId = _activeNoteId;
+    if (noteId != null) await counterService.getNoteValues(noteId);
+    // With no caret there is nowhere to write the number, so nothing is
+    // counted either: a count that lands in no note is one nobody can see.
+    if (!controller.selection.isValid) return;
 
     // increment() now returns the post-increment value (the count you just reached).
     final currentValue = await counterService.increment(
       counterId,
-      noteId: _activeNoteId,
+      noteId: noteId,
     );
 
     final text = controller.text;

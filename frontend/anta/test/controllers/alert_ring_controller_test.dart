@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +14,7 @@ import 'package:anta/models/event_alert.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_keep_notice.dart';
 import 'package:anta/services/alert_scheduler.dart';
+import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/session_chip.dart';
 
 import '../database/support/db_test_support.dart';
@@ -404,6 +407,70 @@ void main() {
       await finishStop();
 
       expect(store.removals, isEmpty);
+    });
+  });
+
+  group('an alarm of another database, made the next launch\'s:', () {
+    // The page then tells the person to exit and open the app again, and
+    // nothing switches underneath the running process meanwhile: the name
+    // is stored for the next launch alone. This group runs the real
+    // `DatabaseManager` over a temporary documents directory.
+    late Directory tempDir;
+    late SharedPreferences prefs;
+
+    setUpAll(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      tempDir = await Directory.systemTemp.createTemp('anta_ring_database');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => tempDir.path,
+          );
+    });
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      prefs = await SharedPreferences.getInstance();
+      DatabaseManager.resetForTesting();
+      final manager = await DatabaseManager.getInstance();
+      if (!await manager.databaseExists('work')) {
+        await manager.createDatabase('work');
+      }
+    });
+
+    tearDownAll(() async {
+      DatabaseManager.resetForTesting();
+      try {
+        await tempDir.delete(recursive: true);
+      } catch (_) {}
+    });
+
+    test('its database is stored for the next launch and this process '
+        'stays on its own', () async {
+      final controller = AlertRingController(
+        payload: payload(database: 'work'),
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.activateDatabase(), isTrue);
+
+      expect(prefs.getString('active_database'), 'work');
+      final manager = await DatabaseManager.getInstance();
+      expect(manager.getActiveDatabaseName(), 'gym_notes');
+    });
+
+    test('a database that is no longer there is never stored: the next '
+        'launch would open its name and create it empty', () async {
+      // An alarm armed before its database was renamed or deleted still
+      // carries the old name.
+      final controller = AlertRingController(
+        payload: payload(database: 'renamed-away'),
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.activateDatabase(), isFalse);
+
+      expect(prefs.getString('active_database'), isNull);
     });
   });
 

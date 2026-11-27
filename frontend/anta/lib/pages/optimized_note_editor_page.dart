@@ -55,6 +55,7 @@ import '../widgets/unified_app_bars.dart';
 import '../utils/editor_width_calculator.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/re_editor_search_controller.dart';
+import '../utils/text_fit.dart';
 import '../utils/text_history_observer.dart';
 import '../utils/text_position_utils.dart';
 import '../utils/wiki_link_title.dart';
@@ -490,6 +491,10 @@ class _OptimizedNoteEditorPageState extends _NoteEditorState
                 // may adopt its id.
                 if (widget.noteId != null || !_saves.isCreatingNewNote) return;
                 final id = state.metadata.id;
+                // In the turn the id is adopted: a press from here on counts
+                // on the note itself, behind the presses made without it,
+                // which are counted there now.
+                _counterBloc.fileShortcutPresses(id, _unfiledCounterPresses);
                 _saves.noteCreated(id);
                 // From here on the note has an id, so its reading
                 // position can start being persisted.

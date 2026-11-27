@@ -63,6 +63,7 @@ final class ImportExportImportSuccess extends ImportExportState {
     operation,
     result.foldersImported,
     result.notesImported,
+    result.notesSkipped,
   ];
 }
 

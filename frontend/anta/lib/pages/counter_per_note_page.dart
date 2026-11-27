@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -26,8 +28,14 @@ class CounterPerNotePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
+      // The live singleton before GetIt's: GetIt holds the instance built at
+      // launch, which a database switch leaves on the closed database. Handed
+      // the singleton, the bloc follows each one that replaces it. Both doors
+      // in — `AppNavigator.toCounterPerNote` and the launch replay — open the
+      // service before building the page; GetIt's is a suite's.
       create: (_) => CounterPerNoteBloc(
-        counterService: GetIt.I<CounterService>(),
+        counterService:
+            CounterService.instanceOrNull ?? GetIt.I<CounterService>(),
         noteRepository: GetIt.I<NoteRepository>(),
       )..add(CounterPerNoteOpened(counterId: counter.id)),
       child: _CounterPerNoteView(counter: counter),
@@ -213,10 +221,31 @@ class _CounterPerNoteView extends StatelessWidget {
       icon: Icons.restart_alt_rounded,
     );
     if (!confirmed || !context.mounted) return;
-    context.read<CounterPerNoteBloc>().add(const CounterPerNoteResetAll());
+    final done = Completer<bool>();
+    context.read<CounterPerNoteBloc>().add(CounterPerNoteResetAll(done: done));
+    await _reportOutcome(context, done.future, l10n.counterResetAllSuccess);
+  }
+}
+
+/// Says how a write went once the bloc has answered, never before, and
+/// nothing when the bloc attempted nothing.
+Future<void> _reportOutcome(
+  BuildContext context,
+  Future<bool> outcome,
+  String success,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  final bool written;
+  try {
+    written = await outcome;
+  } catch (_) {
     if (context.mounted) {
-      CustomSnackbar.showSuccess(context, l10n.counterResetAllSuccess);
+      CustomSnackbar.showError(context, l10n.categoryChangeFailed);
     }
+    return;
+  }
+  if (written && context.mounted) {
+    CustomSnackbar.showSuccess(context, success);
   }
 }
 
@@ -488,12 +517,11 @@ class _NoteValueCard extends StatelessWidget {
           icon: Icons.restart_alt_rounded,
         );
         if (!confirmed || !context.mounted) return;
+        final done = Completer<bool>();
         context.read<CounterPerNoteBloc>().add(
-          CounterPerNoteReset(noteId: entry.note.id),
+          CounterPerNoteReset(noteId: entry.note.id, done: done),
         );
-        if (context.mounted) {
-          CustomSnackbar.showSuccess(context, l10n.counterResetSuccess);
-        }
+        await _reportOutcome(context, done.future, l10n.counterResetSuccess);
         break;
       case 'remove':
         final confirmed = await AppDialogs.confirm(

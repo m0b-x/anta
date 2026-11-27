@@ -1179,6 +1179,21 @@ void main() {
       expect(second.title, endsWith(' (conflict copy, $stamp) (2)'));
     });
 
+    test('the cut keeps an emoji sequence whole', () async {
+      const frame = ' (conflict copy, $stamp)';
+      const room = AppConstants.maxNoteTitleLength - frame.length;
+      // Two people joined by U+200D, five code units: the cut falls after
+      // the first person and the joiner.
+      final title = '${'x' * (room - 3)}\u{1F468}‍\u{1F469}zz';
+      final note = await db.noteDao.createNote(
+        folderId: 'f1',
+        title: title,
+        content: 'theirs',
+      );
+
+      expect((await copyOf(note)).title, '${'x' * (room - 3)}$frame');
+    });
+
     test('an untitled note is named as the browser names it', () async {
       final note = await db.noteDao.createNote(
         folderId: 'f1',

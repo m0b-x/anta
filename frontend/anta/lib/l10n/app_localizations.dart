@@ -556,6 +556,18 @@ abstract class AppLocalizations {
   /// **'Romanian National Day'**
   String get publicHolidayNationalDayRomania;
 
+  /// Romanian public holiday on January 2
+  ///
+  /// In en, this message translates to:
+  /// **'Day after New Year\'s Day'**
+  String get publicHolidayDayAfterNewYear;
+
+  /// Romanian public holiday on January 7, the Synaxis of Saint John the Baptist
+  ///
+  /// In en, this message translates to:
+  /// **'St John the Baptist'**
+  String get publicHolidayStJohnTheBaptist;
+
   /// US public holiday on the third Monday of January
   ///
   /// In en, this message translates to:
@@ -2590,6 +2602,18 @@ abstract class AppLocalizations {
   /// **'Successfully imported {folders} folders and {notes} notes'**
   String importSuccess(int folders, int notes);
 
+  /// Second line of the import snackbar when some files of an archive could not be read
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 file skipped: could not be read} other{{count} files skipped: could not be read}}'**
+  String importSkippedFiles(int count);
+
+  /// Second line of the restore's success message: how many damaged rows or sections of the backup's optional parts were left out
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item skipped: could not be read} other{{count} items skipped: could not be read}}'**
+  String importSkipped(int count);
+
   /// Error message when import fails
   ///
   /// In en, this message translates to:
@@ -3897,6 +3921,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'All data has been deleted. Please restart the app to continue.'**
   String get restartRequiredAfterDeletion;
+
+  /// Message after the open database was renamed, which closes it; the dialog's one button exits the app
+  ///
+  /// In en, this message translates to:
+  /// **'The database was renamed. Please restart the app to continue.'**
+  String get restartRequiredAfterRename;
 
   /// Button to exit the app
   ///

@@ -30,6 +30,7 @@ import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/counter.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/models/export_format.dart';
 import 'package:anta/models/item_label.dart';
@@ -4900,6 +4901,49 @@ void main() {
       await teardownPage(tester);
     });
 
+    testWidgets('a deleted note kept as new under a taken title at the limit '
+        'is numbered on a whole character', (tester) async {
+      const room = AppConstants.maxNoteTitleLength - 4;
+      // The cut for " (2)" falls between the emoji's two code units.
+      final long = '${'x' * (room - 1)}😀yyy';
+      final renamed = await tester.runAsync(
+        () => storageService.updateNote(noteId: synced.id, title: long),
+      );
+      synced = renamed!;
+      final controller = await open(tester);
+      type(controller, 'mine ');
+      await tester.pump();
+
+      await mergeFromElsewhere(tester, synced.id, delete: true, announce: false);
+      // Taken once the merged delete freed it, before the page hears of it.
+      await tester.runAsync(
+        () => storageService.createNote(
+          folderId: syncFolder.id,
+          title: long,
+          content: 'twin',
+        ),
+      );
+      await announceMerge(tester, synced.id);
+      await settleUntil(
+        tester,
+        () => find
+            .text(AppLocalizationsEn().syncNoteKeptAsNew)
+            .evaluate()
+            .isNotEmpty,
+      );
+      OverlaySnackbar.hide();
+      await settle(tester);
+      final live = (await tester.runAsync(
+        () => db.noteDao.getNotesByFolder(syncFolder.id),
+      ))!;
+
+      expect(
+        [for (final note in live) note.title],
+        containsAll([long, '${'x' * (room - 1)} (2)']),
+      );
+      await teardownPage(tester);
+    });
+
     testWidgets("nothing happens for this device's own write or for another "
         "note's merge", (tester) async {
       final controller = await open(tester);
@@ -5029,7 +5073,13 @@ void main() {
       // The write the page started before the merge commits after it.
       noteBloc.updateGate = null;
       landed.complete();
-      await settle(tester);
+      // The row is read only once the copy is filed. The page files it in a
+      // transaction it opens in the fake zone, which moves on pumps alone,
+      // and a read issued while that transaction is open waits for it inside
+      // `runAsync`, where nothing pumps: the case then sat until the run's
+      // timeout (2026-11-14, 2026-11-27; three runs in thirteen alone on a
+      // loaded machine). A counted `settle` here only made that unlikely.
+      await until(tester, AppLocalizationsEn().syncNoteConflictCopyFiled);
       expect(await storedBody(tester, synced.id), 'mine $body');
       // Filing the copy after the write landed re-arms one more save of the
       // user's text, which the row already holds.
@@ -7114,6 +7164,282 @@ void main() {
       });
     });
   });
+
+  // The page's own `{cN}` path: the bar's press reaches `_handleShortcut`,
+  // the picker's choice `_showCounterPicker`, over a real bloc and the real
+  // service.
+  group('counter numbers written into the note', () {
+    late CounterService counters;
+    late CounterBloc counting;
+    late Folder counterFolder;
+    late String sets;
+    late String laps;
+    late NoteMetadata created;
+
+    setUpAll(() async {
+      counting = CounterBloc(
+        counterService: await CounterService.getInstance(),
+      );
+      counterFolder = await db.folderDao.createFolder(name: 'Counted notes');
+    });
+
+    tearDownAll(() => counting.close());
+
+    setUp(() async {
+      counters = await CounterService.getInstance();
+      sets = await counters.addCounter(name: 'Sets', startValue: 0);
+      laps = await counters.addCounter(
+        name: 'Laps',
+        startValue: 1,
+        scope: CounterScope.perNote,
+      );
+      counting.add(const LoadCounters());
+      await pumpEventQueue();
+      // The row the early create would write: a case answers the page's
+      // create with it when the case says so.
+      final note = await db.noteDao.createNote(
+        folderId: counterFolder.id,
+        title: '',
+      );
+      created = NoteMetadata(
+        id: note.id,
+        folderId: counterFolder.id,
+        title: '',
+        preview: '',
+        contentLength: 0,
+        chunkCount: 0,
+        isCompressed: false,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+      );
+    });
+
+    tearDown(() async {
+      await counters.deleteCounter(sets);
+      await counters.deleteCounter(laps);
+    });
+
+    Future<CodeLineEditingController> mount(
+      WidgetTester tester, {
+      bool newNote = false,
+    }) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counting),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: newNote
+                ? OptimizedNoteEditorPage(folderId: counterFolder.id)
+                : const OptimizedNoteEditorPage(
+                    folderId: folderId,
+                    noteId: noteId,
+                  ),
+          ),
+        ),
+      );
+      if (!newNote) {
+        noteBloc.emitContentLoaded(metadata, content);
+        await tester.pump();
+      }
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      final controller = editorOf(tester).controller;
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 0,
+      );
+      await tester.pump();
+      return controller;
+    }
+
+    MarkdownBar barOf(WidgetTester tester) => tester.widget<MarkdownBar>(
+      find.byType(MarkdownBar, skipOffstage: false),
+    );
+
+    CustomMarkdownShortcut naming(String text, List<String> ids) =>
+        CustomMarkdownShortcut(
+          id: 'test-counted',
+          label: 'test',
+          iconCodePoint: 0xe000,
+          iconFontFamily: 'MaterialIcons',
+          beforeText: text,
+          afterText: '',
+          counters: [for (final id in ids) CounterBinding(counterId: id)],
+        );
+
+    Future<void> press(WidgetTester tester, CustomMarkdownShortcut s) async {
+      barOf(tester).onShortcutPressed(s);
+      await settle(tester, rounds: 4);
+    }
+
+    /// What the service holds in memory for [id] on [note] (`''`: global).
+    int? held(String id, String note) => note.isEmpty
+        ? counters.getGlobalValue(id)
+        : counters.cachedNoteValues(note)?[id];
+
+    /// The row once the pending taps are written: the app forces the
+    /// debounced write on pause, and so does the case before it reads the
+    /// table.
+    Future<int?> stored(WidgetTester tester, String id, String note) async {
+      await tester.runAsync(counters.flush);
+      return tester.runAsync<int?>(() => db.counterDao.getValue(id, note));
+    }
+
+    for (final perNote in [false, true]) {
+      testWidgets('one counter named twice writes each of its counts, '
+          '${perNote ? 'per note' : 'global'}', (tester) async {
+        final id = perNote ? laps : sets;
+        final note = perNote ? noteId : '';
+        final start = perNote ? 1 : 0;
+        final controller = await mount(tester);
+
+        await press(tester, naming('Set {c1} / {c1} ', [id]));
+
+        expect(
+          controller.codeLines[0].text,
+          'Set ${start + 1} / ${start + 2} first line',
+        );
+        expect(held(id, note), start + 2);
+        expect((counting.state as CounterLoaded).counterValues[id], start + 2);
+        expect(await stored(tester, id, note), start + 2);
+        await teardownPage(tester);
+      });
+    }
+
+    Future<void> pick(WidgetTester tester, String name) async {
+      barOf(tester).onCounter!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text(name));
+      await settle(tester, rounds: 4);
+    }
+
+    testWidgets('the counter picker writes the number it counted', (
+      tester,
+    ) async {
+      final controller = await mount(tester);
+
+      await pick(tester, 'Sets');
+
+      expect(controller.codeLines[0].text, '1first line');
+      expect(held(sets, ''), 1);
+      expect(await stored(tester, sets, ''), 1);
+      await teardownPage(tester);
+    });
+
+    testWidgets('the counter picker writes nothing when nothing was counted', (
+      tester,
+    ) async {
+      final controller = await mount(tester);
+      barOf(tester).onCounter!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      // Gone beneath the open picker, as a sync pull can do.
+      await tester.runAsync(() => counters.deleteCounter(sets));
+
+      await tester.tap(find.text('Sets'));
+      await settle(tester, rounds: 4);
+
+      expect(controller.codeLines[0].text, 'first line');
+      await teardownPage(tester);
+    });
+
+    group('in a new note, before its create lands', () {
+      setUp(() => noteBloc.holdCreates = true);
+
+      testWidgets('a press writes start + step, and the note holds it once '
+          'the create lands; the next press goes on from there', (
+        tester,
+      ) async {
+        final controller = await mount(tester, newNote: true);
+        final shortcut = naming('Set {c1} ', [laps]);
+
+        await press(tester, shortcut);
+        expect(controller.text, 'Set 2 ');
+        expect(
+          noteBloc.dispatched.whereType<CreateOptimizedNote>(),
+          hasLength(1),
+        );
+
+        noteBloc.emitCreated(created);
+        await settle(tester);
+        expect(held(laps, created.id), 2);
+
+        await press(tester, shortcut);
+        expect(controller.text, 'Set 2 Set 3 ');
+        expect(held(laps, created.id), 3);
+        expect(await stored(tester, laps, created.id), 3);
+        await teardownPage(tester);
+      });
+
+      testWidgets('two presses write start + step and start + 2·step', (
+        tester,
+      ) async {
+        final controller = await mount(tester, newNote: true);
+        final shortcut = naming('Set {c1} ', [laps]);
+
+        await press(tester, shortcut);
+        await press(tester, shortcut);
+        expect(controller.text, 'Set 2 Set 3 ');
+
+        noteBloc.emitCreated(created);
+        await settle(tester);
+        expect(held(laps, created.id), 3);
+
+        await press(tester, shortcut);
+        expect(controller.text, 'Set 2 Set 3 Set 4 ');
+        expect(await stored(tester, laps, created.id), 4);
+        await teardownPage(tester);
+      });
+
+      for (final pressFirst in [true, false]) {
+        testWidgets('a press in the same turn as the create, '
+            '${pressFirst ? 'before' : 'after'} it, neither skips nor '
+            'repeats a number', (tester) async {
+          final controller = await mount(tester, newNote: true);
+          final shortcut = naming('Set {c1} ', [laps]);
+          await press(tester, shortcut);
+
+          if (pressFirst) {
+            barOf(tester).onShortcutPressed(shortcut);
+            noteBloc.emitCreated(created);
+          } else {
+            noteBloc.emitCreated(created);
+            barOf(tester).onShortcutPressed(shortcut);
+          }
+          await settle(tester);
+
+          expect(controller.text, 'Set 2 Set 3 ');
+          expect(held(laps, created.id), 3);
+          expect(await stored(tester, laps, created.id), 3);
+          await teardownPage(tester);
+        });
+      }
+
+      testWidgets('a note that is never created counts nothing', (
+        tester,
+      ) async {
+        final controller = await mount(tester, newNote: true);
+
+        await press(tester, naming('Set {c1} ', [laps]));
+        expect(controller.text, 'Set 2 ');
+        await teardownPage(tester);
+        await tester.pump(const Duration(milliseconds: 350));
+
+        final rows = await tester.runAsync(
+          () => db.counterDao.getValuesForCounter(laps),
+        );
+        expect(rows, isEmpty);
+        expect(counters.getGlobalValue(laps), 1);
+      });
+    });
+  });
 }
 
 /// The real export service with only its last step stubbed: it still
@@ -7280,12 +7606,18 @@ class _TestNoteBloc extends OptimizedNoteBloc {
   /// the answer itself rather than the moment it lands.
   bool answerLoads = false;
 
+  /// When set, the page's early create stays here rather than reaching the
+  /// real handler, so a case says when it lands, and as which note
+  /// ([emitCreated]).
+  bool holdCreates = false;
+
   void clearDispatched() => dispatched.clear();
 
   @override
   void add(OptimizedNoteEvent event) {
     dispatched.add(event);
     if (event is LoadNoteContent && !answerLoads) return;
+    if (event is CreateOptimizedNote && holdCreates) return;
     final gate = updateGate;
     if (gate != null && event is UpdateOptimizedNote) {
       gate.future.then((_) => super.add(event));
@@ -7298,8 +7630,13 @@ class _TestNoteBloc extends OptimizedNoteBloc {
     dispatched.clear();
     updateGate = null;
     answerLoads = false;
+    holdCreates = false;
     emit(OptimizedNoteInitial());
   }
+
+  /// The early create's answer, as the real handler gives it.
+  void emitCreated(NoteMetadata metadata) =>
+      emit(OptimizedNoteCreated(metadata: metadata));
 
   void emitContentLoaded(NoteMetadata metadata, String content) {
     emit(

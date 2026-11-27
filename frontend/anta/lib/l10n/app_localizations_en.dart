@@ -248,6 +248,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get publicHolidayNationalDayRomania => 'Romanian National Day';
 
   @override
+  String get publicHolidayDayAfterNewYear => 'Day after New Year\'s Day';
+
+  @override
+  String get publicHolidayStJohnTheBaptist => 'St John the Baptist';
+
+  @override
   String get publicHolidayMartinLutherKingDay => 'Martin Luther King Jr. Day';
 
   @override
@@ -1517,6 +1523,28 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String importSkippedFiles(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count files skipped: could not be read',
+      one: '1 file skipped: could not be read',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String importSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items skipped: could not be read',
+      one: '1 item skipped: could not be read',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get importFailed => 'Import failed';
 
   @override
@@ -2265,6 +2293,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get restartRequiredAfterDeletion =>
       'All data has been deleted. Please restart the app to continue.';
+
+  @override
+  String get restartRequiredAfterRename =>
+      'The database was renamed. Please restart the app to continue.';
 
   @override
   String get exitApp => 'Exit App';

@@ -1341,12 +1341,20 @@ abstract final class AppNavigator {
 
   /// Stamped with the counter's id alone: replay looks the counter up again,
   /// so a counter deleted or made global since is not reopened.
+  ///
+  /// The counter service is opened before the push, as replay does before it
+  /// builds the page: after a database switch nothing may have asked for it
+  /// yet, and the page would build its bloc on GetIt's instance over the
+  /// closed database. Over an open service the wait is one microtask.
   static Future<void> toCounterPerNote(
     BuildContext context, {
     required Counter counter,
-  }) {
-    if (_isOnTop(context, NavDestinationKind.counterPerNote)) {
-      return Future<void>.value();
+  }) async {
+    if (_isOnTop(context, NavDestinationKind.counterPerNote)) return;
+    await CounterService.getInstance();
+    if (!context.mounted ||
+        _isOnTop(context, NavDestinationKind.counterPerNote)) {
+      return;
     }
     return push(
       context,

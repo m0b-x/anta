@@ -180,6 +180,8 @@ class OverviewViewService {
     }
   }
 
+  /// A failed read keeps the views as they were held: an empty list reads as
+  /// "nothing saved", and [isFull] would let a save past [maxViews].
   Future<void> _load() async {
     var weekStart = CalendarWeekStart.monday;
     try {
@@ -197,7 +199,6 @@ class OverviewViewService {
       );
     } catch (e) {
       debugPrint('[OverviewViewService] Load error: $e');
-      _cache = const [];
     }
   }
 
@@ -308,20 +309,25 @@ class OverviewViewService {
   /// timestamps preserved, identity stamped fresh by the DAO, malformed rows
   /// skipped. A payload that no longer parses is stored as written and reads
   /// as this year's unfiltered list, which keeps the user's named row alive.
-  Future<void> importData(List<dynamic> data) {
+  /// Returns how many object rows were skipped, for the restore to report.
+  Future<int> importData(List<dynamic> data) {
     return _serialize(() => _importData(data));
   }
 
-  Future<void> _importData(List<dynamic> data) async {
+  Future<int> _importData(List<dynamic> data) async {
     await _dao.deleteAll();
     final companions = <OverviewViewsCompanion>[];
+    var skipped = 0;
     for (final raw in data) {
       if (raw is! Map) continue;
       final map = raw.cast<String, dynamic>();
       try {
         final id = map['id'];
         final name = map['name'];
-        if (id is! String || name is! String) continue;
+        if (id is! String || name is! String) {
+          skipped++;
+          continue;
+        }
         final now = DateTime.now();
         final createdAtMs = map['createdAtMs'];
         final updatedAtMs = map['updatedAtMs'];
@@ -345,11 +351,13 @@ class OverviewViewService {
           ),
         );
       } catch (e) {
+        skipped++;
         debugPrint('[OverviewViewService] Import row error: $e');
       }
     }
     await _dao.importAll(companions);
     await _load();
+    return skipped;
   }
 
   OverviewView _rowToView(

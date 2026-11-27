@@ -70,15 +70,14 @@ class CounterPerNoteBloc
     CounterPerNoteRefreshed event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    if (state is! CounterPerNoteLoaded) return;
     // The entries are read from the table, and a reload keeps this page's
     // taps pending in the service; the flush writes them over the merged
     // values first.
     await _counterService.flush();
     // A refresh now arrives from a sync pull as well as from the page, and
     // must not clear a mutation error before it was read (A1b review R29).
-    await _loadEntries(emit, lastError: current.lastError);
+    await _loadEntries(emit, keepError: true);
   }
 
   Future<void> _onAddNote(
@@ -100,25 +99,65 @@ class CounterPerNoteBloc
       await _counterService.flush();
       await _loadEntries(emit);
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] AddNote error: $e');
+      _fail('AddNote', e, emit);
     }
+  }
+
+  /// The loaded state as it is now. A handler reads it after its await, never
+  /// before: flutter_bloc runs handlers concurrently, and entries captured
+  /// before the await would emit over a tap another handler showed meanwhile.
+  CounterPerNoteLoaded? get _loaded => switch (state) {
+    final CounterPerNoteLoaded loaded => loaded,
+    _ => null,
+  };
+
+  /// Emits [change] applied to the entries as they are now — see [_loaded].
+  void _emitEntries(
+    Emitter<CounterPerNoteState> emit,
+    List<NoteValueEntry> Function(List<NoteValueEntry> entries) change,
+  ) {
+    final latest = _loaded;
+    if (latest == null) return;
+    emit(latest.copyWith(entries: change(latest.entries)));
+  }
+
+  /// [entries] with [noteId]'s value set to [value].
+  static List<NoteValueEntry> _withValue(
+    List<NoteValueEntry> entries,
+    String noteId,
+    int value,
+  ) => [
+    for (final e in entries) e.note.id == noteId ? e.copyWith(value: value) : e,
+  ];
+
+  /// A mutation that failed: the error rides the state and [done], so no
+  /// page reports it as done.
+  void _fail(
+    String what,
+    Object error,
+    Emitter<CounterPerNoteState> emit, [
+    Completer<bool>? done,
+  ]) {
+    debugPrint('[CounterPerNoteBloc] $what error: $error');
+    final latest = _loaded;
+    if (latest != null) emit(latest.copyWith(lastError: error.toString()));
+    done?.completeError(error);
   }
 
   Future<void> _onRemoveNote(
     CounterPerNoteRemoveNote event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    if (state is! CounterPerNoteLoaded) return;
     try {
       await _counterService.flush();
       await _counterService.deleteNoteValue(_counterId, event.noteId);
-      final entries = current.entries
-          .where((e) => e.note.id != event.noteId)
-          .toList();
-      emit(current.copyWith(entries: entries));
+      _emitEntries(
+        emit,
+        (entries) => entries.where((e) => e.note.id != event.noteId).toList(),
+      );
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] RemoveNote error: $e');
+      _fail('RemoveNote', e, emit);
     }
   }
 
@@ -126,20 +165,15 @@ class CounterPerNoteBloc
     CounterPerNoteIncrement event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    if (state is! CounterPerNoteLoaded) return;
     try {
       final newValue = await _counterService.increment(
         _counterId,
         noteId: event.noteId,
       );
-      final entries = current.entries.map((e) {
-        if (e.note.id == event.noteId) return e.copyWith(value: newValue);
-        return e;
-      }).toList();
-      emit(current.copyWith(entries: entries));
+      _emitEntries(emit, (e) => _withValue(e, event.noteId, newValue));
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] Increment error: $e');
+      _fail('Increment', e, emit);
     }
   }
 
@@ -147,20 +181,15 @@ class CounterPerNoteBloc
     CounterPerNoteDecrement event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    if (state is! CounterPerNoteLoaded) return;
     try {
       final newValue = await _counterService.decrementForNote(
         _counterId,
         event.noteId,
       );
-      final entries = current.entries.map((e) {
-        if (e.note.id == event.noteId) return e.copyWith(value: newValue);
-        return e;
-      }).toList();
-      emit(current.copyWith(entries: entries));
+      _emitEntries(emit, (e) => _withValue(e, event.noteId, newValue));
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] Decrement error: $e');
+      _fail('Decrement', e, emit);
     }
   }
 
@@ -168,40 +197,39 @@ class CounterPerNoteBloc
     CounterPerNoteSetValue event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    if (state is! CounterPerNoteLoaded) return;
     try {
       await _counterService.setValueForNote(
         _counterId,
         event.value,
         noteId: event.noteId,
       );
-      final entries = current.entries.map((e) {
-        if (e.note.id == event.noteId) return e.copyWith(value: event.value);
-        return e;
-      }).toList();
-      emit(current.copyWith(entries: entries));
+      _emitEntries(emit, (e) => _withValue(e, event.noteId, event.value));
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] SetValue error: $e');
+      _fail('SetValue', e, emit);
     }
   }
 
+  /// Shows the service's value rather than the start value: a tap made right
+  /// after the Reset is already counted on top of it.
   Future<void> _onReset(
     CounterPerNoteReset event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    if (state is! CounterPerNoteLoaded) {
+      event.done?.complete(false);
+      return;
+    }
     try {
       await _counterService.resetForNote(_counterId, event.noteId);
-      final startValue = current.counter.startValue;
-      final entries = current.entries.map((e) {
-        if (e.note.id == event.noteId) return e.copyWith(value: startValue);
-        return e;
-      }).toList();
-      emit(current.copyWith(entries: entries));
+      final value = await _counterService.getValueForNote(
+        _counterId,
+        event.noteId,
+      );
+      _emitEntries(emit, (e) => _withValue(e, event.noteId, value));
+      event.done?.complete(true);
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] Reset error: $e');
+      _fail('Reset', e, emit, event.done);
     }
   }
 
@@ -209,21 +237,30 @@ class CounterPerNoteBloc
     CounterPerNoteResetAll event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    final current = _loaded;
+    if (current == null) {
+      event.done?.complete(false);
+      return;
+    }
     try {
-      final startValue = current.counter.startValue;
+      final noteIds = [for (final entry in current.entries) entry.note.id];
       await Future.wait(
-        current.entries.map(
-          (entry) => _counterService.resetForNote(_counterId, entry.note.id),
-        ),
+        noteIds.map((id) => _counterService.resetForNote(_counterId, id)),
       );
-      final entries = current.entries
-          .map((e) => e.copyWith(value: startValue))
-          .toList();
-      emit(current.copyWith(entries: entries));
+      final values = {
+        for (final id in noteIds)
+          id: await _counterService.getValueForNote(_counterId, id),
+      };
+      _emitEntries(emit, (entries) {
+        var reset = entries;
+        for (final MapEntry(key: id, :value) in values.entries) {
+          reset = _withValue(reset, id, value);
+        }
+        return reset;
+      });
+      event.done?.complete(true);
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] ResetAll error: $e');
+      _fail('ResetAll', e, emit, event.done);
     }
   }
 
@@ -231,29 +268,39 @@ class CounterPerNoteBloc
     CounterPerNoteTogglePin event,
     Emitter<CounterPerNoteState> emit,
   ) async {
-    final current = state;
-    if (current is! CounterPerNoteLoaded) return;
+    final current = _loaded;
+    if (current == null) return;
     try {
       final idx = current.entries.indexWhere((e) => e.note.id == event.noteId);
       if (idx < 0) return;
-      final entry = current.entries[idx];
-      final newPinned = !entry.isPinned;
+      final newPinned = !current.entries[idx].isPinned;
       await _counterService.toggleNoteValuePin(
         _counterId,
         event.noteId,
         newPinned,
       );
-      final entries = List<NoteValueEntry>.from(current.entries);
-      entries[idx] = entry.copyWith(isPinned: newPinned);
-      entries.sort(_entrySortComparator);
+      // A partition, not `sort`: `List.sort` is unstable past 32 elements,
+      // and every position below is a synced row.
+      List<NoteValueEntry> pinned(List<NoteValueEntry> entries) {
+        final marked = [
+          for (final e in entries)
+            e.note.id == event.noteId ? e.copyWith(isPinned: newPinned) : e,
+        ];
+        return [
+          ...marked.where((e) => e.isPinned),
+          ...marked.where((e) => !e.isPinned),
+        ];
+      }
+
+      final entries = pinned((_loaded ?? current).entries);
       final positions = <String, int>{};
       for (var i = 0; i < entries.length; i++) {
         positions[entries[i].note.id] = i;
       }
       await _counterService.reorderNoteValues(_counterId, positions);
-      emit(current.copyWith(entries: entries));
+      _emitEntries(emit, pinned);
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] TogglePin error: $e');
+      _fail('TogglePin', e, emit);
     }
   }
 
@@ -274,13 +321,19 @@ class CounterPerNoteBloc
       }
       await _counterService.reorderNoteValues(_counterId, positions);
     } catch (e) {
-      debugPrint('[CounterPerNoteBloc] Reorder error: $e');
+      _fail('Reorder', e, emit);
     }
   }
 
+  /// The rows give the notes, their order, their pins and the service's
+  /// value as the rows were read; a note a tap reached since is in the
+  /// service's cache, read with no await before the emit — the rows alone
+  /// would drop a tap made during the note reads. No map is kept across an
+  /// await, so a reload in between detaches nothing this emits from.
+  /// [keepError] carries a mutation error not read yet over.
   Future<void> _loadEntries(
     Emitter<CounterPerNoteState> emit, {
-    String? lastError,
+    bool keepError = false,
   }) async {
     final counter = _counterService.getCounterById(_counterId);
     if (counter == null) {
@@ -298,7 +351,7 @@ class CounterPerNoteBloc
           CounterPerNoteLoaded(
             counter: counter,
             entries: const [],
-            lastError: lastError,
+            lastError: keepError ? _loaded?.lastError : null,
           ),
         );
         return;
@@ -318,7 +371,13 @@ class CounterPerNoteBloc
         final meta = noteMap[row.noteId];
         if (meta == null) continue;
         entries.add(
-          NoteValueEntry(note: meta, value: row.value, isPinned: row.isPinned),
+          NoteValueEntry(
+            note: meta,
+            value:
+                _counterService.cachedNoteValues(row.noteId)?[_counterId] ??
+                row.value,
+            isPinned: row.isPinned,
+          ),
         );
       }
 
@@ -326,18 +385,13 @@ class CounterPerNoteBloc
         CounterPerNoteLoaded(
           counter: counter,
           entries: entries,
-          lastError: lastError,
+          lastError: keepError ? _loaded?.lastError : null,
         ),
       );
     } catch (e) {
       debugPrint('[CounterPerNoteBloc] Load error: $e');
       emit(const CounterPerNoteError(CounterPerNoteFailure.loadFailed));
     }
-  }
-
-  static int _entrySortComparator(NoteValueEntry a, NoteValueEntry b) {
-    if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
-    return 0;
   }
 
   @override

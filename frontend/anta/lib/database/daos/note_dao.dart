@@ -466,21 +466,19 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     await (delete(notes)..where((n) => n.id.equals(id))).go();
   }
 
-  /// Update the position of a note
+  /// Update the position of a note. Refuses a tombstone the way
+  /// [updateNoteLabel] does: a position written on a deleted note would
+  /// re-stamp it with this device's HLC and queue it to travel again.
   Future<Note?> updateNotePosition({
     required String id,
     required int newPosition,
   }) {
     return transaction(() async {
       final existing = await getNoteById(id);
-      if (existing == null) return null;
+      if (existing == null || existing.isDeleted) return null;
 
       final now = DateTime.now();
-      final stamp = await db.stampLocal(
-        notes,
-        id,
-        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
-      );
+      final stamp = await db.stampLocal(notes, id);
 
       await (update(notes)..where((n) => n.id.equals(id))).write(
         NotesCompanion(

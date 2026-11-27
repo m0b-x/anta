@@ -21,6 +21,7 @@ import '../models/alert_payload.dart';
 import '../models/nav_destination.dart';
 import 'database_replacing.dart';
 import 'fresh_preferences.dart';
+import 'kept_share_notices.dart';
 import 'sync/sync_space_registry.dart';
 
 /// Service for managing multiple SQLite databases
@@ -97,11 +98,33 @@ class DatabaseManager {
     return qaEnabled ? qaDatabaseName : _defaultDatabaseName;
   }
 
-  /// Get the name of the currently active database
+  /// What [activateAtNextLaunch] left behind: the name this process stays
+  /// on, and the stored name that waits for the next launch. Null while the
+  /// stored name is this process's own.
+  ({String kept, String next})? _waitingForRestart;
+
+  /// The name of the active database: the one this process has open, or
+  /// opens first.
+  ///
+  /// Every reader in a running app pairs it with the open [AppDatabase] —
+  /// [AppDatabase.getInstance] itself, the alert scheduler's entries, the
+  /// sync claims, the kept notices — so it never moves ahead of that
+  /// database: after [activateAtNextLaunch] it stays what it was until the
+  /// process ends, and only the stored name has moved, which the next launch
+  /// and [peekActiveDatabaseName] read.
+  ///
+  /// The wait holds only while the stored name is still the one left for
+  /// the next launch: any other write of it is a switch to make now.
   String getActiveDatabaseName() {
-    return _prefs.getString(_keyActiveDatabase) ??
-        defaultDatabaseName(qaEnabled: QaMode.enabled);
+    final stored = _storedActiveName;
+    final waiting = _waitingForRestart;
+    if (waiting != null && waiting.next == stored) return waiting.kept;
+    return stored;
   }
+
+  String get _storedActiveName =>
+      _prefs.getString(_keyActiveDatabase) ??
+      defaultDatabaseName(qaEnabled: QaMode.enabled);
 
   /// The active database's name as the preferences hold it, read and
   /// nothing else — for the check that runs with the app closed
@@ -125,8 +148,37 @@ class DatabaseManager {
     return p.join(dbFolder.path, 'gym_notes', '$name.db');
   }
 
-  /// Set the active database name
+  /// Makes [name] the active database now: the next
+  /// [AppDatabase.getInstance] closes the open database and opens [name]
+  /// under this process — the sync download's switch — and before anything
+  /// is open, the launch's recovery. A flow that asks for a restart instead
+  /// takes [activateAtNextLaunch].
   Future<void> setActiveDatabaseName(String name) async {
+    _waitingForRestart = null;
+    await _prefs.setString(_keyActiveDatabase, name);
+  }
+
+  /// Stores [name] as the database the next launch opens and keeps this
+  /// process on the one it has open: for the flows that then ask for a
+  /// restart — the Databases page's switch, an alarm of another database.
+  ///
+  /// [setActiveDatabaseName] switched under them. [AppDatabase.getInstance]
+  /// reads the active name on every call, so the first caller after the
+  /// write — an alert firing, a resume's reconcile — closed the open
+  /// database and opened [name] behind the restart dialog, while the pages
+  /// beneath still held the other database's rows and an editor's pending
+  /// save had only the new one to land in (settings rework review,
+  /// 2026-11-01).
+  ///
+  /// Throws a [StateError] when [name] has no file: stored, the next launch
+  /// would open that name and create it empty — an alarm armed before its
+  /// database was renamed or deleted still asks for the old name.
+  Future<void> activateAtNextLaunch(String name) async {
+    if (!await databaseExists(name)) {
+      throw StateError('Database "$name" does not exist');
+    }
+    // Read before the write: a second call keeps the name the first kept.
+    _waitingForRestart = (kept: getActiveDatabaseName(), next: name);
     await _prefs.setString(_keyActiveDatabase, name);
   }
 
@@ -347,6 +399,12 @@ class DatabaseManager {
   /// half done — a real one finishes before a tap could land.
   @visibleForTesting
   static Future<void> Function()? debugImportChunkWritten;
+
+  /// Awaited at each [RenameStep] of [renameDatabase], inside the section
+  /// [AppDatabase.whileClosed] holds, so a test can ask for the database at
+  /// that point — a real rename passes them all in a few milliseconds.
+  @visibleForTesting
+  static Future<void> Function(RenameStep step)? debugRenameStep;
 
   /// Brings an external SQLite database file in as [targetName]; ANTA's
   /// migrations upgrade it on first open.
@@ -707,7 +765,7 @@ class DatabaseManager {
   /// blocked checkpoint fails the rename before any file has moved.
   ///
   /// The sync claim and the active name follow the `.db` once its sidecars
-  /// have been tried, whether or not one of them threw: left on the old name,
+  /// have been tried, whether or not one of them failed: left on the old name,
   /// the next launch would open that name and create it empty, its claim
   /// would hold again, and the heal would unbind the renamed database (final
   /// review X-3, RA2-1). Nothing runs between the `.db` and its sidecars — a
@@ -716,7 +774,26 @@ class DatabaseManager {
   /// logged, never thrown; the claim it leaves on the old name, whose file is
   /// gone, reads as free, and the binding service's heal claims the space
   /// again for the bound database that has none.
-  Future<void> renameDatabase(String oldName, String newName) async {
+  ///
+  /// The open database is closed before its file moves, and the call says so
+  /// by answering true ([AppDatabase.whileClosed] has the reasons): the
+  /// caller asks for a restart. The close, the moves and every name write
+  /// are one section no [AppDatabase.getInstance] enters.
+  ///
+  /// A sidecar already under [newName] — a `-wal` a delete could not remove
+  /// once its `.db` was gone — is removed before anything moves: SQLite
+  /// replays a `-wal` it finds beside a file into it, so it would write the
+  /// deleted database's last commits over the renamed one's. One that cannot
+  /// be removed fails the rename while every name is still the old one.
+  ///
+  /// Until the `.db` has moved a failure throws, and the database, when it
+  /// was open, is opened again under its old name once the section ends, so
+  /// the app is not left on a closed handle. From the move on nothing
+  /// throws: a sidecar, the claim or a name that does not follow is logged,
+  /// and the call still answers whether the database was closed — the
+  /// stored name has moved by then, and only a restart puts every page on
+  /// it.
+  Future<bool> renameDatabase(String oldName, String newName) async {
     if (!await databaseExists(oldName)) {
       throw Exception('Database "$oldName" does not exist');
     }
@@ -730,32 +807,85 @@ class DatabaseManager {
     final oldPath = await getDatabasePath(oldName);
     final newPath = await getDatabasePath(newName);
 
-    final oldFile = File(oldPath);
-    await oldFile.rename(newPath);
-
+    var closed = false;
     try {
-      // Also rename related files if they exist (WAL, SHM files)
-      final oldWal = File('$oldPath-wal');
-      if (await oldWal.exists()) {
-        await oldWal.rename('$newPath-wal');
+      return await AppDatabase.whileClosed(oldName, (wasOpen) async {
+        closed = wasOpen;
+        await debugRenameStep?.call(RenameStep.closed);
+        for (final suffix in _sidecarSuffixes) {
+          final orphan = File('$newPath$suffix');
+          if (await orphan.exists()) await orphan.delete();
+        }
+        await File(oldPath).rename(newPath);
+        await _afterRenameMove(oldName, newName, oldPath, newPath);
+        return wasOpen;
+      });
+    } catch (_) {
+      // Only a failure before the move reaches here: no name has changed.
+      if (closed) {
+        try {
+          await AppDatabase.getInstance();
+        } catch (e, st) {
+          debugPrint(
+            '[DatabaseManager] not reopened after a failed rename: '
+            '$e\n$st',
+          );
+        }
       }
+      rethrow;
+    }
+  }
 
-      final oldShm = File('$oldPath-shm');
-      if (await oldShm.exists()) {
-        await oldShm.rename('$newPath-shm');
-      }
-    } finally {
+  /// [renameDatabase]'s half once the `.db` has moved, which never throws.
+  Future<void> _afterRenameMove(
+    String oldName,
+    String newName,
+    String oldPath,
+    String newPath,
+  ) async {
+    for (final suffix in const ['-wal', '-shm']) {
       try {
-        await spaceRegistry.rename(oldName, newName);
+        final sidecar = File('$oldPath$suffix');
+        if (await sidecar.exists()) await sidecar.rename('$newPath$suffix');
       } catch (e, st) {
-        debugPrint('[DatabaseManager] sync claim not renamed: $e\n$st');
-      }
-
-      // If the renamed database was the active one, update the active database name
-      if (getActiveDatabaseName() == oldName) {
-        await setActiveDatabaseName(newName);
+        debugPrint('[DatabaseManager] $suffix not renamed: $e\n$st');
       }
     }
+    await debugRenameStep?.call(RenameStep.moved);
+
+    try {
+      await spaceRegistry.rename(oldName, newName);
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] sync claim not renamed: $e\n$st');
+    }
+
+    // The names that meant the renamed database follow it: the stored one
+    // — this process's own, or the one a switch left for the next launch,
+    // which would otherwise open the old name and create it empty — and
+    // the one this process keeps meanwhile.
+    final waiting = _waitingForRestart;
+    if (waiting != null) {
+      _waitingForRestart = (
+        kept: waiting.kept == oldName ? newName : waiting.kept,
+        next: waiting.next == oldName ? newName : waiting.next,
+      );
+    }
+    try {
+      if (_storedActiveName == oldName) {
+        await _prefs.setString(_keyActiveDatabase, newName);
+      }
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] active name not renamed: $e\n$st');
+    }
+
+    // So do the notices a background check kept in it: they are looked
+    // for by name, and the old name would be pruned as a database gone.
+    try {
+      await KeptShareNotices.databaseRenamed(_prefs, oldName, newName);
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] kept notices not renamed: $e\n$st');
+    }
+    await debugRenameStep?.call(RenameStep.named);
   }
 
   /// Delete a database file.
@@ -794,10 +924,18 @@ class DatabaseManager {
 
     // If the deleted database was the active one, switch to default — the QA
     // one in a QA build, so deleting from Settings can never drop that build
-    // onto the owner's database.
-    if (getActiveDatabaseName() == name) {
+    // onto the owner's database. Judged by the stored name, the one a launch
+    // opens: a database a switch left for the next launch would otherwise
+    // stay stored and be created empty — it goes back to the one this
+    // process kept. And a kept name whose database is the one deleted keeps
+    // nothing: the stored name is all there is.
+    if (_waitingForRestart?.kept == name) _waitingForRestart = null;
+    if (_storedActiveName == name) {
+      final waiting = _waitingForRestart;
       await setActiveDatabaseName(
-        defaultDatabaseName(qaEnabled: QaMode.enabled),
+        waiting != null && waiting.next == name
+            ? waiting.kept
+            : defaultDatabaseName(qaEnabled: QaMode.enabled),
       );
     }
   }
@@ -1393,6 +1531,11 @@ final class DatabaseImportCancelled extends DatabaseImportError {
 /// An import's two steps: the copy, which a Cancel stops between chunks, and
 /// the check, which nothing can interrupt.
 enum DatabaseImportPhase { copying, verifying }
+
+/// Where [DatabaseManager.debugRenameStep] stops a rename: the open
+/// database closed and nothing moved yet; the `.db` and its sidecars moved
+/// and no name changed yet; every name changed, the section not yet left.
+enum RenameStep { closed, moved, named }
 
 /// One import as its dialog sees it — how far the copy is, whether it has
 /// moved on to the check — and the dialog's one way to stop it.

@@ -249,6 +249,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get publicHolidayNationalDayRomania => 'Ziua Națională a României';
 
   @override
+  String get publicHolidayDayAfterNewYear => 'A doua zi de Anul Nou';
+
+  @override
+  String get publicHolidayStJohnTheBaptist => 'Sfântul Ioan Botezătorul';
+
+  @override
   String get publicHolidayMartinLutherKingDay => 'Ziua Martin Luther King Jr.';
 
   @override
@@ -1542,6 +1548,30 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String importSkippedFiles(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de fișiere omise: nu au putut fi citite',
+      few: '$count fișiere omise: nu au putut fi citite',
+      one: '1 fișier omis: nu a putut fi citit',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String importSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de elemente omise: nu au putut fi citite',
+      few: '$count elemente omise: nu au putut fi citite',
+      one: '1 element omis: nu a putut fi citit',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get importFailed => 'Import eșuat';
 
   @override
@@ -2300,6 +2330,10 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get restartRequiredAfterDeletion =>
       'Toate datele au fost șterse. Te rugăm să repornești aplicația pentru a continua.';
+
+  @override
+  String get restartRequiredAfterRename =>
+      'Baza de date a fost redenumită. Te rugăm să repornești aplicația pentru a continua.';
 
   @override
   String get exitApp => 'Închide Aplicația';

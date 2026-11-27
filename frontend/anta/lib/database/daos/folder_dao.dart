@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart';
+import '../../constants/app_constants.dart';
 import '../../constants/settings_keys.dart';
 import '../../models/item_label.dart';
 import '../../models/movable_item.dart';
@@ -25,6 +28,15 @@ typedef FolderImportEntry = ({
   String? subfolderSortOrder,
   ItemLabel label,
   String? ownerId,
+});
+
+/// What one [FolderDao.softDeleteFolderWithDescendants] tombstoned: the
+/// folders, and the notes by id with the folder each lay in — handed back so
+/// the repositories drop and announce exactly those rows, which no read
+/// after the delete can find again (every live-folder walk skips them).
+typedef FolderCascade = ({
+  List<String> folderIds,
+  Map<String, String> noteFolders,
 });
 
 @DriftAccessor(tables: [Folders])
@@ -266,10 +278,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// folder is queued: an imported folder is a new local row.
   ///
   /// [updatedAt] is for a backup restore, which replays rows the sync merge
-  /// converges and so has to carry their archived mtime (A3a review R62);
-  /// the folder-archive path leaves it null and the row records the import
-  /// as its own write event. [ownerId] is for the same restore, whose copy
-  /// keeps the archived ownership under its fresh id (D16).
+  /// converges and so has to carry their archived mtime (A3a review R62),
+  /// and for a folder archive whose `_folder.json` carries one, as its
+  /// notes carry theirs; an archive without it leaves it null and the row
+  /// records the import as its own write event. [ownerId] is for the backup
+  /// restore alone, whose copy keeps the archived ownership under its fresh
+  /// id (D16).
   Future<Folder> importFolder({
     required String name,
     String? parentId,
@@ -955,67 +969,87 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return [for (final row in rows) row.read<String>('id')];
   }
 
-  Future<void> softDeleteFolderWithDescendants(String folderId) async {
-    // Collect the full id set in one CTE query, then issue exactly two
-    // batched UPDATE statements inside a single transaction:
+  Future<FolderCascade> softDeleteFolderWithDescendants(String folderId) {
+    // Collect the full id set in one CTE query, then issue two UPDATE
+    // statements per id batch, all inside a single transaction:
     //  (1) soft-delete every note whose folder is in the set
     //  (2) soft-delete every folder in the set
     // This replaces an N+1 pattern that issued one update per folder and
     // one per note (potentially hundreds of round-trips for deep trees).
-    final descendantIds = await getAllDescendantIds(folderId);
-    descendantIds.add(folderId);
-
-    if (descendantIds.isEmpty) return;
-
-    await transaction(() async {
+    return transaction(() async {
+      // Read inside the transaction: a subfolder a sync merge inserted
+      // between an outer read and the writes would stay live under a
+      // tombstoned parent.
+      final descendantIds = [folderId, ...await getAllDescendantIds(folderId)];
       final now = DateTime.now();
       final stamp = db.newStamp();
 
-      // 1. Bulk soft-delete notes in any of these folders.
-      final placeholders = List.filled(descendantIds.length, '?').join(',');
-
-      // Bulk update notes. version + 1 per row is preserved. The timestamps
-      // bind as `Variable<DateTime>`: Drift stores unix seconds, and raw
-      // milliseconds here once wrote values a thousand times too large (the
-      // v43 migration repairs those rows).
-      final stamps = <Variable>[
+      // version + 1 per row is preserved. The timestamps bind as
+      // `Variable<DateTime>`: Drift stores unix seconds, and raw milliseconds
+      // here once wrote values a thousand times too large (the v43 migration
+      // repairs those rows). The ids go in batches of
+      // [AppConstants.sqlIdBatch]: SQLite binds at most 32,766 variables.
+      final batches = [
+        for (var i = 0; i < descendantIds.length; i += AppConstants.sqlIdBatch)
+          descendantIds.sublist(
+            i,
+            math.min(i + AppConstants.sqlIdBatch, descendantIds.length),
+          ),
+      ];
+      List<Variable> stampsFor(List<String> batch) => [
         Variable<DateTime>(now),
         Variable<DateTime>(now),
         Variable<String>(stamp.hlc),
         Variable<String>(stamp.deviceId),
-        for (final id in descendantIds) Variable<String>(id),
+        for (final id in batch) Variable<String>(id),
       ];
-      final noteRows = await customWriteReturning(
-        'UPDATE notes SET '
-        '  is_deleted = 1, '
-        '  deleted_at = ?, '
-        '  updated_at = ?, '
-        '  hlc_timestamp = ?, '
-        '  device_id = ?, '
-        '  version = version + 1 '
-        'WHERE folder_id IN ($placeholders) AND is_deleted = 0 '
-        'RETURNING id',
-        variables: stamps,
-      );
-      final noteIds = [for (final row in noteRows) row.read<String>('id')];
+      String placeholdersFor(List<String> batch) =>
+          List.filled(batch.length, '?').join(',');
+
+      // 1. Bulk soft-delete notes in any of these folders.
+      final noteFolders = <String, String>{};
+      for (final batch in batches) {
+        final noteRows = await customWriteReturning(
+          'UPDATE notes SET '
+          '  is_deleted = 1, '
+          '  deleted_at = ?, '
+          '  updated_at = ?, '
+          '  hlc_timestamp = ?, '
+          '  device_id = ?, '
+          '  version = version + 1 '
+          'WHERE folder_id IN (${placeholdersFor(batch)}) AND is_deleted = 0 '
+          'RETURNING id, folder_id',
+          variables: stampsFor(batch),
+        );
+        for (final row in noteRows) {
+          noteFolders[row.read<String>('id')] = row.read<String>('folder_id');
+        }
+      }
+      final noteIds = noteFolders.keys.toList(growable: false);
       await db.contentChunkDao.deleteChunksForNotes(noteIds);
       if (noteIds.isNotEmpty) {
         await db.counterDao.tombstoneValuesOfDeletedNotes(stamp, now);
       }
 
       // 2. Bulk soft-delete folders themselves.
-      final folderRows = await customWriteReturning(
-        'UPDATE folders SET '
-        '  is_deleted = 1, '
-        '  deleted_at = ?, '
-        '  updated_at = ?, '
-        '  hlc_timestamp = ?, '
-        '  device_id = ?, '
-        '  version = version + 1 '
-        'WHERE id IN ($placeholders) AND is_deleted = 0 '
-        'RETURNING id',
-        variables: stamps,
-      );
+      final folderIds = <String>[];
+      for (final batch in batches) {
+        final folderRows = await customWriteReturning(
+          'UPDATE folders SET '
+          '  is_deleted = 1, '
+          '  deleted_at = ?, '
+          '  updated_at = ?, '
+          '  hlc_timestamp = ?, '
+          '  device_id = ?, '
+          '  version = version + 1 '
+          'WHERE id IN (${placeholdersFor(batch)}) AND is_deleted = 0 '
+          'RETURNING id',
+          variables: stampsFor(batch),
+        );
+        folderIds.addAll([
+          for (final row in folderRows) row.read<String>('id'),
+        ]);
+      }
 
       // 3. Queue exactly the rows the two updates tombstoned, under its HLC.
       await db.enqueueMany(
@@ -1026,10 +1060,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       );
       await db.enqueueMany(
         folders,
-        [for (final row in folderRows) row.read<String>('id')],
+        folderIds,
         stamp.hlc,
         op: OutboxOp.tombstone,
       );
+      return (folderIds: folderIds, noteFolders: noteFolders);
     });
   }
 
@@ -1082,10 +1117,32 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// Folders missing from the result had no live rows to count; callers read
   /// an absent key as zero. Soft-deleted folders are excluded from both the
   /// seed and the traversal, matching [getAllDescendantIds].
+  ///
+  /// Asked of every subfolder a parent holds now that the browser loads them
+  /// whole, so the seeds go [AppConstants.sqlIdBatch] to a statement: SQLite
+  /// binds at most 32,766 variables. Each seed's count is its own walk,
+  /// keyed by that seed, so the batches' maps join without overlap.
   Future<Map<String, int>> noteCountsWithDescendants(
     List<String> folderIds,
   ) async {
     if (folderIds.isEmpty) return const {};
+    final counts = <String, int>{};
+    for (var i = 0; i < folderIds.length; i += AppConstants.sqlIdBatch) {
+      counts.addAll(
+        await _noteCountsWithDescendantsOf(
+          folderIds.sublist(
+            i,
+            math.min(i + AppConstants.sqlIdBatch, folderIds.length),
+          ),
+        ),
+      );
+    }
+    return counts;
+  }
+
+  Future<Map<String, int>> _noteCountsWithDescendantsOf(
+    List<String> folderIds,
+  ) async {
     final placeholders = List.filled(folderIds.length, '?').join(',');
     final rows = await db
         .customSelect(

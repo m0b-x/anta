@@ -72,6 +72,12 @@ abstract class _NoteEditorState extends State<OptimizedNoteEditorPage>
   /// Cached reference so we can dispatch [SetNoteContext] during [dispose].
   late final CounterBloc _counterBloc;
 
+  /// Per-note counters' shortcut presses made while a new note has no id
+  /// yet, net of decrements: filed on the note once its create lands, and
+  /// gone with the page when it never does — see
+  /// [CounterBloc.shortcutValue].
+  final Map<String, int> _unfiledCounterPresses = {};
+
   /// The storage service's change events, for the merges a sync pull brings
   /// into this note ([_onStorageChange]).
   late final StreamSubscription<NoteChange> _storageChanges;

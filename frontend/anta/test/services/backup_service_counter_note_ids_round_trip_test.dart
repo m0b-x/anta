@@ -127,8 +127,8 @@ void main() {
     return db;
   }
 
-  test("a per-note value under a note the archive did not carry is dropped; "
-      'an archive without notes keeps every archived id', () async {
+  test("a per-note value under a note the archive did not carry is dropped, "
+      'an archive without notes included', () async {
     await wipe();
     final createdAt = DateTime(2026, 11, 1);
     Map<String, dynamic> counterData() => {
@@ -174,7 +174,8 @@ void main() {
     expect(withNotes.success, isTrue, reason: 'error: ${withNotes.error}');
     expect(await db.counterDao.getAllValues(), isEmpty);
 
-    // No notes, so no map: the archived id stands, as before the fix.
+    // No notes, so every note the archive names was deleted at its source:
+    // its id exists nowhere here either.
     final withoutNotes = await backup.importFromJson(
       jsonEncode({
         'version': 7,
@@ -189,12 +190,7 @@ void main() {
       isTrue,
       reason: 'error: ${withoutNotes.error}',
     );
-    final kept = (await db.counterDao.getAllValues()).single;
-    expect(kept.noteId, 'gone-note');
-    expect(kept.value, 9);
-    expect(kept.isPinned, isTrue);
-    expect(kept.position, 2);
-    expect(kept.ownerId, isNull);
+    expect(await db.counterDao.getAllValues(), isEmpty);
   });
 
   test(

@@ -92,6 +92,12 @@ enum PublicHoliday {
   /// 1 December — Romanian National Day.
   nationalDayRomania,
 
+  /// 2 January — the second day of the New Year.
+  dayAfterNewYear,
+
+  /// 7 January — the Synaxis of Saint John the Baptist.
+  stJohnTheBaptist,
+
   // ── United States ──────────────────────────────────────────────────
   /// 3rd Monday of January — Martin Luther King Jr. Day.
   martinLutherKingDay,
@@ -322,6 +328,8 @@ abstract final class PublicHolidays {
       PublicHoliday.childrensDay => l10n.publicHolidayChildrensDay,
       PublicHoliday.stAndrewDay => l10n.publicHolidayStAndrewDay,
       PublicHoliday.nationalDayRomania => l10n.publicHolidayNationalDayRomania,
+      PublicHoliday.dayAfterNewYear => l10n.publicHolidayDayAfterNewYear,
+      PublicHoliday.stJohnTheBaptist => l10n.publicHolidayStJohnTheBaptist,
       PublicHoliday.martinLutherKingDay =>
         l10n.publicHolidayMartinLutherKingDay,
       PublicHoliday.presidentsDay => l10n.publicHolidayPresidentsDay,
@@ -564,6 +572,13 @@ abstract final class HolidaySeeds {
   static Iterable<(DateTime, PublicHoliday)> _romania(int year) sync* {
     final easter = LiturgicalComputus.easterSundayOrthodox(year);
     yield (DateTime.utc(year, 1, 1), PublicHoliday.newYear);
+    // The Labour Code names "1 și 2 ianuarie" together (art. 139).
+    yield (DateTime.utc(year, 1, 2), PublicHoliday.dayAfterNewYear);
+    // Theophany and Saint John: Legea 52/2023, first applied in 2024.
+    if (year >= 2024) {
+      yield (DateTime.utc(year, 1, 6), PublicHoliday.epiphany);
+      yield (DateTime.utc(year, 1, 7), PublicHoliday.stJohnTheBaptist);
+    }
     // Non-working day since 2016.
     if (year >= 2016) {
       yield (DateTime.utc(year, 1, 24), PublicHoliday.unificationDay);

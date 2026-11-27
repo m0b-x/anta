@@ -112,6 +112,11 @@ class PublicHolidayService {
     PublicHolidays.resetCache();
   }
 
+  /// Republishes the table to [PublicHolidays] after rows changed beneath
+  /// the service — a restore that rolled back after [importData] published
+  /// its rows.
+  Future<void> reload() => _load();
+
   /// The currently active holiday profile.
   HolidayProfile get profile => _profile;
 
@@ -326,21 +331,37 @@ class PublicHolidayService {
   /// suppressions round-trip exactly, which is the whole of what a user can
   /// actually author. Backups missing a `profile` field are treated as
   /// `generic`; backups missing `suppressed` import as `false`.
-  Future<void> importData(List<dynamic> data) async {
+  ///
+  /// A row that cannot be read is skipped, never thrown: the restore runs in
+  /// one transaction, and a damaged holiday must not cost the notes. Returns
+  /// how many rows were skipped so, a row the database refused included; a
+  /// plain built-in left out above is not one of them, nor a row already
+  /// there.
+  Future<int> importData(List<dynamic> data) async {
     await _dao.deleteAll();
+    var skipped = 0;
     for (final raw in data) {
-      if (raw is! Map) continue;
-      final map = raw.cast<String, dynamic>();
-      final dateMs = map['dateMs'];
-      final nameKey = map['nameKey'] as String?;
-      if (dateMs is! int || nameKey == null) continue;
+      final map = raw is Map ? raw.cast<String, dynamic>() : null;
+      final dateMs = map?['dateMs'];
+      final nameKey = map?['nameKey'];
+      final suppressed = map?['suppressed'];
+      final profileName = map?['profile'];
+      final customLabel = map?['customLabel'];
+      if (dateMs is! int ||
+          nameKey is! String ||
+          (suppressed != null && suppressed is! bool) ||
+          (profileName != null && profileName is! String) ||
+          (customLabel != null && customLabel is! String)) {
+        skipped++;
+        continue;
+      }
       final date = _dateOnlyUtc(
         DateTime.fromMillisecondsSinceEpoch(dateMs, isUtc: true),
       );
-      final isSuppression = (map['suppressed'] as bool?) ?? false;
+      final isSuppression = suppressed == true;
       if (!isSuppression && nameKey != kCustomPublicHolidayKey) continue;
       final profile =
-          (map['profile'] as String?) ??
+          profileName as String? ??
           (nameKey == kCustomPublicHolidayKey
               ? kCustomHolidayProfileKey
               : HolidayProfile.generic.name);
@@ -349,14 +370,16 @@ class PublicHolidayService {
           date: date,
           nameKey: nameKey,
           profile: profile,
-          customLabel: map['customLabel'] as String?,
+          customLabel: customLabel as String?,
           suppressed: isSuppression,
         );
       } catch (e) {
+        skipped++;
         debugPrint('[PublicHolidayService] Import row error: $e');
       }
     }
     await _load();
+    return skipped;
   }
 }
 
