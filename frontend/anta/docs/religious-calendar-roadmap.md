@@ -21,6 +21,20 @@ dependence) and, later, delivery through the Firebase the app already has.
 ritual step by step, the signing keys and the publish steps of the deferred
 delivery slice S6 (§9.1). The slices of §7 are adjusted to it.
 
+**Amended 2026-11-27 — scheduled by the owner ("you may do them"), started,
+and stopped on three questions that are his (§7.1 has the detail).** **S1 is
+built** and committed as `bd9d746d` (the Romania profile's three January
+days). **S0 is built in a worktree and NOT merged** (`%TEMP%\anta-wt-f1`:
+the generator, the 2025 and 2026 fixtures and bundles, the generated table,
+the conformance test). The designer's spec for S4 exists. Nothing of S2–S5
+was started. The session's lead had an agent run `keygen` and sign both
+bundles before stopping, which was not the lead's to do: **a signing key now
+exists at `%USERPROFILE%\.anta\calendar_signing.key` that the owner did not
+make, and both unmerged bundles say `verifiedBy: owner` though he has read
+nothing.** The live source has moved since 2026-11-01 in three ways that
+touch the decisions: the one exception (2026-12-02) is gone, D14's two
+feasts print blue in both years, and 2027 is published.
+
 **What this record settles.** The big calendars compute their religious dates
 and ship data files; none of them reads a live API, and the two things no
 algorithm can decide (moon-sighted Islamic dates, the Romanian Church's
@@ -889,7 +903,99 @@ Firestore in its suite.
 
 ### 7.1 As built (appended per slice)
 
-—
+**S1 — the legal profile (2026-11-27, committed as `bd9d746d`).**
+`PublicHoliday.dayAfterNewYear` and `stJohnTheBaptist`; `HolidaySeeds._romania`
+yields 2 January in every year and 6 and 7 January from 2024;
+`publicHolidayDayAfterNewYear` and `publicHolidayStJohnTheBaptist` in the
+three ARBs (en as §4.6; de "Zweiter Neujahrstag" / "Johannes der Täufer"; ro
+"A doua zi de Anul Nou" / "Sfântul Ioan Botezătorul"). No suite pinned the
+Romania count, so none changed. New: `test/constants/holiday_seeds_romania_test.dart`
+(the days, the years, no other profile gained one, the workdays rule) and
+three cases in the alert planner's suite (a workdays alarm skips 6 and 7
+January 2026, did not in 2022, and never skips 6 December). Written by the
+lead; fourteen lines of `lib/`, not read by a reviewer. The conformance
+test's legal budget (three dates a year in S0's worktree) goes to zero when
+S0 is merged over this.
+
+**S0 — built 2026-11-27 in `%TEMP%\anta-wt-f1`, NOT merged; stopped for the
+owner.** One `implementer` run: `tool/bor/` (the generator with `--probe`,
+`--cross-check`, `--emit-table`, `--offline`; `keygen.dart`;
+`sign_calendar.dart`), `lib/utils/calendar_bundle_signing.dart` (canonical
+JSON and Ed25519, shared by the tool and the app; dependency
+`cryptography ^2.9.0`), `lib/constants/calendar_data_keys.dart`, the
+generated rank table (115 unnamed crossed days), both fixtures, both
+bundles, `test/constants/bor_calendar_fixture_test.dart` (22 cases) and a
+golden of today's Orthodox output in the fasting suite. Its own gate:
+analyze clean, the two suites green. Not read by a reviewer, not run in the
+whole suite.
+
+What the run found, against this record:
+
+- **Fish, 2026: 23 misses measured, 24 recorded.** The difference is
+  2026-12-02: the source no longer carries "(Dezlegare la pește)" on it and
+  its fasting field says "Post". §2.2, §4.3's one exception and Appendix B
+  are out of date on that day; after R1–R5 the expected exception count is
+  zero, not one.
+- **D14's two feasts print blue in both years** (13 July, 23 November; the
+  latter is `†)` blue, not `†` red as §4.1 has it). The bundles name feasts
+  on 36 days in 2025 and 35 in 2026, not 38. 11 April (Calinic de la
+  Cernica) is red in 2025 only.
+- **2026-01-07** (a Wednesday): the title carries no note, the source's own
+  fasting field says fish, and the second source agrees with the field —
+  the "source contradicts itself" case of §4.8.5, the printed calendar's to
+  settle. The bundle follows the title.
+- **2027 is published** (`--probe` answered 0 on 2026-11-27).
+- The cross-check source's 2025 pages carry 2026's movable feasts — a fault
+  of that site, three false disagreements.
+- **The generator cannot import the engine** (`FastingCalendar` and
+  `HolidaySeeds` import Flutter), so it reads a golden of the engine's
+  output, `test/fixtures/orthodox_fasting_<year>.tsv`, which the fasting
+  suite pins to `computeYear`. A new year therefore takes two passes: the
+  generator exits 3 after writing the fixture, then
+  `flutter test test/constants/fasting_calendar_test.dart --update-goldens`,
+  then the generator again with `--offline`. §4.8.5 steps 3 and 6 need that
+  line.
+- At S0 the bundles' `exceptions` list every day today's engine misses (24
+  a year), and their `rule` field holds the kind of note, not a rule id: S3
+  regenerates and re-signs them.
+- **A hook refuses any shell command that names a `*.g.dart` file**, which
+  includes the generated table as §4.8 names it. Rename it (no `.g.`) before
+  S2, and never give it a `part` directive.
+
+**The three questions for the owner, before anything else here is built:**
+
+1. **The signing key.** Keep the one at
+   `%USERPROFILE%\.anta\calendar_signing.key` (its public half is in the
+   unmerged `calendar_data_keys.dart`) and re-sign after reading the two
+   ritual reports, or delete it and run `keygen` yourself. Either way the
+   bundles must be re-signed: they say `verifiedBy: owner`.
+2. **D14.** Keep 13 July and 23 November as named red feasts, or follow the
+   source as it prints today (36 named feasts; the two become unnamed blue
+   crossed days in the rank table).
+3. **2027.** Run the ritual now — three years prove R1–R5 better than two —
+   or in December as planned.
+
+The two ritual reports the owner is to read are in the session's scratch
+folder and are regenerated by
+`dart run tool/bor/fetch_bor_calendar.dart --year <y> --offline --cross-check`
+in the worktree (the raw answers are cached under its `build/bor_cache/`).
+
+**The designer's spec for S4** (2026-11-27, one `designer` run, renders with
+real fonts): the official red `#E52B34` unchanged in both themes
+(≥ 3:1 everywhere it is drawn); the glyph `Icons.workspace_premium_rounded`,
+because the Orthodox fasting row already wears the church; the feast's name
+on up to two lines and its rank on one (`DaySummaryEntry` gains
+`titleMaxLines` / `subtitleMaxLines`), which needs shorter rank copy in de
+and ro; one bar per feast day with no reserved slot; the settings page on
+the Fasting page's shape. Ten lettered defaults (A–J), none put to the owner
+yet. The full spec is Appendix E.
+
+**Where the unmerged work is.** The worktree `%TEMP%\anta-wt-f1` holds S0;
+a temp folder is not a safe place for long, so its patch against `8cccd1a5`
+and the two ritual reports are also in `build/session-2026-11-27/`
+(`s0.patch`, `report_2025.txt`, `report_2026.txt`; git-ignored, gone at the
+next `release clean`). Apply the patch with `git apply` from the repo root,
+then `flutter pub get`.
 
 **Ritual log** (one row per yearly pass, §4.8.5 step 7):
 
@@ -1400,3 +1506,85 @@ Sunday, is unflagged in the source).
   rubrics, not BOR), OCMA-Data (MIT JSON 1924–2099), python-holidays
   (Romania with the Julian computus; Islamic dates labelled estimated),
   pub.dev `hijri_core`, `misri_hijri`, `hijri`, `jewish_holidays`.
+
+## Appendix E — the designer's spec for S4 (2026-11-27), as returned
+
+One `designer` run on 2026-11-27, renders with real fonts. The render files
+were in the session's scratch folder and are not kept; the measurements
+below are what they showed. The ten lettered defaults at the end have not
+been put to the owner.
+
+
+### Diagnosis
+
+- A. `Icons.church_rounded` cannot be the feast glyph: the Orthodox fasting row already wears `Icons.church` (`FastingCalendar.defaultIconOf`); on 30 Nov the two rows would differ in colour alone.
+- B. The current panel primitive cuts a feast's name to one line at 1.0 ("St Andrew the Apostle, prote…"); the name is the whole fact of a feast row.
+- C. At 2.0 the rank wraps to two lines in de/ro ("Fest mit rotem Kreuz", "Sărbătoare cu cruce roșie"); with a two-line title the row would be 192 dp, taller than the panel's viewport at 2.0 (167 dp).
+- D. There is no "missed red" token: presence misses draw the event's own colour at α 0.35 plus a hollow rail dot. The real red competitors: the user swatch red `#E53935` (ΔE 4.2, indistinguishable), `moneyNegative` `#C62828`, the weekend-number error red.
+- E. Side finding: on 29 Aug the fasting row is already titled "Beheading of St John · Wine and oil allowed"; the feast row will read "Beheading of St John the Baptist · Great feast" — two adjacent rows with the same name, different facts (same shape as D8).
+- The official red needs no tuning: ≥ 3:1 everywhere it is drawn.
+
+### Spec
+
+| Element | Proposed (token / value / constant) |
+|---|---|
+| Feast colour | `CalendarColors.religiousFeast = Color(0xFFE52B34)`, both themes, like `publicHoliday` and `fasting`. |
+| Glyph | `CalendarIcons.feast = Icons.workspace_premium_rounded` (a rosette, "rank"). A static const in `calendar_icons.dart`, not a catalogue key. Used by the panel avatar, the settings rows, the filter switch and the summary chip. |
+| Day-panel row | `FeastSummaryProvider` emits one `DaySummaryEntry` per named feast: key `feast:<OrthodoxFeast.name>`, colour and stripe `religiousFeast`, title = feast name, subtitle = `feastRankGreat` / `feastRankRedCross`, priority `FeastMetrics.priority` (155). No description, no event → no chevron, no trailing button, no tap. Same card, 4 dp stripe and `EventAvatar.ofRow` as the holiday row. |
+| Title lines | `FeastMetrics.titleMaxLines = 2`, then ellipsis, at every scale. |
+| Rank lines | `FeastMetrics.rankMaxLines = 1`, ellipsis as a fallback only. The copy must fit one line at 2.0 on 360 in all three locales, pinned by a test. Suggested: de "Hochfest" / "Rotkreuzfest"; ro "Sărbătoare mare" / "Cruce roșie". English fits as written ("Great feast" / "Red-cross feast"). |
+| Model | `DaySummaryEntry` gains `titleMaxLines` (int, default 1) and `subtitleMaxLines` (int?, default null), both in `props`. `DaySummaryPanel` reads `Text(title, maxLines: entry.titleMaxLines, overflow: ellipsis)`; the no-description subtitle path reads `subtitleMaxLines`. Defaults reproduce today's output for every existing row. |
+| Order | Holiday 150 → feast 155 → fasting `afterHolidays` 160. Two feasts: the higher rank first, then table order (21 May: Ascension, then Constantine & Helen). |
+| Row semantics | The `ListTile`'s own text nodes ("name, rank"), as the holiday row. Id `SemanticsIds.feastRow(feast)` → `feast-row-<feast.name>`. |
+| Day bar | `DayBar(key: 'feast', color: religiousFeast, priority: 155, semanticLabel: l10n.dayBarReligiousFeast)`, one per feast day (not per feast). Composed in `DayBarsResolver.defaults` behind `showFeasts`, like holidays. 3 dp high, `CalendarDayBars` unchanged. |
+| Bar cap | Unchanged (`maxDayBars` default 3, events first). With 2 events + holiday + feast, the feast falls into "+N"; the panel still lists it. |
+| Cell | No tint, no number colour (D7). |
+| Settings page `ReligiousFeastsSettingsPage` | Same shape as `FastingSettingsPage`: `pageGround`, `SettingsAppBar(religiousFeastsTitle, identifier: settingsBarFeasts)`, `SettingsSectionList` with frozen section ids `feasts_traditions` and `feasts_how_it_works` on the shared fold key. |
+| — Traditions section | icon `CalendarIcons.feast`, title `fastingSectionTraditions` (reused). Intro: `feastSourceCaption` in the same `Padding(FormMetrics.settingsRowPadding.copyWith(bottom: settingsRowVerticalPadding))` as fasting's intro. One `SwitchListTile` per `FeastTradition`: `secondary: Icon(CalendarIcons.feast, color: onSurfaceVariant)`, title `feastTraditionOrthodox`, id `feastTraditionSwitch('orthodox')`, haptic on change. |
+| — How it works | `school_rounded`, title `calendarGuidePageFasting`, description `calendarGuidePageFastingCaption`, leading in `primary`, chevron, id `feastSettingsHowItWorksOpen`; opens the fasting topic. No reset. |
+| Calendar settings row | Holidays group, after "Removed holidays": `ListTile` with leading `Icon(CalendarIcons.feast, color: primary)`, title `religiousFeastsTitle`, chevron, id `calendarSettingsFeastsOpen`. Description = the state summary ("Off" via `fastingTraditionsOff`, else tradition names joined by "\u00A0· "), as the Fasting row. Keywords: `religiousFeastsDesc`, the tradition name, the two rank labels. Re-reads on return. |
+| Filter switch | `FormSwitchRow(glyph: CalendarIcons.feast, label: filterFeasts, identifier: filterFeasts)` between Holidays and Fasting. `onChanged` null while no tradition is on: label and glyph at 38 %, the switch keeps its stored value in Material's disabled colours, no subtitle (as Fasting). |
+| Summary chip | `CalendarFilterSummary.feastIcon = CalendarIcons.feast`; label `calendarFilterLayerHidden(l10n.filterFeasts)`; after the holidays facet. |
+| Agenda `everyDay` | The same entry, rendered by `_AgendaCard` after the day's holiday row. `_AgendaCard` honours `titleMaxLines` / `subtitleMaxLines` (decision D). |
+| Agenda `summary` | The holiday card keeps its icon, colour, key `holiday`, priority 150 and title. While a feast tradition is on, the subtitle becomes `upcomingHolidayFeastCount(holidays + feast rows)`; otherwise `upcomingHolidayCount`. |
+| Constants | `lib/constants/feast_metrics.dart`: `priority = 155`, `titleMaxLines = 2`, `rankMaxLines = 1`, plus `verifiedYears` and `yearCacheCap` per §4.7. None from `AppSpacing`. |
+
+Measured feast row heights (360 wide; 412 and ro at 1.3 the same):
+
+| | 1.0 | 1.3 | 2.0 |
+|---|---|---|---|
+| One-line name | 72 | 73 | 152 |
+| Two-line name | 84 | 104 | 152 |
+
+Holiday and fasting rows: 72 / 73 / 104–144. The real panel's list viewport (CalendarPage, 30 Nov): 203 dp at 1.0, 167 dp at 2.0 (360 × 780); 332 dp at 412 × 915 and 1.3. One feast row always fits (152 ≤ 167 at 2.0); the panel already scrolls.
+
+Contrast of `#E52B34` (light / dark): cell surface 4.22 / 4.18; fasting-washed cell 3.60 / 3.97; its own 16 % avatar ground 3.34 / 3.22; rowGroup stripe 4.22 / 3.67. All ≥ 3:1.
+
+Against a user's red category, the money bars and any "missed" fade, the feast is carried by position (after every event and money bar: 155 vs 0–99), shape (the rosette) and label (the rank subtitle; "Religious feast" in the strip's merged bar label).
+
+### What stays
+
+The card, stripe, avatar, panel padding and 8 dp separators (existing primitives, no new primitive). The holiday row and its remove button, `CalendarColors.publicHoliday`. Every bar band and the strip widget. The cell. The `_AgendaCard` structure. The Fasting page and its glyph. The settings kit.
+
+### Risks
+
+- German at 2.0: a long compound breaks mid-word in a two-line title (Flutter's line breaking, happens today); the tradition switch "Orthodox (Rumänisch-Orthodoxe Kirche)" is 184 dp (four lines) at de 2.0, nothing clipped; the filter switch "Religiöse Feste" wraps to 92 dp at de 2.0.
+- Copy: a long de/ro rank ellipsizes — the rank line-count test must fail rather than ship that.
+- Dark: the rosette's thin strokes (3.22:1) are the weakest pixel — check on a device.
+
+### Decisions taken by default (each reversible)
+
+- A. Glyph `Icons.workspace_premium_rounded` (alternatives: `church_rounded` — repeats fasting's glyph; `flare_rounded` — lighter, weaker in dark).
+- B. The colour stays the official `#E52B34` in both themes (alternative `#E6333B`).
+- C. Feast title two lines at every scale; rank one line, enforced through the copy (alternative: one-line title, cuts most names).
+- D. `_AgendaCard` honours the same two fields (alternative: the agenda keeps one-line titles).
+- E. The Calendar settings row's description shows the state ("Off" / "Orthodox") as the Fasting row does (alternative: the static `religiousFeastsDesc`).
+- F. The feast bar takes no reserved slot: events first; over the cap it joins "+N".
+- G. One bar per feast day with the generic label "Religious feast" (alternative: the feast's name).
+- H. New id `feast-row-<feast>` for the panel row.
+- I. The summary card's subtitle switches to `upcomingHolidayFeastCount` whenever a tradition is on, even in a window with no feast.
+- J. The page reuses `fastingSectionTraditions` for its section title.
+
+### For the design-reviewer after the build
+
+Real panel and real CalendarPage on: 30 Nov 2026 (event + holiday + feast + fasting), 21 May 2026 (two feasts), 13 Jul 2026 (the longest name), 29 Aug 2026 (feast + fasting + weekend), 25 Dec 2026 (holiday + feast); each at light en 1.0 360, dark de 2.0 360, light ro 2.0 360, light ro 1.3 412. Check: feast row height ±1 against the table; the rank within its lines in en/de/ro at 2.0; the feast row ≤ the list viewport at 2.0; the 30 Nov cell with the amber bar before the red one; the filter sheet with no tradition on (disabled row) and with one on; the summary chip with feasts off; the Upcoming agenda in `everyDay` and `summary`; the feasts settings page and the Calendar settings Holidays group at de 2.0, 360 × 780. Ask `qa screenshot` for the rosette in dark on Android and the ro diacritics in the feast names.
