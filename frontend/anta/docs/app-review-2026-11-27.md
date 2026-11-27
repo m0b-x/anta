@@ -14,13 +14,18 @@ committed. **All of them went in as their last review passed them** (§4):
 the whole suite was green on that tree, and so were the saved device
 suites and a hand-driven check of the database and restore paths on the
 emulator (§6). The records went in with the commit after it.
+**An evening run the same day (§7) put more into the main tree, uncommitted
+until the owner says: the tag catalog and `#` autocomplete (schema v57) with
+the repairs their third review asked for, the browser sheets' safety net,
+the folder findings B8, B9 and B11, and the counter findings C9, C10 and C12
+with the picker's line.**
 The reviews filed 40 findings (§2); the fix slices' own reviews filed more
 (§4). The decisions the lead took in the owner's absence are §3, each with
 the option not taken, so he can overturn any of them. What nobody built is
 §5.
 
 Contents: §0 How to continue · §1 The ask · §2 The findings · §3 Decisions ·
-§4 The slices as built · §5 Deferred · §6 Gate.
+§4 The slices as built · §5 Deferred · §6 Gate · §7 The evening run.
 
 ## 0. How to continue
 
@@ -93,10 +98,10 @@ reviewer; **in review** / **in repair** = built, not yet through; **left**
 | B5 | A delete confirm awaits the note count under a loading dialog nothing pops when the read throws or the row unmounts | reading | fixed (§4.5) |
 | B6 | An empty list plus a folder-bloc error shows a spinner for good | did not reproduce on the page; the bloc-level half ("Error replaces Loaded") is real | left |
 | B7 | `softDeleteFolderWithDescendants` reads the descendants outside its transaction and passes one unbatched `IN (…)` | reading; the race reproduced by the fix's test | fixed (§4.5) |
-| B8 | The same cascade stops at a tombstoned middle folder, leaving a live folder a merge put under it | reading | left |
-| B9 | `FolderStorageService.deleteFolders` is one transaction and one stamp per folder | reading | left |
+| B8 | The same cascade stops at a tombstoned middle folder, leaving a live folder a merge put under it | reading; reproduced by the fix's test | fixed that evening (§7.2) |
+| B9 | `FolderStorageService.deleteFolders` is one transaction and one stamp per folder | reading; reproduced two ways by the fix's tests (a failure on one picked folder left the others deleted; two stamps for one selection) | fixed that evening (§7.2) |
 | B10 | `NoteDao.updateNotePosition` does not refuse a tombstone (no caller in `lib/`) | reading | fixed (§4.5) |
-| B11 | A re-parent through `FolderDao.updateFolder` keeps the old position (no caller passes `parentId`) | reading | left |
+| B11 | A re-parent through `FolderDao.updateFolder` keeps the old position (no caller passes `parentId`) | reading; reproduced by the fix's test | fixed that evening (§7.2) |
 
 ### 2.2 Counters (review R1)
 
@@ -110,10 +115,10 @@ reviewer; **in review** / **in repair** = built, not yet through; **left**
 | C6 | `deleteNoteValue` during a flush leaves the value in memory (unreachable from the UI) | CONFIRMED | fixed (§4.4) |
 | C7 | The success snackbar shows when a counter write failed | reading | fixed (§4.4) |
 | C8 | `CounterShortcutHandler` inserts at a selection read after its awaits | the handler has **no caller**; the editor counts through `ShortcutApplier` | the dead handler is as it was; the live path's own fault (one counter named twice writes one number twice) was found there and fixed (§4.4) |
-| C9 | A counter edit writes the whole captured counter and can undo a pin a sync applied meanwhile | reading | left |
-| C10 | An unpinned counter dragged above pinned ones snaps back at the next reload | reading | left |
+| C9 | A counter edit writes the whole captured counter and can undo a pin a sync applied meanwhile | reading; reproduced by the fix's tests | fixed that evening (§7.3) |
+| C10 | An unpinned counter dragged above pinned ones snaps back at the next reload | reading; reproduced, on the per-note values page too | fixed that evening (§7.3) |
 | C11 | Per-note values first written by taps share the genesis epoch; two devices with different start values lose one side's taps at the join | reading | left — the CRDT's semantics, the owner's |
-| C12 | The counter form accepts a step of 0 and turns an unparseable number into 1 | reading | left |
+| C12 | The counter form accepts a step of 0 and turns an unparseable number into 1 | reading; reproduced by the fix's tests | fixed that evening (§7.3) |
 
 ### 2.3 Backup restore (review R2)
 
@@ -633,25 +638,28 @@ contains those letters. It now asserts on the table's name.
 Each with what reopens it. The low items each slice's last review left are
 written with their slice and not repeated here: §4.1 (R1 to R3, and the
 onboarding flag), §4.2 (three judgment calls on what counts as skipped),
-§4.4 (a tap racing a note's removal; one press and back within a create)
-and §4.5 (the count label of a re-created builder; three unpinned guards).
+§4.4 (a tap racing a note's removal — closed that evening, §7.3; one press
+and back within a create — still open) and §4.5 (the count label of a
+re-created builder; three unpinned guards).
 
 - **The restored Markdown bar shows only after a relaunch** (§4.7's first
   item; older than the session): the fix is the bar's readers resolving
   the service after a reset rather than holding GetIt's first instance.
-- **The counter picker says nothing when it wrote nothing** (the counters
+- ~~**The counter picker says nothing when it wrote nothing** (the counters
   not loaded, the counter gone, a count that failed): it no longer writes
-  "0", and it does not tell the person either. It needs a string.
+  "0", and it does not tell the person either. It needs a string.~~ Closed
+  that evening (§7.3): one line, "Not counted — nothing inserted".
 
 - **B6, "Error replaces Loaded"**: after a failed folder write the list
   keeps its rows but the bloc stays on Error until the next refresh, and
   the notes' infinite scroll stops meanwhile. Needs a decision on how a
   failed write is said (a snackbar from a listener is a visible change).
-- **B8, B9, B11** (the folder cascade under a tombstoned middle folder;
-  `deleteFolders` as one transaction; a re-parent keeping its position).
-- **C9–C12** (an edit undoing a remote pin; a drag above pinned counters;
-  the genesis epoch; the form's step 0). C11 is the CRDT's meaning and
-  needs the owner.
+- ~~**B8, B9, B11** (the folder cascade under a tombstoned middle folder;
+  `deleteFolders` as one transaction; a re-parent keeping its position).~~
+  Closed that evening (§7.2).
+- ~~**C9, C10, C12** (an edit undoing a remote pin; a drag above pinned
+  counters; the form's step 0).~~ Closed that evening (§7.3). **C11** (the
+  genesis epoch) stays: it is the CRDT's meaning and needs the owner.
 - **Pin then unpin does not return a counter to where it was** — as before
   the session; whether it should is a product question.
 - **A counter's own failure string** (decision H).
@@ -787,3 +795,196 @@ for one database); the page's caption says "Creating or switching
 databases will restart the app", and creating does not. Not driven:
 Optimize with space to reclaim, delete-all, a counter shortcut, predictive
 back.
+
+## 7. The evening run (2026-11-27, from 16:45)
+
+The owner read what was not done, asked what three hours could hold, and said
+"okay, finish it" — a multi-agent setup, quality first. One Fable lead;
+`implementer`s and `reviewer`s in detached worktrees
+(`%TEMP%\anta-wt-{bs0,ff,fc,tm,tm2,r0}`), each stream's delta cut against the
+tag work staged as its baseline and merged into the main tree by `git apply`
+only after its reviewer had read its last change. Everything below is in the
+main tree, **uncommitted until the owner says**; the patches are kept in
+`build/session-2026-11-27/`.
+
+### 7.1 What went in
+
+| Stream | What | Built / reviewed | Patches |
+| --- | --- | --- | --- |
+| Tags | the tag catalog (schema v57) and `#` autocomplete, as built during the day | — / a third review of each half, on the merged tree | `t1`, `t1b`, `t2`, `t2b` |
+| Tag catalog repairs | search waits on the index alone; the editor's open asks the indexer to catch up; one ledger read on the first open; a pin that the backfill starts unasked | 2 / 2 (the pin is a test the review asked for, proven red under the mutation) | `tx`, `tx2` |
+| Tag autocomplete repairs | a session opens only on typing; undo and redo shut the bar; dismissal by tag; a ghost's anchor survives a tag; the composing guard pinned | 2 and a hardening / 3 | `ty`, `ty2` |
+| Browser sheets, Slice 0 | semantics ids, five device flows, the first move-history suite | 2 / 1 (the repair applied the fix the review had proven by probe) | `bs0`, `bs0b` |
+| Folder data layer | B8, B9, B11 | 2 / 2 | `ff` |
+| Counters | C9, C10, C12, the picker's line, a tap racing a note's removal | 4 / 3 (the last change is one line, with the test the review specified, red first) | `fc` |
+
+The tag streams are recorded in `docs/tag-system-roadmap.md` ("The evening of
+2026-11-27", decisions T-K to T-N); Slice 0 in `docs/browser-sheets-roadmap.md`
+§7.1. The religious calendar's S0 was reviewed and repaired the same evening
+and is still unmerged: `docs/religious-calendar-roadmap.md` §7.1.
+
+### 7.2 The folder data layer — B8, B9, B11
+
+- **B8.** A folder delete now walks through folders that are already deleted
+  (`FolderDao.softDeleteFoldersWithDescendants` → `_subtreesThroughTombstones`),
+  so a live folder or note a merge left under a tombstoned middle folder goes
+  with the ancestor being deleted. The tombstone it passes is never stamped
+  again, a partner's rows are left alone by the fences, each row is queued
+  once. `getAllDescendantIds` is unchanged and still stops at deleted folders
+  for its other callers.
+- **The walk's shape came from its review.** The first build was one CTE
+  with a second recursive step for deleted children; its review measured the
+  cost — the automatic index was keyed on `is_deleted` alone, so every
+  folder reached visited every folder tombstone in the table: a root with
+  1,530 live folders took 53 ms with no tombstone elsewhere, 491 ms with
+  10,000 and 1,896 ms with 40,000, inside the write transaction. The repair
+  made it iterative, one statement per layer of tombstones: the live
+  subtrees through `idx_folders_position`, `folders` scanned once per round
+  with each deleted folder looked up among the rows reached, and the deleted
+  folders found seeding the next round. The same delete now takes 20 to 55
+  ms whatever sits elsewhere; the hostile case, a 65-deep chain of deleted
+  folders with 40,000 tombstones elsewhere, 130 ms in 66 rounds (desktop).
+  It ends on a cycle and on a folder that is its own parent, and reaches the
+  same 65 levels as `getAllDescendantIds` (the first build reached one less;
+  a test pins the bound).
+- **B9.** A bulk folder delete is one transaction and one HLC stamp for the
+  whole selection; the repository evicts the caches of what it deleted and
+  of the tombstoned folders the walk passed (`FolderCascade.tombstonesPassed`)
+  and sends one `deleted` event per picked folder as before. A selection of
+  folders and notes is still two units: the page sends them as two events.
+- **B11.** `FolderDao.updateFolder` on a move writes the next position after
+  the new parent's last live folder, as `moveFolder` does (the two share
+  `_maxLivePosition` now); a rename alone keeps the position. No caller in
+  `lib/` moves through it.
+- **The delete confirm counts what the delete removes**
+  (`getNoteCountWithDescendants` over the same walk): after a partner device
+  deleted a middle folder the dialog used to name fewer notes than went.
+- **Left by its reviews, low**: the confirm can count a partner's notes the
+  delete then leaves alone, in a state the fences forbid a person to build;
+  the count reads its rounds outside a transaction (it is a preview); after
+  an `ANALYZE` the live step would drop `idx_folders_position` (the app
+  never runs one; the plan test pins the plan without statistics);
+  `FolderStorageService.updateFolder` can never move a folder to the root
+  (`updateParent: parentId != null`), and an `updateFolder` into a partner's
+  folder is skipped by the fences while the DAO still stamps and queues the
+  row — older than the slice, no caller.
+
+### 7.3 Counters — C9, C10, C12, the picker's line
+
+- **C9.** An edit writes only what the person changed. `UpdateCounter`
+  carries `previous`, the counter as the form opened on it, and
+  `CounterService.updateCounter(updated, {previous})` writes only the fields
+  that differ from it; the pin, the position and `createdAt` are never
+  written by an edit. So a pin, and a name, start, step or scope a pull
+  applied while the form was open, stay unless the person changed that very
+  field. A caller without `previous` writes the four form fields, as before.
+- **C10.** A row dropped outside its pin group lands at that group's edge,
+  in the counters list (the service) and on the per-note values page (its
+  bloc), so what is stored is what is shown after a reload.
+- **C12.** The form refuses a step of 0 and a number it cannot read: the
+  reason shows under the field in a slot that always keeps its room
+  (`FormCaptionSlot`, each field reserving only its own reasons, wrapping at
+  text scale 2.0), Save is disabled meanwhile and checks again when tapped,
+  and no path can throw any more (the first build's `int.parse` could, on a
+  field emptied in the frame of the tap). The reason is the field's
+  semantics hint, on a node that keeps its identity as the reason comes and
+  goes. New strings: `counterNumberInvalid`, `counterStepZero`.
+- **The picker's line.** When a pick counted nothing the editor says "Not
+  counted — nothing inserted" (`counterPickerNotCounted`) above the toolbar.
+  The counter button, tapped while the counters are still loading, waits up
+  to two seconds for the load as the picker's own return path does — one
+  wait at a time — and a failed load says "Failed to load counters".
+- **A tap racing a note's removal** (§4.4's low item): `deleteNoteValue`
+  waits for the note's cold read in flight, so a tap waiting on it counts
+  first and is removed with the value instead of bringing the row back.
+- Romanian: `counterRetry` read "Încercă din nou"; it is "Încearcă din nou".
+- **Left by its reviews, low**: the reason is read when the field takes
+  focus and not announced when it appears; the counter page's dropped row
+  moves twice (its bloc emits after the write, and with the clamp the second
+  move is to the group's edge) — as before the slice; int64 bounds are
+  accepted and wrap; a number too large to read is called "not a whole
+  number"; a save with an empty name still closes the dialog and saves
+  nothing; a step of 0 can still arrive by a restore or a sync (only the
+  form guards it); "one press and back within a create" (§4.4) is still
+  open; C11.
+
+### 7.4 Decisions the lead took that evening
+
+The owner was at hand and had said "finish it"; these are the choices the
+streams made on the way. Each is reversible; "not taken" is what he would
+pick to overturn it. The tag work's are T-K to T-N in its own record.
+
+| # | Decision | Not taken |
+| --- | --- | --- |
+| Q | A folder delete also removes the live notes lying directly in a deleted middle folder, not only the live folders under it. | Folders only (a note one level deeper would go while this one stayed). |
+| R | A bulk folder delete takes one stamp for the whole selection, as `moveFolders` and `applyOrder` do. | One transaction with a stamp per folder. |
+| S | The delete confirm counts over the delete's own walk; a note whose `folder_id` names no folder at all is no longer counted. | The old count, which stopped at deleted folders and so named fewer notes than went. |
+| T | A counter row dropped outside its pin group lands at the group's edge, on the per-note values page too. | Pinning or unpinning a row because of where it was dropped; leaving the per-note page as it was. |
+| U | The counter form disables Save while a number is unreadable or the step is 0 and says why under the field, in a reserved line: the form is taller by one line under each number field at 1.0. | Save enabled and a refusal on tap; no reserved line (the form then jumps as an error comes and goes). |
+| V | One line for every pick that counted nothing; the counter button waits up to 2 s for a load in flight instead of failing at once. | Reusing "Couldn't save the change"; a line per cause; no wait. |
+| W | A counter edit writes only the fields that differ from the counter the form opened with. | The four form fields whole (an edit of the name then undid a step a pull had applied); re-reading the row just before the write (still a race). |
+
+### 7.5 Gate and device
+
+**The whole suite**, in seven foreground chunks, on the main tree at 18:02 on
+2026-11-27 with every stream of §7.1 in it: **`+19513 ~17`, no failure** —
+services `+3738 ~5`; every directory but widgets and services `+8624 ~9`; the
+widget suites in three parts `+2546 ~1`, `+2117`, `+2292 ~2`; the editor page
+suite in two `+156`, `+40`. `dart analyze lib test tool`: no issues.
+`flutter gen-l10n` run on the main tree, `untranslated.txt`: `{}`. The logs
+are `build/session-2026-11-27/logs/final3_*`. An earlier run at 16:55, on the
+tree with only the tag patches applied: `+19445 ~17`, no failure (`tags1_*`).
+
+**The schema step on a device** (`anta_qa_1`, by hand, at 17:16). The QA
+database of the day's v56 build — the basic seed, two notes tagged through
+the editor, the body index built by a search — was upgraded in place by
+installing the v57 build over it. It launched (first frame after 3.0 s) and
+came back on the folder it had been left in, with its notes; a body search
+and a full `#tag` search answered as they had before the step; typing `#mo`
+in one note offered `#mobility`, a tag only another note carries, so the
+drain had filled the catalog; accepting wrote `#mobility ` and brought the
+toolbar back; `qa errors` was clean after every step. Shots:
+`build/qa/shots/20261127_1716*_upg_0*.png`.
+
+**The cloud suites**, each against a freshly started Firebase emulator
+suite, on the cloud-define build of the tree at 17:47 — everything of §7.1
+but the counter slice, which merged at 17:53 and which none of their flows
+drives: `sync` 5/5 in 39.0 s (`sync_20261127_174727_276`), `sync_pair` 3/3 in
+98.9 s (`sync_pair_20261127_174915_500`), `share` 27/27 in 584.3 s
+(`share_20261127_175145_372`); no red, no recovery.
+
+**The local suites.** On the 17:16 build (the tag patches and Slice 0, before
+the repairs): browser 8/8 in 99.3 s, settings 21/21, calendar 35/35, alerts
+5/5 — none flaky, none recovered. **On the final build** (18:13, the tree of
+the figure above, cloud off): **browser 8/8 twice** — the gate of Slice 0,
+its five new flows green both times (88.0 s, `browser_20261127_181330_263`;
+119.9 s, `browser_20261127_181504_198`) — **settings 21/21** (344.7 s,
+`settings_20261127_181708_412`), **calendar 35/35** (779.0 s,
+`calendar_20261127_182258_274`), **alerts 5/5** (318.0 s,
+`alerts_20261127_183602_875`), **alerts_pair 1/1** (106.6 s,
+`alerts_pair_20261127_184127_052`): 78 flow runs, no red, none flaky, none
+recovered, every flow's errors capture clean where it was read. The guest
+was recycled three times by the passes themselves (worn-guest hygiene) and
+stopped at the end; nothing was left running.
+
+### 7.6 Left
+
+- **The owner's.** The commit; a backup of the phone before its first v57
+  build; the phone check of `#` suggestions on a keyboard that composes
+  words (`docs/tag-system-roadmap.md`, "the one thing only a phone can
+  show"); the lettered decisions Q to W above and T-K to T-N there; the three
+  answers the religious calendar waits on, and his signature.
+- **Not built**: every "left, low" list above and in the tag record; C11;
+  B6; K9 to K11 and A6; the three title-cut edge cases; the database items
+  R1 to R3 of §4.1; the alarms that keep a renamed database's old name; the
+  restored Markdown bar that shows only after a relaunch; "one press and
+  back within a create".
+- **Not on a device**: TalkBack on the counter form and on the move-history
+  sheet; the counter form at text scale 2.0 in German with the keyboard up
+  (a probe in the test font overflowed by 36 px, from the title and the
+  actions rather than the reserved lines — a real font may fit); a database
+  switch, rename or delete-all driven by a saved flow; the tag work on the
+  owner's phone.
+- **The worktrees** `%TEMP%\anta-wt-{bs0,ff,fc,tm,tm2,r0}` and the morning's
+  eleven are still registered; everything in them is in the main tree or in
+  a patch under `build/session-2026-11-27/`.

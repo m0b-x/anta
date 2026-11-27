@@ -1,6 +1,6 @@
 # The folder browser's sheets on the UI language — design record (2026-11-27)
 
-**Status: PROPOSED — nothing is built.** A designer's judgement and specification, made from renders of the surfaces as they are on 2026-11-27 while the owner was away, of tier B of `docs/ui-language-adoption-roadmap.md`: the sheets and pickers that open from the folder browser. It waits for his answer on the lettered decisions of §5, and on the master's open decision 2 (the confirm dialog), which it takes a position on. The renders, the measurements and the mock are in `build/session-2026-11-27/browser_sheets/` (git-ignored).
+**Status: Slice 0 BUILT 2026-11-27 (the safety net of §7 — ids, device flows, a first move-history suite; in the main tree, §7.1) — the visual slices 1 to 5 are PROPOSED, nothing of them is built.** A designer's judgement and specification, made from renders of the surfaces as they are on 2026-11-27 while the owner was away, of tier B of `docs/ui-language-adoption-roadmap.md`: the sheets and pickers that open from the folder browser. It waits for his answer on the lettered decisions of §5, and on the master's open decision 2 (the confirm dialog), which it takes a position on. The renders, the measurements and the mock are in `build/session-2026-11-27/browser_sheets/` (git-ignored).
 
 Contents: §0 What the master's §4.2 says that is no longer true · §1 Diagnosis · §2 Spec · §3 What stays · §4 Risks · §5 Decisions · §6 Renders and measurements for the review · §7 Slices · §8 How to run this
 
@@ -228,11 +228,27 @@ In build order; one implementer and one reviewer per slice; the gate after each 
 
 **The closing device pass:** the browser suite, then `qa set theme=dark locale=de text-scale=2.0` and the same flows with their screenshots beside the renders of §6; `qa errors` clean; the master's §7 gains this tier's row.
 
+### 7.1 As built (appended per slice)
+
+**Slice 0 — the safety net (2026-11-27, evening; in the main tree).** One `implementer`, one `reviewer`, one repair, on the owner's "finish it". No pixel, string or behaviour changed; the goldens are untouched.
+
+- **Ids** (`semantics_ids.dart`, all added, none renamed): `folder-menu-sort`, `folder-menu-move-history`; `browser-sort-open-folders` and `browser-sort-open-notes` (the chooser's two tiles — temporary, they retire with the chooser in Slice 2); the five `browser-sort-folder-*` and seven `browser-sort-note-*` of §2.4 on today's tiles; `move-history-sheet`, `move-history-clear`, `move-history-undo-<index>`; `row-action-labels`; `label-swatch-<label>` (`none` and the seven colours, by `ItemLabel.storageName`); `selection-label`.
+- **`move-history-undo-<index>` is the entry's position in the whole history, newest first, undone entries counted.** An undo removes that entry's button and shifts nobody's index; a new move shifts them all, which is fine for a flow because the history is in memory and every flow reseeds.
+- **`row-action-labels` sits on the generic header band of `showRowActionSheet`**, so it is also on the sync guide's demo sheet and on a partner's row, where the band holds the read-only line and no strip. The id alone does not prove the strip is there; flow 03 also expects the eight swatches.
+- **The suite**: `test/widgets/move_history_sheet_test.dart`, six cases — entries newest first with their undo ids, an undo over a real database that puts the note back and strikes the row, Clear through its confirm, the empty state, the title and the empty line each keeping its own semantics node, and the undo index counting undone entries.
+- **The flows** (`tool/qa/flows/browser/03_long_press` to `07_label`), each from a fresh `basic.json` seed. **§7's flow text did not match the fixture** — Training holds only Week 1, and both Sessions already live in Week 1 — so `04_sort` sorts the notes inside Week 1 (and the folders at the root) and `05_move_history` moves Session 1 from Week 1 up to Training. Each note's preview names the other note, so a title matches two rows: a row is picked by `--nth` (the seed's `updatedAt` puts Session 2 first) and told apart in `expect` by a word only its own preview holds ("Squat", "Deadlift").
+
+**Its review** compared the semantics tree of every changed widget before and after, node by node. One fault: the sheet-wide container on move history had no `explicitChildNodes`, so the title lost its own node and, in the empty state, "Move History" and "No recent moves" merged into one screen-reader stop. Repaired (`explicitChildNodes: true`, pinned by a test that was red first). Everything else was identical but for the ids: the sort tiles (the existing `hasSelectedState`-without-`isSelected` quirk included, which Slice 2 removes), the selection bar, the swatches, and the overflow menu (one node per id for the harness, which stops at a merge boundary). The repair also made the flows wait for a row before tapping it (the create bar is built before the rows load), made `06_picker`'s search step wait for its result rather than for a header's absence, and replaced two waits that could not fail.
+
+**The device** (`anta_qa_1`): the browser suite 8/8 on the first run of the five new flows, before the repair (99.3 s, `browser_20261127_171732_835`). The gate of this slice, the suite green twice on the final build with the repair in it: 8/8 in 88.0 s and 8/8 in 119.9 s (`browser_20261127_181330_263`, `browser_20261127_181504_198`); the whole evening's gate and device evidence is in `docs/app-review-2026-11-27.md` §7.5.
+
+Left for Slice 3, by the review: a folder entry's undo and the "original location gone" path have no widget test.
+
 ## 8. How to run this
 
 Nothing starts before the owner has answered §5. "Yes to all" is an answer; D-A to D-C are Slice 4's, D-D to D-F Slice 2's, D-G to D-J Slice 1's, D-K Slice 3's, and D-L and D-M are Slice 5's and the master record's decision 2 — an app-wide change of look that he may want to take apart from the rest.
 
-- **Slice 0 needs no decision** and may be built first: it adds ids, device flows and a first move-history suite on today's UI, so every later slice is caught by a flow that was green before it.
+- **Slice 0 is built** (§7.1, 2026-11-27): the ids, the device flows and the first move-history suite are on today's UI, so every later slice is caught by a flow that was green before it.
 - **The session:** a Fable 5.2 lead at `high`; with §5 answered nothing is left to decide, so an Opus 5.5 session may build it directly instead.
 - **Per slice, in sequence** (one `flutter test` at a time): one `implementer` in a worktree of its own, briefed with §2's shared part, its own surface's table, §3 and its lines of §7; one `reviewer` on the diff against §3; one `design-reviewer` in a fresh context on §6, never shown §1's reasoning; the whole-suite gate from the lead; then `qa pass browser -d emulator-5556` with Slice 0's flows.
 - **At each slice boundary** the status line is corrected, the uncommitted files are counted and a ready commit is offered; the master record's §7 gains the tier's row.

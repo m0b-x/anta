@@ -27,7 +27,10 @@ built** and committed as `bd9d746d` (the Romania profile's three January
 days). **S0 is built in a worktree and NOT merged** (`%TEMP%\anta-wt-f1`:
 the generator, the 2025 and 2026 fixtures and bundles, the generated table,
 the conformance test). The designer's spec for S4 exists. Nothing of S2–S5
-was started. The session's lead had an agent run `keygen` and sign both
+was started. **That evening S0 was read by a reviewer for the first time and
+repaired in two rounds, each read again (§7.1): it is one patch now,
+`build/session-2026-11-27/s0-full.patch`, still unmerged, nothing in it
+signed by the owner.** The session's lead had an agent run `keygen` and sign both
 bundles before stopping, which was not the lead's to do: **a signing key now
 exists at `%USERPROFILE%\.anta\calendar_signing.key` that the owner did not
 make, and both unmerged bundles say `verifiedBy: owner` though he has read
@@ -996,6 +999,177 @@ and the two ritual reports are also in `build/session-2026-11-27/`
 (`s0.patch`, `report_2025.txt`, `report_2026.txt`; git-ignored, gone at the
 next `release clean`). Apply the patch with `git apply` from the repo root,
 then `flutter pub get`.
+
+**S0's first review (2026-11-27, evening; one `reviewer` on a copy of HEAD
+`53ce1af4` with `s0.patch` applied, that is, over S1).** What it found sound:
+the generator reads the cached source correctly and deterministically (both
+years regenerate byte-identical offline, and its 2025 report equals the one
+kept for the owner); every named feast's rank in both bundles matches §4.1's
+marker (71 entries); `cryptography 2.9.0` is pure Dart with no startup code;
+nothing in `lib/` imports the new files yet, so the app is unchanged but for
+117,624 bytes of assets. **Its verdict: not sound to build S2 on** until
+three things are repaired:
+
+1. `verify` in `lib/utils/calendar_bundle_signing.dart` throws on a malformed
+   signature (any decoded length other than 64 bytes, the empty string) where
+   its own doc says such input "never verifies". S2's reader and S6's remote
+   bundle stand on that call.
+2. The conformance test cannot catch a wrong bundle the generator writes
+   before signing. Four hand edits of the 2026 bundle passed checks (1) to
+   (6) and only the signature check failed: a wrong regime on a correction
+   without a note, an invented `fastBegins` exception on an ordinary
+   Wednesday, two feasts' ranks swapped, a duplicated `ranks` entry. No test
+   feeds raw source input to the parser, and nothing pins the generated
+   table.
+3. The generated table. Its `.g.dart` name is in build_runner's namespace:
+   there is no `build.yaml`, so once S2 adds `orthodox_feast_table.dart`
+   beside it, `build_runner build --delete-conflicting-outputs` would delete
+   it. It has one fixed list where §4.2 asks for a fixed and a Pascha-offset
+   one — the Ghighiu icon's day is keyed to 17 April, right for 2026 only.
+   And D14's two days are in neither the table nor the bundles' named feasts,
+   so neither answer to D14 is expressed yet.
+
+Also found: a fasting note with one known and one unknown part drops the
+unknown part without a word; a missing or renamed source field yields an
+empty day and exit 0; a non-JSON answer is cached before it is decoded and
+then fails every later run; uncaught errors exit 255 where the header
+documents 1; the cache is never refreshed and its age is printed nowhere;
+`sign_calendar.dart` defaults `--by` to `owner` — which is how both bundles
+came to say it — and signs a hand-edited bundle without comparing it with
+its fixture; `verify` checks neither `schema` nor `year` (S2's reader must);
+"canonical" is Dart's `jsonEncode`, enough while both sides are Dart;
+§4.8.4's fish budget (23 / 24) differs from the test's 23 / 23, and
+`fastStarts: 1` is a pinned budget this record does not list.
+
+**Evidence for the owner's question on D14 — not an answer.** 13 July 2026:
+the raw title still carries the outer red span with a blue span nested in
+it; the parser takes the innermost colour, Appendix A recorded "title red".
+For that day "the source moved" may be a difference in reading, not a change
+in the source. 23 November 2026: no red at all now, and the marker is `†)`
+in both the title and the day field — that day did change. In 2025 both days
+are Sundays, the blue nested inside the Sunday's red. 7 January 2026: the
+title has a red `†` and no note while the source's fasting field says fish;
+following the field would bring 2026's fish misses back to 24 (2 December
+leaves, 7 January joins).
+
+**Merged over S1 the conformance suite is `+20 -2`**: both failures are the
+legal budget's three January days, as expected (`legalMissing` becomes
+empty when S0 is merged).
+
+**The order once the owner has answered** (the review's list): the key (keep
+it or run `keygen`, his) → D14 into `tool/bor/src/orthodox_feasts.dart` and
+the table, the Pascha-offset list, a home for the three unmarked doxology
+days of §4.1 → optionally a cleared cache → the 2027 ritual if he says now →
+2025 and 2026 regenerated offline, `--emit-table` once, last → the test
+budgets → he reads the reports and signs every bundle himself → the two
+suites, then the whole suite. S3 regenerates and re-signs again when the
+exceptions become rule ids.
+
+**The two repair rounds (2026-11-27, evening).** One `implementer` per round,
+each read again by the same reviewer; what needed no answer from the owner.
+Nothing was signed, `keygen` and `sign_calendar` were not run, neither bundle
+and not `calendar_data_keys.dart` changed a byte, and both years' fixtures
+regenerate byte-identical offline before and after. The whole of S0 as it
+stands is one patch against `53ce1af4`, `s0-full.patch` in
+`build/session-2026-11-27/` (33 files; it applies on the main tree as the
+evening left it); `s0.patch` is the slice as first built.
+
+- **`verify` is total**: false for a signature that is not 64 bytes, a key
+  that is not 32, input that is not base64, a bundle `jsonEncode` rejects; a
+  bad key is skipped, so a good key later in the list still verifies
+  (`test/utils/calendar_bundle_signing_test.dart`). A bundle that is not a
+  map cannot reach it — S2's reader must catch the cast, and must check
+  `schema` and `year` itself.
+- **The conformance test catches wrong bundles** — its fast and mark checks
+  run on in-memory copies, so wrong bundles are tested against it: a
+  correction's regime against a weekday table written in the test from
+  §4.3 R3; every day's fast *period* against the source's own season field;
+  a `fastBegins` day between the official start and the engine's, and
+  exactly the ordinary day's value where the engine starts early; marks as
+  sorted lists, so a duplicate counts; each named feast's rank against
+  §4.1's marker; the generated table against the generator. 35 cases; over
+  S1 two of them are the expected January `legalMissing` failures.
+- **The parser is tested against raw source input**
+  (`test/bor/bor_source_test.dart` over `test/fixtures/bor_source_sample_2026.json`,
+  eight real entries, and `crestinortodox_sample_2026-12.html`; green on
+  CRLF copies too). A note read only in part reports the unread part when it
+  uses Appendix C's fasting words. A missing field, an empty title, an
+  impossible date, a non-boolean `zi-libera-acf` or a never-seen value in
+  the three select fields stops the run, naming the day, the field, where to
+  add the value (`_selectOptions` in `tool/bor/src/bor_source.dart`) and
+  what the field feeds — the fixture, the report and the test's season
+  check, never the bundle.
+- **The cache** (`tool/bor/src/source_cache.dart`): a page is decoded and
+  must hold exactly the entries its place in the year needs, all dated in
+  that year, before it is written; a page missing offline is named as
+  missing; a bad cached page and every whole-year error name `--refresh`,
+  which drops a year's cached pages (refused with `--offline`); the
+  cross-check parses a month before it caches it; every error exits 1 with a
+  message; the report has a "Sources" section with the cache's age.
+- **`sign_calendar.dart`** has no default for `--by` and refuses a bundle
+  whose `schema` or `year` is wrong or that differs from what its fixture
+  and the engine golden produce — every bundle checked before the key is
+  read, all or nothing. It trusts the fixture in the tree: a fixture edited
+  together with its bundle passes, and only a review of the diff tells.
+- **The generated table** is `lib/constants/orthodox_crossed_days.dart`
+  (not `.g.dart`; §4.2's name for S2's hand-written file is free), with two
+  lists: `orthodoxFixedCrossedDays` — (month, day, rank, colour), 114
+  entries — and `orthodoxMovableCrossedDays` — (days from Pascha, rank,
+  colour), one entry, `(5, 'polyeleos', 'blue')`, the Ghighiu icon on Bright
+  Friday. A cross is movable when one year shows it beyond what every year
+  shows on that date and it sits at the same Pascha offset in every other
+  year. **Fifteen fixed entries are flagged `// unproven`**: dates only one
+  fixture year crosses (fourteen only in 2026 — 7 March, 20 April, 4, 5, 11
+  and 24 May, 5 and 8 June, 4 July, 15 October, 18 November, 1, 19 and 23
+  December — and 12 April only in 2025); the ritual report lists them, and a
+  third year confirms or reclassifies them. Not provable from two years and
+  left in the fixed list: 26 April 2026, the Synaxis of Romanian Holy Women,
+  really Pascha + 14 (its 2025 Sunday is uncrossed). D14's two days, and the
+  three unmarked doxology days of §4.1 (11 June, 19 June, 9 December), are
+  in neither list, pinned by a test: the first wait on the owner, the second
+  on S2's hand-written table.
+- TSV notes escape `\` and `|`.
+
+**This record's own text is stale in these places until S0 merges** (the
+builders listed them; not edited here so the plan below still reads as it
+was decided): §4.1 lines 316–324 and §4.2 lines 340–343 (the table's name,
+its two lists, the unproven lines); §4.8.3's usage block (the new path,
+`--offline`, `--refresh`, the page validation, the report's new sections);
+§4.8.4 (check 1 also compares the period with the season field; the fish
+budget is 23 / 23 and `fastStarts: 1` is pinned); §4.8.5 step 3 and step 8's
+`git add` line (the old `.g.dart` name — as written the step would leave the
+table out of the commit), step 4 (read the unproven list), step 5
+(`--by <name>` is required, from the app root); §7's S0 paragraph and §9.4
+line 1139 (the old name); above, "115 unnamed crossed days" is 114 fixed and
+one movable, and "22 cases" is 35.
+
+**The reviewer's last word, after the second round: sound to build S2 on.**
+The signature check never throws, the conformance test catches wrong data on
+every independent axis the source offers (it caught fourteen of the
+seventeen wrong bundles built against it after the first round, and the
+period edits after the second), the cache refuses partial pages, and the
+table's two lists are pinned to the generator. Left, low:
+
+- A page that duplicates another, or one date twice inside a page, is still
+  written to the cache — the whole-year check then fails loudly, naming the
+  date and `--refresh`; and when the source itself carries one entry too
+  many, the message advises a retry that cannot help.
+- The season check sees only the four great fasts: a wrong period among the
+  others (`cheesefareWeek`, `exaltationOfCross`, …) on an exception day
+  still passes. The source has no finer field to check against.
+- 24 February keeps a polyeleos blue mark only 2026 shows (Sf. Cuv. Petroniu
+  de la Prodromu beside the day's black cross); if 2026 moved him there for
+  a year, 2027 shows the wrong rank on that day. No effect on fasting.
+- The Synaxis of Romanian Holy Women (Pascha + 14) is missing from the
+  movable list, as above; in 2027 its Sunday simply has no cross.
+
+A third fixture year settles the last two and the fifteen unproven dates.
+**What S0 still needs, and only the owner can give**: the key (keep or
+replace) and his own signature on both bundles, which still say
+`verifiedBy: owner`; D14, which decides whether 13 July and 23 November
+become named red feasts or table entries; a home for the three unmarked
+doxology days, a decision for S2's hand-written table; 2027 now or in
+December. `legalMissing` becomes empty when S0 merges over S1.
 
 **Ritual log** (one row per yearly pass, §4.8.5 step 7):
 

@@ -36,8 +36,9 @@ Tiers are by value-to-effort for this app specifically.
 ### 2. Tags — `#legday`, `#pr`, `#deload` — ✅ SHIPPED (baseline)
 - **Status:** the inline `#tag` token, tappable render, and tap → global
   diacritic-insensitive search are shipped. Body is Unicode-aware (accents, NFD,
-  non-ASCII digits). Next steps (full-content search, tag index, autocomplete,
-  browser) are tracked in **`docs/tag-system-roadmap.md`**.
+  non-ASCII digits). Full-content tag search (2026-11-08), the tag catalog and
+  `#` autocomplete in the editor (2026-11-27, schema v57) are shipped too; the
+  tag browser and rename/merge are tracked in **`docs/tag-system-roadmap.md`**.
 - **Why (gym):** the highest-leverage organizational feature for a training log —
   tag sessions by split, mesocycle, or feeling, then filter/search across notes.
 - **Fit:** inline token in `_parseInline` (word-boundary `#` + identifier),

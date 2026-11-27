@@ -1,13 +1,18 @@
 # Tag System Roadmap — ANTA
 
-**Status (2026-11-27): Tier 1 is shipped — by the scalability rework, not
-from this plan — and the text of Tier 1 below is kept as history, corrected
-in "Where the plan stands". Tier 2 is in progress: the tag catalog (step 4a)
-is built and reviewed twice, as a patch that is NOT in the main tree (it
-carries schema v57); `#` autocomplete (4b) is being built on it in the same
-worktree. Nothing of Tier 2 is committed. The decisions taken for it in the
-owner's absence are lettered in that section, each with the option not
-taken.**
+**Status (2026-11-27, evening): Tier 1 is shipped — by the scalability
+rework, not from this plan — and the text of Tier 1 below is kept as history,
+corrected in "Where the plan stands". Tier 2's first two steps are IN THE
+MAIN TREE since the evening of 2026-11-27, on the owner's "okay, finish it":
+the tag catalog (step 4a, schema v57) and `#` autocomplete in the editor
+(4b) — built and reviewed twice as patches during the day, merged, read a
+third time as one change on the merged tree, repaired for what that read
+found, gated and proven on the emulator with a v56 database upgraded in
+place. Uncommitted until the owner says. The tag browser (step 5) has its
+design record and waits on his lettered decisions; rename / merge (7) is not
+started. The decisions taken for 4a and 4b are lettered in "Where the plan
+stands" — T-A to T-J in his absence that day, T-K to T-N that evening — each
+with the option not taken.**
 
 Forward plan for the `#tag` feature. The **baseline is shipped**; this document
 covers what's needed to make tagging a production-grade organizational backbone
@@ -44,14 +49,13 @@ list, so Tier 2 starts with it.
 
 **Tier 2 as it is being built.**
 
-- **4a — the tag catalog** (built and reviewed twice on 2026-11-27, in the
-  worktree `%TEMP%\anta-wt-t1`; a patch, NOT in the main tree — see "As
-  built" below): every tag in use, the number of notes that carry it and
-  the spelling most of them use, published to a synchronous facade the
+- **4a — the tag catalog** (built and reviewed twice on 2026-11-27 as a
+  patch, in the main tree since that evening — "As built" and "The evening
+  of 2026-11-27" below): every tag in use, the number of notes that carry it
+  and the spelling most of them use, published to a synchronous facade the
   editor can read during a keystroke.
-- **4b — `#` autocomplete in the editor** (next): the vocabulary bar, its
-  session and its insertion path with a second provider, as the vocabulary
-  record's `candidateSource` seam was left for.
+- **4b — `#` autocomplete in the editor** (the same day, the same way): the
+  vocabulary bar and its insertion path, with a session of its own for tags.
 - **5 — the tag browser** has its design record, `docs/tag-browser-roadmap.md`
   (PROPOSED, nothing built): the tags listed in the search surface's idle
   state, above Recent, a tap running the search a tag tap in a note runs —
@@ -78,7 +82,9 @@ the slice is unmerged; "not taken" is what he would pick to overturn it.
 
 A migration is not merged into the main tree unasked: a development
 database opened once by a v57 build cannot be opened by a v56 one. 4a and
-4b stay a patch until the owner says so.
+4b stayed a patch until the owner said so, which he did that evening
+("okay, finish it"): the same holds for his phone from the first v57 build
+installed on it, so a backup comes first.
 
 **4a as built** (`build/session-2026-11-27/t1.patch`, then `t1b.patch` on
 top; both apply on the main tree as the session left it).
@@ -96,7 +102,8 @@ top; both apply on the main tree as the session left it).
   (`NoteSearchDao.untaggedNotes`, `writeTags`): bodies read page by page,
   tags extracted off the UI isolate, one `UPDATE` per note, which lands
   only while the note is still live and at the ledger's stamp. No FTS row
-  is touched. `hasPendingWork` counts a NULL row as work.
+  is touched. `hasPendingWork` counted a NULL row as work until that evening
+  (T-L below took it out again).
 - **The read**, `NoteSearchDao.catalogTags()`: one statement driven from
   the ledger, joined to live notes by rowid and id.
 - **`TagCatalogService`** publishes the facade `TagCatalog`
@@ -124,7 +131,8 @@ written in NFC and the same tag in NFD are two entries (the search folds
 them the same way today); drains run at launch, at a switch and when
 search opens, so a tag typed in one note reaches the catalog only then —
 4b offers the open note's own tags itself and asks for a refresh when the
-editor opens.
+editor opens (since that evening the editor's open also asks the indexer to
+catch up, T-M below).
 
 **4b as built** (`build/session-2026-11-27/t2.patch`, on top of the two
 catalog patches; its review is written under this paragraph when it has
@@ -177,7 +185,8 @@ stays shut on returning to the tag until a character is typed; a merge
 from another device that inserts a line above a tag just accepted reopens
 the bar there without a tap.
 
-**To apply the tag work, in this order, on the main tree as the session
+**To apply the tag work (done on 2026-11-27 at 16:50; kept as the history
+of how it was checked), in this order, on the main tree as the session
 left it:** `t1.patch`, `t1b.patch`, `t2.patch`, `t2b.patch` (all in
 `build/session-2026-11-27/`), then the docs listed below. Checked at the
 end of the session on a copy of the final main tree: the four apply in
@@ -212,7 +221,11 @@ in the note is not offered in that session unless the catalog has it.
 Noticed and left: the catalog counts a tag inside a code fence (the
 search's tag column always has), while the editor draws it as code.
 
-**When the patch is applied, these say something untrue until edited**:
+**Corrected with the merge on 2026-11-27** (they said something untrue once
+the patch was applied; the third review added the `drift-migrations`
+skill's list of services on the reset contract and
+`markdown-engine/references/vocabulary-autocomplete.md`, which now has a
+"Tag suggestions" section):
 `.claude/skills/drift-migrations/references/persistence-rules.md` line 22
 (the ledger is "`indexed_hlc` + fingerprint" there — add the `tags`
 column, NULL as "not read yet", and that `hasPendingWork` counts it), the
@@ -220,6 +233,89 @@ column, NULL as "not read yet", and that `hasPendingWork` counts it), the
 live ledger creator), `.claude/skills/markdown-engine/references/
 grammar-modules.md` lines 27–29 ("`TagIndex` roadmap is in the tag roadmap
 doc"), and `docs/markdown-feature-ideas.md` item 2.
+
+**The evening of 2026-11-27 — merged, read a third time, repaired.** On the
+owner's "okay, finish it" the four patches were applied to the main tree at
+16:50 (schema v57), and two `reviewer`s read the work for the first time as
+one change on the merged tree — one the catalog, one the editor's
+autocomplete. Both said fit to commit as it stood (no data loss, no failed
+upgrade, no tags from another database, no write outside a tag, no dropped
+character), and both found behaviour worth repairing first. Two
+`implementer`s repaired it; each delta was read again by its reviewer, and
+the editor's took a second round, read again too. The decisions taken that
+evening, each reversible:
+
+| # | Decision | Not taken |
+| --- | --- | --- |
+| T-K | **A tag session opens only on typing**, never because the caret arrived: a character, Backspace, Delete or a one-line paste that ends at the caret in the tag, or the commit of a composition that changed that tag. A caret or selection move, a tap, a settings refresh, a completion's own insert and any write the page makes from code (toolbar shortcuts, counter values, the Enter continuation) open nothing. | As first built: a session whenever the caret is in a tag that has a match. The bar replaces the whole toolbar, pinned undo and redo included, so a thumb that had only tapped into a line ending in `#program` found pills under it, and one mis-tap rewrote the tag. |
+| T-L | **Search waits on the index, never on the tags.** `hasPendingWork` asks about the index alone, and a full search waits only for a drain's index pages. | Counting unread tags as pending work, as first built: after the upgrade every full search waited its whole 300 ms and said "still indexing" for as long as the one-time backfill ran, with the index fully current. |
+| T-M | **Opening the editor asks the indexer to catch up**, so a tag saved in another note this session is offered without a cold start, a database switch or a visit to search. | Drains only at launch, at a switch and when search opens, as first built: a new tag written in note A did not complete in note B. |
+| T-N | **An undo or a redo shuts the bar until the next typed character**, an open session included, and the "just accepted" mark survives them. | Reopening on the restored text: after undoing a completion the pills hid Redo at the moment it was wanted, and after a redo one tap rewrote the tag. |
+
+What the third reviews found, and where each stands:
+
+- **Repaired in the catalog** (`tx.patch`, `tx2.patch` in
+  `build/session-2026-11-27/`): T-L and T-M; the first editor open read the
+  whole ledger twice, now once (an already-open catalog still re-reads on
+  each editor open, so a read that failed earlier recovers); the `all` doc
+  comment. Nothing asks for the backfill but a new indexer starting dirty,
+  so two tests pin that a fresh indexer's `start()` alone fills every unread
+  tag and that a backfill a switch cut short is finished by the next
+  indexer.
+- **Repaired in the editor** (`ty.patch`, `ty2.patch`): T-K and T-N; a
+  dismissed tag comes back once the caret has left tags or entered another
+  one, as `dismiss()`'s doc always said (a vocabulary dismissal is unchanged:
+  an existing vocabulary test would have had to change); a tag that offers
+  nothing no longer costs a typed-over ghost its session; the composing
+  guard is pinned for tags and for the vocabulary trigger; a composition
+  that only marked a word, and a notification that carries no new value, are
+  not typing. The page tells the controller which writes come from code
+  through `EditorEditTracker.isProcessing`.
+- **Left, low, not built**: find-and-replace is not under the page's guard,
+  so a replacement that leaves the caret at a tag's end may open the bar
+  (not traced); the catalog re-reads the ledger about once per drain page
+  during a long drain (bounding it needs a timer the widget suites would see
+  pending), and a refresh costs 66 to 86 ms at 10,000 notes with 25,000
+  distinct tags on desktop, on the UI isolate; a note edited during the
+  one-time backfill is reported `incomplete` by a full search until that
+  drain ends, then found; a failed catalog read keeps a partner's tags
+  offered until the next good read; the bar swaps to the toolbar for one
+  character at a nested tag's `/`; a tag typed in NFD does not match; the
+  first letter of a tag in a note of about 1 MB costs one scan of the note
+  (50 ms cold on desktop); the two low items of 4b's second review (the
+  "just accepted" mark after a ghost tap, a merge that inserts a line above)
+  as they were; and the ledger-change signal is a static stream in
+  `NoteSearchDao` that `NoteDao` and `SharedRowDao` fire — a DAO-to-DAO
+  signal the layer did not have before, for the owner to accept or not.
+
+**For the owner — the one thing only a phone can show.** On a keyboard that
+composes words (Gboard, Samsung Keyboard, SwiftKey with suggestions on, the
+default) the controller offers nothing while the word is underlined, for
+`#` exactly as it always has for the vocabulary trigger; pills can appear
+only when the composition commits with the caret still at the tag, and a
+space or punctuation moves the caret past it. The editor asks the keyboard
+for `autocorrect: false` and leaves `enableSuggestions` at its default, so
+Android keyboards keep composing. **So on the phone the pills may never show
+while a tag is typed.** The emulator cannot settle it: a driver build types
+through `TestTextInput` and never raises the soft keyboard. The same guard
+has governed the vocabulary trigger all along, so today's build already
+answers it: type the trigger character and two letters of a term on the
+phone and see whether pills appear while the word is underlined. If they do
+not, "suggestions while composing" is a slice of its own in the re_editor
+fork's input path, for both features at once.
+
+**The gate and the device, 2026-11-27.** The whole suite on the main tree
+with the tag work and every repair in it: `+19513 ~17`, no failure, in seven
+chunks (`docs/app-review-2026-11-27.md` §7.5, which also holds the other
+streams merged that evening); with only the four patches applied, at 16:55:
+`+19445 ~17`. `dart analyze lib test tool` clean. On the emulator
+(`anta_qa_1`): a v56 QA database with tagged, indexed notes upgraded in
+place by the v57 build — it launched, its notes were there, a body search
+and a full `#tag` search answered, `#mo` offered `#mobility` from another
+note and accepting wrote it; `qa errors` clean. The saved suites on builds
+of that evening are in that record's §7.5. None of them types a tag: the
+autocomplete's device evidence is the hand-driven check above, and nothing
+has run on a phone.
 
 The original plan follows, unchanged below this line except where a note
 says so.
