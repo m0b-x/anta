@@ -63,7 +63,7 @@ Taken by the lead on the owner's delegation; the option not taken is named.
 
 | # | Decision | Why, and the option not taken |
 | --- | --- | --- |
-| a | **Two triggers, one job.** The job reads what the partner shares and reconciles the alerts — nothing else, never a push or a pull of my own space. It is started by the phone's own schedule (the check, §4) and by a message from the relay (§7). | One piece of code to prove. Not taken: a background sync of everything — my own rows need no freshness while the app is closed, and a pull can be long. |
+| a | **Two triggers, one job.** The job reads what the partner shares and reconciles the alerts — nothing else, never a push or a pull of my own space. It is started by the phone's own schedule (the check, §4) and by a message from the relay (§7). | One piece of code to prove. Not taken: a background sync of everything — a pull can be long. *(Corrected 2026-11-26: the other reason first written here, "my own rows need no freshness while the app is closed", is not true of an alert on an event of mine that I change on another device of mine — §11, Deferred.)* |
 | b | **Only while an alert depends on it.** Nothing is scheduled and a message does nothing unless this database syncs, is paired, and something of the partner's can ring here: an alert of mine is armed on one of their events, or "Category alerts too" is on and a category they share has alerts of mine. | Alerts are what must not be stale; the calendar itself is read when it is opened. The default — "Only alerts I add", none added — costs no wake-up at all. Not taken: refreshing for everyone who is paired. |
 | c | **The check comes sooner as an alert comes near**: the next one is at half the time left to the nearest armed alert on a partner's event, no sooner than ten minutes from now, no later than twelve hours (one hour under "Category alerts too", where a new event may need arming). | A fixed quarter-hour would wake the phone a hundred times a day for a daily alert; halving does it seven times and still looks within twenty minutes of the ring. Not taken: an exact alarm minutes before each alert — a second mechanism for the one gap the relay closes. |
 | d | **One isolate holds the database.** A background trigger first asks the app's own isolate to do the read; only when no app is running does it open the database itself, and a launch that finds such a run in flight waits for it to yield (§5). | The app's caches, its Drift streams and its settings live in one isolate; a second writer would leave them stale. This keeps the rule the alert gateway wrote down, and gives it its one exception with a protocol. |
@@ -375,8 +375,32 @@ about sharing. A QA build never reaches the live project.
 
 **Deferred.** iOS (APNs keys, background modes) with the iPhone slice
 (R7). An exact check minutes before each alert (decision c's option). A
-switch (decision l's option). Push for my own devices' sync — the space's
-signal serves an open app, and a closed one needs nothing.
+switch (decision l's option).
+
+**Deferred, and the owner's decision: my own devices while ANTA is
+closed.** *(Rewritten 2026-11-26. This paragraph used to end "the space's
+signal serves an open app, and a closed one needs nothing", while
+`scalability-roadmap.md` §11 kept "Background pull" waiting for a
+Cloudflare account that has existed since 2026-11-14; the two are made
+one here.)* The space's signal serves an open app, and a closed one
+catches up at its next launch or resume. That is enough for everything
+but the one thing that acts while the app is closed: an event of mine
+that I make, move or delete on one device does not arm, move or disarm
+its alert on another device of mine until ANTA is opened there — the
+honesty clause of `cloud-sync-readiness-roadmap.md` D11, and D7 B of
+`cloud-sync-phase-02-own-space.md`. It is the gap this record closes for
+what a partner shares, left open for what is my own, for two reasons that
+still hold: the job reads the partner's rows alone (decision a — a pull
+of the whole space can be long), and a device's push address lives in the
+pair's document (decision h), so an account that never paired has none.
+What closing it takes: a registry of the account's own devices outside
+the pair, with its rule; a second audience for the relay's poke, read
+with the caller's own sign-in as the pair's is (§7, a deploy of the
+owner's); the job pulling the calendar's own tables under §5's handshake,
+bounded as the shared read is, before its alert pass; and the check's
+plan counting the alerts armed on my own events while another device of
+mine writes to the space. Not taken until the owner asks: the wake-ups it
+costs are for a person who plans on one device and is rung by another.
 
 ## 12. As built
 

@@ -1172,8 +1172,6 @@ Cut on purpose; each with enough to resume from.
   category is born shared.
 - **One shared event opted out of category alerts** (A6): a personal row
   per event, since the switch that exists lives on the partner's row.
-- **Push while closed** (the roadmap's P6): what makes A7 true to the
-  minute, and X1 instant.
 - **Receipts** (S3): the reader writing "last read at" where the sharer
   can see it — one write per read, and a thing the other person can watch.
 - **A singly shared event in a custom category that is not shared** draws
@@ -1184,33 +1182,34 @@ Cut on purpose; each with enough to resume from.
   foundations keep them; the read sheet does not offer the control.
 - **The partner's counters and currency on a shared note** (F7): the
   note-data settings of the roadmap's N1 (readiness D10).
-- **"All of mine" in an allowlist** (found in slice D's review). The
-  agenda's and the overview's category filters are allowlists; with a
-  partner's group listed, "only mine" is an explicit list, and a category
-  created later stays out until the filter is opened again. The way out
-  that keeps the stored shape: a reserved token for "all of mine" beside
-  the partner's ticked ids — `EventAgenda.passesEventFilters`, the two
-  sheets' `_pickCategories`, `CalendarFilterSummary.allowlistLabel`. A
-  saved overview view syncs, so every device must know the token before
-  one writes it.
 - **The import line** (§6.14's last row): for the day an import can land
   events in an existing category. Today the only import that carries
   events is a backup restore, which replaces the categories and unbinds
   the database.
-- **What slice F finds waiting in the built surfaces**:
-  `ShareService.setFolderShared` is not one transaction; the Sharing page
-  has no Folders entry and no "Notes shared with you" row;
-  `shareMarkMineDesc`, the stop-all confirmation and the guide's "What is
-  never shared" row name no folders; a partner's event shows no Linked
-  note.
-- **The partner's Single events, opened from the Sharing page, open
-  nothing**: Sync & sharing holds no calendar. The door is
-  `PartnerSharedEventsSheet.onOpen`.
-- **A digest restricted to categories** lists mine only.
-- **Who ended the pair**: the leave notice after an unpair says "your
-  partner"; knowing who ended it would let the notice say nothing when I
-  did.
 - **More than one partner** — §14.
+
+**Closed since this list was written** — by the finishing pass (§16).
+The list went on naming them as open until 2026-11-26, when each was read
+against the tree again before being struck:
+
+- *Push while closed* (the roadmap's P6) — D32: the check and the relay,
+  `cloud-shared-freshness.md`.
+- *"All of mine" in an allowlist* — D29: the entries `*mine` and
+  `*partner`, §16.3.
+- *What slice F found waiting in the built surfaces* — §16.5:
+  `ShareService.setFolderShared` writes inside its act's one transaction
+  (`ShareService._act`), with a `ShareChange` and its Undo; the Sharing
+  page lists my folders and {name}'s (`sharing-mine-folders`,
+  `sharing-theirs-folders`); `shareMarkMineDesc`, the stop-all
+  confirmation and the guide's "Never shared" row name folders; a
+  partner's event shows its Linked note.
+- *The partner's Single events, opened from the Sharing page, opened
+  nothing* — D33: `SyncSettingsPage._openPartnerEvent`, through the door
+  an alert's tap takes; pinned by `sync_settings_page_test` ("a partner's
+  single event tapped on the Sharing page") and
+  `app_navigator_calendar_switch_test`.
+- *A digest restricted to categories listed mine only* — D34.
+- *Who ended the pair* — D35: `PairRecord.endedBy`.
 
 ---
 
