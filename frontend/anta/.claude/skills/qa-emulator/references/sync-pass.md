@@ -87,8 +87,10 @@ other build. Its `[qa]` line is `signed out of the emulator account` (or
 `sign-out threw …`, which the prelude's first expectation then reports).
 The pass's closing quiet relaunch signs out as well.
 
-**What it does not cover.** A second device (two guests bound to one space,
-a change crossing, the picker's download and join — the multi-user
+**What it does not cover.** A second device — since 2026-11-26 that is the
+`sync_pair` suite below (two guests bound to one space, a change crossing
+each way, a push held for an unseen version); still uncovered there: the
+picker's download and join onto a database that holds data (the multi-user
 roadmap's slice R10; the 2026-11-07 two-device pass was driven by hand,
 `docs/cloud-sync-phase-02-own-space.md` S6); an interrupted deletion (the
 app killed mid-run, "Finish deleting" on the next launch) — on a seed this
@@ -133,3 +135,58 @@ paging); offline and quota states; a second account (the mismatch pause).
   build signed in to the real project.
 - PowerShell mangles a `steps` line with an embedded `"label"`; drive
   label steps from Git Bash or a step file.
+
+## The sync_pair pass (2026-11-26)
+
+Two devices of ONE account on ONE space, and the device proof that a push
+never writes over a note version the pushing device has not seen
+(`docs/scalability-roadmap.md` §8.7, S21) — the real Firestore
+transaction under `SyncGateway.pushBatch`, which the unit suites run only
+against a fake gateway.
+
+```bash
+tool\firebase\emulators.cmd                                   # freshly started, as for every cloud pass
+./tool/qa/qa fleet boot 1 && ./tool/qa/qa fleet boot 2        # anta_qa_1 (emulator-5556), anta_qa_2 (emulator-5558)
+./tool/qa/qa build --define ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define ANTA_QA_ACCOUNT=qa1:qa1@example.com
+./tool/qa/qa fleet install                                    # the same APK on both
+./tool/qa/qa pass sync_pair -d emulator-5556                  # 3 flows on one seed: ≈ 100 s
+```
+
+The prelude signs both guests in as `qa1` (the second through `set
+account=qa1:qa1@example.com`): the pass's guest binds first and creates
+the space; the second guest's empty database joins that one space without
+the picker (`SyncSpaceService.start` — a database that holds nothing and an
+account with one space no database of the install holds) and pulls the
+seed's rows. The second guest then runs on the manual cadence from `00` to
+the end of `02`, so a flow decides when it pulls ("Sync now") and when it
+only pushes (`drain`).
+
+| Flow | Proves |
+| --- | --- |
+| `00_unseen_version` | the pass's guest writes "Lantern carry" into Session 1 and syncs; the second guest, which never pulled that version, writes "Compass lunge" into its Session 1 and `drain --expect held`: the push is held, the stored version merged, its text filed as a conflict copy, and the push lands in the same drain (nothing left waiting). Week 1 lists "Session 1 (conflict copy, …)" on both guests; the copy holds the first guest's line and not the second's, Session 1 the second's and not the first's |
+| `01_plain_drain` | both in sync, the second guest edits Session 2 and `drain --expect plain`: one call, nothing pulled; the first guest reads the edit after "Sync now"; no copy of Session 2 anywhere |
+| `02_delete_over_unseen_edit` | the pass's guest edits Session 2 and syncs; the second guest, not having pulled, deletes its Session 2 and `drain --expect held`: the edit survives as "Session 2 (conflict copy, …)" on both, and Session 2 is gone on both |
+
+Green on 2026-11-26 on the two fleet guests, 3/3 in 99.9 s, against a
+freshly started suite. The three `drain` lines of that pass: `drain
+pushed 4  pulled 1  calls 2` (00), `drain  pushed 2  pulled 0  calls 1`
+(01), `drain  pushed 3  pulled 1  calls 2` (02).
+
+**The seam.** `qa drain [--expect held|plain]` is the in-app agent's
+`drain` op: `SyncEngine.pushNow()`, the drain-only run a leave or a share
+switch makes. The case cannot be reached through the UI alone — in front
+a device pulls within a second of the other's push, a leave drains only
+what it can and a resume pulls first.
+
+**Traps met.**
+- A search page opens on its "Recent" list and keeps it for a moment after
+  the query is typed; its rows carry the same path line as a hit
+  ("Training › Week 1"), so a `wait` on that path right after `type` is
+  ambiguous between two recent notes and fails at once (the first run,
+  0/3). Every fresh search waits the list out first: `expect --absent
+  "Recent" --timeout 10`.
+- A note is opened through the search, by words only it holds: a conflict
+  copy's title starts with its note's, and each Session's preview names
+  the other, so a row tap by title is ambiguous.
+- One full pass per emulator suite: the prelude expects the account to
+  hold no space.

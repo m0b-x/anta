@@ -22,6 +22,8 @@ import 'package:anta/services/category_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/pairing_service.dart';
+import 'package:anta/services/sync/sync_engine.dart';
+import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync_availability.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
@@ -192,6 +194,8 @@ class QaAgent {
           title: _string(request, AgentKeys.name),
           minutes: _int(request, AgentKeys.minutes, 0),
         );
+      case AgentOps.drain:
+        return _drain();
       case AgentOps.reveal:
         return _reveal(_int(request, AgentNodeKeys.semanticsId, -1));
       case AgentOps.platformAlerts:
@@ -437,6 +441,33 @@ class QaAgent {
       ),
     );
     return {AgentKeys.rowId: event.id, AgentKeys.minutes: start};
+  }
+
+  /// The engine's drain-only run, asked for now — `SyncEngine.pushNow`,
+  /// which a share switch calls and every cadence lets through — and its
+  /// report. The run's own outcome (a skip, a failure) is answered, never
+  /// thrown: the verb judges it, so a flow reads what happened.
+  ///
+  /// The engine exists only where `injection.dart` starts it — the
+  /// cloud-define build, with a gateway and an available sign-in — so any
+  /// other build answers a usage error that says which build it needs.
+  Future<Map<String, Object?>> _drain() async {
+    if (!getIt.isRegistered<SyncGateway>() ||
+        !getIt<AuthService>().isAvailable) {
+      throw QaAgentException(
+        'drain needs the cloud-define QA build (--define ANTA_QA_CLOUD=true '
+        'and the emulator suite): this build has no sync engine',
+        kind: AgentErrorKinds.usage,
+      );
+    }
+    final report = await (await SyncEngine.getInstance()).pushNow();
+    return {
+      AgentKeys.pushedRows: report.pushedRows,
+      AgentKeys.pulledRows: report.pulledRows,
+      AgentKeys.pushAttempts: report.pushAttempts,
+      AgentKeys.failure: report.failure?.name,
+      AgentKeys.skipped: report.skipped?.name,
+    };
   }
 
   /// Shares the event titled [name], or the folder or the calendar category

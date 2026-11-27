@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -12,6 +13,8 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 
+import '../../tool/qa/src/placeholders.dart';
+
 /// `tool/qa/fixtures/basic.json` is the seed the QA build imports when the
 /// driver drops a `qa_seed.json` marker, and it is hand-written rather than
 /// exported — so nothing but this file notices when the backup format moves
@@ -20,11 +23,21 @@ import 'package:anta/services/counter_service.dart';
 /// The assertions are deliberately structural: a seed whose notes land in no
 /// folder, or whose recurring event is skipped as malformed, imports
 /// "successfully" and still gives the driver an empty screen.
+///
+/// The one thing in it that is relative to the day of the run is the weekly
+/// event's weekdays: two and five days ahead, so its next occurrence — the
+/// day the share flows work on from `04g` — is never today. Fixed on Monday
+/// and Thursday, that day was today twice a week: one entry more on its grid
+/// cell, and every alert a flow armed on it already past.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDir;
   late AppDatabase db;
+  late String raw;
+
+  /// A Thursday, the weekday the fixed seed broke on.
+  final now = DateTime(2026, 11, 26, 14, 30);
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_qa_fixture');
@@ -45,8 +58,16 @@ void main() {
       isTrue,
       reason: 'run from the package root: ${fixture.absolute.path}',
     );
+    raw = await fixture.readAsString();
+    expect(
+      countPlaceholders(raw),
+      2,
+      reason: 'the weekly event\'s two weekdays, and nothing else',
+    );
     final backup = await BackupService.getInstance();
-    final result = await backup.importFromJson(await fixture.readAsString());
+    final result = await backup.importFromJson(
+      resolvePlaceholders(raw, now: now),
+    );
     expect(result.success, isTrue, reason: 'error: ${result.error}');
     expect(result.foldersImported, 4);
     expect(result.notesImported, 3);
@@ -155,7 +176,16 @@ void main() {
       (e) => e['id'] == 'qa-event-weekly-lift',
     );
     expect(recurring['ruleKind'], 'weekly');
-    expect(recurring['rulePayload'], '{"weekdays":[1,4]}');
+    // A Thursday's run: Saturday and Tuesday — the next one is the day after
+    // tomorrow whatever the weekday, as on the Saturdays the fixed seed's
+    // share passes were green on.
+    final rule = jsonDecode(recurring['rulePayload'] as String) as Map;
+    expect((rule['weekdays'] as List).toSet(), {6, 2});
+    expect(
+      raw,
+      contains(r'{\"weekdays\":[{{weekday+2}},{{weekday+5}}]}'),
+      reason: 'a fixed weekday puts the flows\' day on today twice a week',
+    );
     expect(
       recurring['category'],
       'qa-category-strength',

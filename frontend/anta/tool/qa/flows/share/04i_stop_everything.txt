@@ -1,7 +1,7 @@
 # The owner stops sharing everything (share surfaces §6.2 item 5, §6.8,
 # §6.14): the partner first adds an alert of its own to "Lifting session"
-# from its read sheet — 10 min before the next Monday or Thursday at
-# 18:00, so it is armed — then the owner taps "Stop sharing everything"
+# from its read sheet — 10 min before its next occurrence, 18:00 two days
+# ahead, so it is armed — then the owner taps "Stop sharing everything"
 # and confirms. After a sync on each side nothing of the owner's is left
 # on the partner's calendar, the partner's entries read "None", and the
 # partner is told its alert is off.

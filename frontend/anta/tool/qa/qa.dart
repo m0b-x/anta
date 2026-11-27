@@ -189,6 +189,7 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(SetCommand());
     addCommand(ShareCommand());
     addCommand(MoveEventCommand());
+    addCommand(DrainCommand());
     addCommand(PlatformAlertsCommand());
     addCommand(KillAppCommand());
     addCommand(WorkCommand());
@@ -7973,6 +7974,104 @@ class MoveEventCommand extends QaCommand {
       'starts at minute ${result[AgentKeys.minutes]}  '
       'id=${result[AgentKeys.rowId]}',
     );
+    return 0;
+  }
+}
+
+/// `qa drain [--expect held|plain]`: the engine's drain-only run on demand,
+/// so a flow can make one guest push before it pulled.
+class DrainCommand extends QaCommand {
+  DrainCommand() {
+    argParser.addOption(
+      'expect',
+      valueHelp: 'held|plain',
+      help:
+          'held: the run met a version it had not seen and merged it before '
+          'its push landed (pulled ≥ 1, calls ≥ 2, pushed ≥ 1); plain: it '
+          'pulled nothing.',
+    );
+  }
+
+  @override
+  String get name => 'drain';
+
+  @override
+  String get description =>
+      'Send everything the QA database\'s outbox holds now, pulling nothing '
+      'first — the sync engine\'s drain-only run, which a share switch asks '
+      'for — and print its report. A skip or a failure fails the step; '
+      '--expect held or plain checks what the run met. Needs the '
+      'cloud-define build.';
+
+  @override
+  String get invocation => 'qa drain [--expect held|plain]';
+
+  static const String held = 'held';
+  static const String plain = 'plain';
+
+  /// A drain behind a run already in flight waits for it, and a held push
+  /// pays a read and a second call: past the agent's usual 30 s, which
+  /// would read as a device failure and set the pass healing a guest.
+  static const Duration _runCap = Duration(seconds: 90);
+
+  /// What `--expect` asks for, or null for no expectation.
+  static String? parseExpect(String? value) {
+    if (value == null || value == held || value == plain) return value;
+    throw UsageFailure(
+      'drain --expect takes $held or $plain (got "$value"): $_usage',
+    );
+  }
+
+  static const String _usage = 'drain [--expect held|plain]';
+
+  /// The one line a drain prints: what the run sent, merged and called,
+  /// then the skip or the failure by name when there was one.
+  static String describe(Map<String, Object?> report) {
+    final skipped = report[AgentKeys.skipped];
+    final failure = report[AgentKeys.failure];
+    return 'drain  pushed ${report[AgentKeys.pushedRows]}  '
+        'pulled ${report[AgentKeys.pulledRows]}  '
+        'calls ${report[AgentKeys.pushAttempts]}'
+        '${skipped == null ? '' : '  skipped: $skipped'}'
+        '${failure == null ? '' : '  failed: $failure'}';
+  }
+
+  /// Why [report] fails the step, or null when it passes: a run that never
+  /// reached the space, or one that failed, proves nothing either way.
+  static String? miss(Map<String, Object?> report, String? expect) {
+    final skipped = report[AgentKeys.skipped];
+    if (skipped != null) {
+      return 'drain was skipped ($skipped): the run never reached the space';
+    }
+    final failure = report[AgentKeys.failure];
+    if (failure != null) return 'drain failed: $failure';
+    int count(String key) => (report[key] as num?)?.toInt() ?? 0;
+    final pushed = count(AgentKeys.pushedRows);
+    final pulled = count(AgentKeys.pulledRows);
+    final calls = count(AgentKeys.pushAttempts);
+    if (expect == held && !(pulled >= 1 && calls >= 2 && pushed >= 1)) {
+      return 'drain --expect held: the run did not meet an unseen version and '
+          'push past it (pulled $pulled, calls $calls, pushed $pushed; held '
+          'needs pulled ≥ 1, calls ≥ 2, pushed ≥ 1)';
+    }
+    if (expect == plain && pulled != 0) {
+      return 'drain --expect plain: the run merged $pulled row(s) it had '
+          'not seen (plain needs none)';
+    }
+    return null;
+  }
+
+  @override
+  Future<int> run() async {
+    if (argResults!.rest.isNotEmpty) {
+      throw UsageFailure('drain takes no words: $_usage');
+    }
+    final expect = parseExpect(argResults!['expect'] as String?);
+    final agent = await context.agent();
+    final report = await agent.op(AgentOps.drain, const {}, _runCap);
+    out(describe(report));
+    final missed = miss(report, expect);
+    if (missed != null) throw TargetFailure(missed);
     return 0;
   }
 }

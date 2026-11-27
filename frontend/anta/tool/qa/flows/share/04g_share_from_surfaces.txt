@@ -9,7 +9,8 @@
 # - Stretching is made on the device, so its id is minted: its rows are
 #   named by title (`_labels.txt`), and its events by "Hip openers", an
 #   event made in it today, all day (the editor's defaults).
-# - "Lifting session" recurs on Mondays and Thursdays, so it is reached
+# - "Lifting session" recurs weekly, next two days after the run's day
+#   (the seed writes its weekdays relative to today), so it is reached
 #   through the Upcoming list: filtered to recurring events its Cardio card
 #   stands alone at the top (unfiltered, a third card's "Show every day"
 #   lies under the Add event button); a row of the card's day list selects

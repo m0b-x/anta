@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 
 import '../../tool/qa/qa.dart'
     show
+        DrainCommand,
         ExpectCommand,
         FleetCommand,
         PassCommand,
@@ -2430,5 +2431,117 @@ void main() {
         }
       },
     );
+  });
+
+  group('the drain seam', () {
+    Map<String, Object?> report({
+      int pushed = 0,
+      int pulled = 0,
+      int calls = 0,
+      String? failure,
+      String? skipped,
+    }) => {
+      AgentKeys.pushedRows: pushed,
+      AgentKeys.pulledRows: pulled,
+      AgentKeys.pushAttempts: calls,
+      AgentKeys.failure: failure,
+      AgentKeys.skipped: skipped,
+    };
+
+    test('the op and its answer keys are part of the protocol', () {
+      expect(AgentOps.drain, 'drain');
+      expect(
+        [
+          AgentKeys.pushedRows,
+          AgentKeys.pulledRows,
+          AgentKeys.pushAttempts,
+          AgentKeys.failure,
+          AgentKeys.skipped,
+        ],
+        ['pushedRows', 'pulledRows', 'pushAttempts', 'failure', 'skipped'],
+      );
+    });
+
+    test('--expect takes held or plain, or nothing', () {
+      expect(DrainCommand.parseExpect(null), isNull);
+      expect(DrainCommand.parseExpect('held'), 'held');
+      expect(DrainCommand.parseExpect('plain'), 'plain');
+      for (final bad in ['Held', 'merged', '']) {
+        expect(
+          () => DrainCommand.parseExpect(bad),
+          throwsA(isA<UsageFailure>()),
+          reason: bad,
+        );
+      }
+    });
+
+    test('the line says what was pushed, pulled and called, and names a '
+        'skip or a failure', () {
+      expect(
+        DrainCommand.describe(report(pushed: 2, pulled: 1, calls: 2)),
+        'drain  pushed 2  pulled 1  calls 2',
+      );
+      expect(
+        DrainCommand.describe(report(skipped: 'signedOut')),
+        'drain  pushed 0  pulled 0  calls 0  skipped: signedOut',
+      );
+      expect(
+        DrainCommand.describe(report(calls: 1, failure: 'permissionDenied')),
+        'drain  pushed 0  pulled 0  calls 1  failed: permissionDenied',
+      );
+    });
+
+    test('held passes only a run that merged an unseen version and pushed '
+        'past it', () {
+      expect(
+        DrainCommand.miss(report(pushed: 2, pulled: 1, calls: 2), 'held'),
+        isNull,
+      );
+      for (final (:pushed, :pulled, :calls) in [
+        // A plain push: nothing was met.
+        (pushed: 1, pulled: 0, calls: 1),
+        // Merged, but the push never went again.
+        (pushed: 1, pulled: 1, calls: 1),
+        // Merged and called again, but nothing landed.
+        (pushed: 0, pulled: 1, calls: 2),
+      ]) {
+        expect(
+          DrainCommand.miss(
+            report(pushed: pushed, pulled: pulled, calls: calls),
+            'held',
+          ),
+          allOf(contains('--expect held'), contains('pulled $pulled')),
+          reason: 'pushed $pushed, pulled $pulled, calls $calls',
+        );
+      }
+    });
+
+    test('plain passes a run that pulled nothing, pushed or not', () {
+      expect(DrainCommand.miss(report(pushed: 1, calls: 1), 'plain'), isNull);
+      expect(DrainCommand.miss(report(), 'plain'), isNull);
+      expect(
+        DrainCommand.miss(report(pushed: 1, pulled: 1, calls: 2), 'plain'),
+        contains('--expect plain'),
+      );
+    });
+
+    test('a skip or a failure fails the step, with or without --expect', () {
+      for (final wanted in [null, 'held', 'plain']) {
+        expect(
+          DrainCommand.miss(report(skipped: 'accountMismatch'), wanted),
+          contains('skipped (accountMismatch)'),
+          reason: '$wanted',
+        );
+        expect(
+          DrainCommand.miss(
+            report(pushed: 2, pulled: 1, calls: 2, failure: 'offline'),
+            wanted,
+          ),
+          'drain failed: offline',
+          reason: '$wanted',
+        );
+      }
+      expect(DrainCommand.miss(report(pushed: 3, calls: 1), null), isNull);
+    });
   });
 }

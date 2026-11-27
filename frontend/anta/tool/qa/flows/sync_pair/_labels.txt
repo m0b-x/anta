@@ -1,0 +1,12 @@
+# The labels the sync_pair flows may still target, one per line: seeded
+# content only, never a control's own words (test/qa/flows_lint_test.dart).
+# basic.json's folder and the folder inside it: an import gives every
+# folder a fresh id, and the second guest pulls those ids, so a row is
+# named by its title on both guests.
+Training
+Week 1
+# The path a search hit writes under a note of Week 1: the one hit of a
+# query only one note answers is opened through it (share/04_p).
+Training › Week 1
+# The note 02 deletes from Week 1, by its title (share/04_o).
+Session 2

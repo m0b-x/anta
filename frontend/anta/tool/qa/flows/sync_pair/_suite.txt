@@ -1,0 +1,40 @@
+# The two-guest sync suite for `qa pass sync_pair -d emulator-5556`: two
+# devices of ONE account on ONE space, and the proof that a push never
+# writes over a note version the pushing device has not seen — the real
+# Firestore transaction under `SyncGateway.pushBatch`, which the unit
+# suites run only against a fake gateway. The second guest is made to push
+# before it pulled through the QA seam `qa drain` (the engine's drain-only
+# run, `SyncEngine.pushNow`); everything else is the app's own UI: sign-in,
+# bind, the cadence switch, "Sync now", the browser, the search, the editor.
+# - Two guests: the pass's own, `anta_qa_1` on emulator-5556, carries the
+#   fixture's rows and binds first, creating the space; `anta_qa_2` on
+#   emulator-5558 starts on an empty database, signs in as the same
+#   account (qa1) and joins that space, driven by the steps that lead with
+#   `-d emulator-5558`. Always name the pass's device (`-d emulator-5556`),
+#   or a step naming it would open a second connection to it.
+# - It needs the cloud-define QA build on both guests (`qa build --define
+#   ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define
+#   ANTA_QA_ACCOUNT=qa1:qa1@example.com`, then `qa fleet install`) and a
+#   freshly started emulator suite (`tool\firebase\emulators.cmd`): the
+#   prelude expects the account to hold no space, so the pass's guest
+#   binds without the picker and the second guest's empty database joins
+#   the one space without it too.
+# - The second guest runs on the manual cadence from 00 to the last flow,
+#   which turns it back on: nothing of it pulls or pushes unasked, so a
+#   flow decides when it pulls ("Sync now") and when it only pushes
+#   (`drain`). The pass's guest stays on the automatic cadence.
+# - The flows run in order on one seed, each starting where the last one
+#   left both guests — on Sync & sharing — so the suite is never sharded
+#   and a red flow reddens the ones after it.
+# - A note is opened through the search, by words only it holds: the
+#   conflict copy's title starts with its note's, and each Session's
+#   preview names the other, so a row tap by title is ambiguous. With one
+#   hit, the tap on its path ("Training › Week 1") is also the proof that
+#   no other note holds those words.
+fixture=tool/qa/fixtures/basic.json
+reseed=suite
+shard=no
+prelude=_prelude.txt
+# Two guests' navigation on one seed, as the share suite: the longest flow
+# stays well under the default, the ceiling is for a worn guest.
+flow_ceiling=480

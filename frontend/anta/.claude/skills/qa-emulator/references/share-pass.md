@@ -203,19 +203,32 @@ the pair ended); anything on the real project.
   from the end, `--nth=-1` (04hb, since 2026-11-26); the `--nth 1` steps
   stand on days of at most three. The panel's expand toggle, which would
   take the grid out of the tree, has no id.
-- **Not on a Monday or a Thursday (found 2026-11-26, a Thursday).**
-  `basic.json`'s "Lifting session" recurs on Mondays and Thursdays at
-  18:00 with a fixed start, and from 04g on the flows work on the day its
-  next occurrence selects. On those two weekdays that day is today: it
-  holds one entry more (04hb's second match — the one thing fixed that
-  day), and whatever the partner arms on it is already past — an all-day
-  event's alert is 09:00 of its day, the session's "10 min before" 17:50 —
-  so `armed --expect some` reads "nothing armed" and 04hb, 04i, 04k–04m,
-  05, 05a and 06 go red in a row behind it: 18 of 27, three times that
-  day, the same 18 each time. The suite's greens were a Friday and two
-  Saturdays. Until the seed's weekdays are written relative to today
-  (`{{weekday+N}}`, as `calendar.json` writes them — every suite on
-  `basic.json` is then re-run), run `share` on another weekday.
+- **The flows' day is two days ahead, on every weekday (since
+  2026-11-26).** From 04g on the flows work on the day the next occurrence
+  of `basic.json`'s "Lifting session" selects, and the seed writes that
+  event's weekdays relative to the run (`{{weekday+2}}`, `{{weekday+5}}`,
+  resolved on the way to the device like `calendar.json`'s). Until that
+  day they were fixed on Monday and Thursday at 18:00, so on those two
+  weekdays the flows' day was today: it held one entry more (04hb's
+  second match, now picked from the end), and whatever the partner armed
+  on it was already past — an all-day event's alert is 09:00 of its day,
+  the session's "10 min before" 17:50 — so `armed --expect some` read
+  "nothing armed" and 04hb, 04i, 04k–04m, 05, 05a and 06 went red in a
+  row behind it: 18 of 27, three times on Thursday 2026-11-26, the same
+  18 each time, while every earlier green had been a Friday or a
+  Saturday. A red tail that starts at an `armed` step: check what day the
+  flow's event landed on before reading it as the app's
+  (`armed: reminder=…` in the last green `report.json`). First green on
+  the relative seed: Friday 2026-11-27, 27/27 in 629 s, every armed time
+  from Sunday the 29th on (`reminder=2026-11-29T07:00` in 04hb).
+- **Never across local midnight.** The pass before that one started at
+  23:58 on the 26th: its twelve flows before midnight were green, then
+  `04c_read_sheet` (`--nth 1 is out of range: "Core circuit" has 1
+  match(es)`) and all fourteen after it went red — the flows make their
+  events "today" and keep working on the day they selected, and the grid's
+  today had moved on (the day cell that named the title twice named it
+  once). Not the app's: start a pass so that it ends before midnight, or
+  after it.
 - A partner's row reads "From qa1@example.com": the owner's account has no
   profile name in the Auth emulator, so the partner's name is its email.
 - The Upcoming list groups a category of two or more events into one card

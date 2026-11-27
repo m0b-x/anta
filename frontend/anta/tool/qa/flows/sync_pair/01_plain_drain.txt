@@ -1,0 +1,87 @@
+# Nothing unseen: with both guests in sync, the second guest (still
+# manual) writes "Harbor plank" into Session 2 and drains — the push lands
+# with nothing pulled (`drain --expect plain`). The pass's guest reads the
+# edit after "Sync now", and neither guest lists a conflict copy of
+# Session 2.
+# - Session 2 is found by the seed's "Deadlift", which only it holds (the
+#   copy 00 filed is Session 1's); after the edit, by the typed words.
+# Both in sync first: the second guest's "Sync now" on the manual
+# cadence, then the pass's guest's.
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Syncs when you tap" --absent "waiting" --timeout 30
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The second guest: its line into Session 2, the edit waiting, the drain.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:search-open
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+-d emulator-5558 type "Deadlift"
+-d emulator-5558 expect --absent "Recent" --timeout 10
+-d emulator-5558 wait "Training › Week 1" --timeout 10
+-d emulator-5558 tap "Training › Week 1"
+-d emulator-5558 wait id:editor-toolbar --timeout 15
+-d emulator-5558 tap id:editor-body
+-d emulator-5558 type "Harbor plank"
+-d emulator-5558 expect "Harbor plank"
+-d emulator-5558 key back
+-d emulator-5558 wait id:search-field
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect id:sharing-sync-status "waiting" "Only when you tap" --absent "Syncs when you tap" --timeout 15
+-d emulator-5558 drain --expect plain
+-d emulator-5558 expect id:sharing-sync-status "Syncs when you tap" --absent "waiting" --timeout 30
+# The second guest's Week 1: Session 1's copy from 00, none of Session 2.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:create-note
+-d emulator-5558 tap "Week 1"
+-d emulator-5558 expect "Session 1 (conflict copy" "Session 2" --absent "Session 2 (conflict copy" --timeout 10
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-note
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+# The pass's guest after "Sync now": Session 2 holds the edit and is no
+# copy, and Week 1 lists no copy of Session 2.
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+key back
+wait id:create-folder
+tap id:search-open
+wait id:search-field
+tap id:search-field
+type "Harbor plank"
+expect --absent "Recent" --timeout 10
+wait "Training › Week 1" --timeout 10
+tap "Training › Week 1"
+wait id:editor-toolbar --timeout 15
+expect "Harbor plank" --absent "conflict copy" --timeout 10
+shot first-reads-edit
+key back
+wait id:search-field
+key back
+wait id:create-folder
+tap "Training"
+wait id:create-note
+tap "Week 1"
+expect "Session 1 (conflict copy" "Session 2" --absent "Session 2 (conflict copy" --timeout 10
+key back
+wait id:create-note
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

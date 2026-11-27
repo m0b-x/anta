@@ -1,0 +1,155 @@
+# A push meets a version it has not seen. The second guest goes manual, so
+# nothing of it pulls unasked. The pass's guest writes "Lantern carry" into
+# Session 1 and syncs it; the second guest, which never pulled that
+# version, writes "Compass lunge" into its own Session 1 and drains: the
+# push is held, the stored version merged first — its text filed as a
+# conflict copy — and the push goes again (`drain --expect held`). Then
+# both guests list the copy in Week 1, the copy holds the pass's guest's
+# line and not the second guest's, and Session 1 the second guest's and
+# not the other. The second guest stays manual for the flows after it.
+# - Session 1 is found by the seed's "Mobility", which only it holds; the
+#   notes are read back by the words typed into them (the suite header).
+# - "waiting" on the second guest's status row is the gate before the
+#   drain: the editor's save on Back has queued the edit.
+# - A search page opens on its "Recent" list, whose rows carry the same
+#   path as a hit, and keeps it for a moment after the query is typed: the
+#   list is waited out (`--absent "Recent"`) before a hit is waited for,
+#   or the path is ambiguous between two recent notes.
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-automatic
+-d emulator-5558 expect "Syncs when you tap" "Only when you tap" --timeout 15
+# The pass's guest: its line into Session 1, then "Sync now".
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+tap id:search-open
+wait id:search-field
+tap id:search-field
+type "Mobility"
+expect --absent "Recent" --timeout 10
+wait "Training › Week 1" --timeout 10
+tap "Training › Week 1"
+wait id:editor-toolbar --timeout 15
+tap id:editor-body
+type "Lantern carry"
+expect "Lantern carry"
+key back
+wait id:search-field
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The second guest: its own line into the Session 1 it last pulled, the
+# edit waiting, then the drain.
+-d emulator-5558 key back
+-d emulator-5558 wait id:settings-bar-hub
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:search-open
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+-d emulator-5558 type "Mobility"
+-d emulator-5558 expect --absent "Recent" --timeout 10
+-d emulator-5558 wait "Training › Week 1" --timeout 10
+-d emulator-5558 tap "Training › Week 1"
+-d emulator-5558 wait id:editor-toolbar --timeout 15
+-d emulator-5558 tap id:editor-body
+-d emulator-5558 type "Compass lunge"
+-d emulator-5558 expect "Compass lunge" --absent "Lantern carry"
+-d emulator-5558 key back
+-d emulator-5558 wait id:search-field
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect id:sharing-sync-status "waiting" "Only when you tap" --absent "Syncs when you tap" --timeout 15
+-d emulator-5558 drain --expect held
+-d emulator-5558 expect id:sharing-sync-status "Syncs when you tap" --absent "waiting" --timeout 30
+# The second guest: Week 1 lists the copy; the copy holds the pass's
+# guest's line, Session 1 its own. After a query is replaced, the old
+# hit stays until the new one lands: each new hit is waited for by what
+# tells it from the last ("conflict copy" in its title, or not).
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:create-note
+-d emulator-5558 tap "Week 1"
+-d emulator-5558 expect "Session 1 (conflict copy" --timeout 10
+-d emulator-5558 shot copy-listed-second
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-note
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:search-open
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+-d emulator-5558 type "Lantern carry"
+-d emulator-5558 expect "Training › Week 1" "conflict copy" --absent "Recent" --timeout 10
+-d emulator-5558 tap "Training › Week 1"
+-d emulator-5558 wait id:editor-toolbar --timeout 15
+-d emulator-5558 expect "conflict copy" "Lantern carry" --absent "Compass lunge" --timeout 10
+-d emulator-5558 shot copy-holds-first
+-d emulator-5558 key back
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+-d emulator-5558 type "Compass lunge" --replace
+-d emulator-5558 expect "Training › Week 1" --absent "conflict copy" --timeout 10
+-d emulator-5558 tap "Training › Week 1"
+-d emulator-5558 wait id:editor-toolbar --timeout 15
+-d emulator-5558 expect "Compass lunge" --absent "Lantern carry" --absent "conflict copy" --timeout 10
+-d emulator-5558 shot session-holds-second
+-d emulator-5558 key back
+-d emulator-5558 wait id:search-field
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+# The pass's guest after "Sync now": the same three facts.
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+key back
+wait id:create-folder
+tap "Training"
+wait id:create-note
+tap "Week 1"
+expect "Session 1 (conflict copy" --timeout 10
+shot copy-listed-first
+key back
+wait id:create-note
+key back
+wait id:create-folder
+tap id:search-open
+wait id:search-field
+tap id:search-field
+type "Compass lunge"
+expect "Training › Week 1" --absent "conflict copy" --absent "Recent" --timeout 10
+tap "Training › Week 1"
+wait id:editor-toolbar --timeout 15
+expect "Compass lunge" --absent "Lantern carry" --absent "conflict copy" --timeout 10
+key back
+wait id:search-field
+tap id:search-field
+type "Lantern carry" --replace
+expect "Training › Week 1" "conflict copy" --timeout 10
+tap "Training › Week 1"
+wait id:editor-toolbar --timeout 15
+expect "conflict copy" "Lantern carry" --absent "Compass lunge" --timeout 10
+key back
+wait id:search-field
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

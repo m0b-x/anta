@@ -1,0 +1,118 @@
+# A delete meets an edit it has not seen. With both guests in sync, the
+# pass's guest writes "Meadow hold" into Session 2 and syncs it; the second
+# guest (still manual), which never pulled that version, deletes its
+# Session 2 and drains: the push is held, the stored version merged
+# first — its text filed as a conflict copy — and the delete goes again
+# (`drain --expect held`). On both guests, after a sync each, Session 2 is
+# gone and the copy holds the pass's guest's line. The second guest goes
+# back to the automatic cadence at the end.
+# - Session 2 is found by "Harbor plank", which 01 wrote into it and the
+#   copy carries too: one hit for it after the delete — the copy — is
+#   Session 2 gone, so the tap on the hit's path is the check.
+# - Deleted from Week 1, as share/04_o deletes it: Session 2 sorts first
+#   there (last updated, by 01's edit), and the confirm names it.
+# Both in sync first.
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Syncs when you tap" --absent "waiting" --timeout 30
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The pass's guest: its line into Session 2, then "Sync now".
+key back
+wait id:create-folder
+tap id:search-open
+wait id:search-field
+tap id:search-field
+type "Harbor plank"
+expect --absent "Recent" --timeout 10
+wait "Training › Week 1" --timeout 10
+tap "Training › Week 1"
+wait id:editor-toolbar --timeout 15
+tap id:editor-body
+type "Meadow hold"
+expect "Meadow hold"
+key back
+wait id:search-field
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The second guest: deletes the Session 2 it last pulled, the delete
+# waiting, then the drain.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 wait id:create-note
+-d emulator-5558 tap "Week 1"
+-d emulator-5558 expect "Session 2" --timeout 10
+-d emulator-5558 longpress "Session 2" --nth 0 --settle 1000
+-d emulator-5558 wait id:row-action-select
+-d emulator-5558 tap id:row-action-delete
+-d emulator-5558 wait id:sheet-confirm
+-d emulator-5558 expect 'delete "Session 2"'
+-d emulator-5558 tap id:sheet-confirm
+-d emulator-5558 wait id:sheet-confirm --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-note
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect id:sharing-sync-status "waiting" "Only when you tap" --absent "Syncs when you tap" --timeout 15
+-d emulator-5558 drain --expect held
+-d emulator-5558 expect id:sharing-sync-status "Syncs when you tap" --absent "waiting" --timeout 30
+# The second guest: one note holds "Harbor plank" — the copy, holding the
+# pass's guest's line.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:search-open
+-d emulator-5558 wait id:search-field
+-d emulator-5558 tap id:search-field
+-d emulator-5558 type "Harbor plank"
+-d emulator-5558 expect --absent "Recent" --timeout 10
+-d emulator-5558 wait "Training › Week 1" --timeout 10
+-d emulator-5558 tap "Training › Week 1"
+-d emulator-5558 wait id:editor-toolbar --timeout 15
+-d emulator-5558 expect "Session 2 (conflict copy" "Meadow hold" --timeout 10
+-d emulator-5558 shot delete-copy-second
+-d emulator-5558 key back
+-d emulator-5558 wait id:search-field
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+# The pass's guest after "Sync now": the same.
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+key back
+wait id:create-folder
+tap id:search-open
+wait id:search-field
+tap id:search-field
+type "Harbor plank"
+expect --absent "Recent" --timeout 10
+wait "Training › Week 1" --timeout 10
+tap "Training › Week 1"
+wait id:editor-toolbar --timeout 15
+expect "Session 2 (conflict copy" "Meadow hold" --timeout 10
+shot delete-copy-first
+key back
+wait id:search-field
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+# The second guest back on the automatic cadence.
+-d emulator-5558 tap id:sharing-sync-automatic
+-d emulator-5558 expect id:sharing-sync-status "Up to date" "Changes sync while the app is open" --timeout 30
+-d emulator-5558 errors
+errors

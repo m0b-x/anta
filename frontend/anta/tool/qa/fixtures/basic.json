@@ -110,7 +110,7 @@
       "allDay": false,
       "iconKey": "fitness_center",
       "ruleKind": "weekly",
-      "rulePayload": "{\"weekdays\":[1,4]}",
+      "rulePayload": "{\"weekdays\":[{{weekday+2}},{{weekday+5}}]}",
       "endDateMs": null,
       "startMinute": 1080,
       "durationMinutes": 90,

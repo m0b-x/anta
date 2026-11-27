@@ -30,6 +30,15 @@ abstract final class AgentOps {
   /// "unknown op".
   static const String moveEvent = 'move-event';
 
+  /// Runs the sync engine's drain-only run now (`SyncEngine.pushNow`, what
+  /// a share switch asks for): everything the outbox holds is sent and
+  /// nothing is pulled first, the one way a device pass can make a push
+  /// meet a version the device has not seen — in front, a device pulls
+  /// within a second of the other's push. Answers the run's report
+  /// ([AgentKeys.pushedRows] …). An older driver build answers "unknown
+  /// op".
+  static const String drain = 'drain';
+
   /// Every entry the platform holds for the app — the alert tier's own
   /// list, whatever database its payload names — with what each payload
   /// says; with [AgentKeys.clear] each is cancelled too. The QA reset's
@@ -74,6 +83,16 @@ abstract final class AgentKeys {
   /// `move-event`: how far to move the start, and in the answer the minute
   /// of the day it starts at now.
   static const String minutes = 'minutes';
+
+  /// `drain`'s answer, `SyncRunReport`'s fields of the same names: rows the
+  /// space acknowledged, envelopes merged, push calls made; the failure
+  /// that ended the run and the reason it never reached the space, each by
+  /// its enum name and null when there was none.
+  static const String pushedRows = 'pushedRows';
+  static const String pulledRows = 'pulledRows';
+  static const String pushAttempts = 'pushAttempts';
+  static const String failure = 'failure';
+  static const String skipped = 'skipped';
   static const String x2 = 'x2';
   static const String y2 = 'y2';
   static const String ms = 'ms';
