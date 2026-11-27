@@ -330,6 +330,62 @@ class _Puller {
     }
   }
 
+  /// Merges the versions a push found this device had not seen
+  /// ([SyncUnseenVersions.stored]), as a parked document read again is
+  /// merged ([_readParked]): the rules that decide a pulled page decide
+  /// these — a newer version over a pending local edit files that edit as
+  /// a copy and retires it, an older one kept out is filed as a copy when
+  /// unseen and raises `note_seen`, a local tombstone keeps out a live edit
+  /// as decision G says. A document that parks holds its entry back through
+  /// [holdsBack].
+  ///
+  /// Under the bind's floor while the initial merge is pending, as [pull]
+  /// merges: a drain runs after an initial merge that faulted on a table
+  /// and so left `bind_merge_pending` set.
+  Future<void> mergeUnseen(
+    SyncBinding bound,
+    SyncPullPage stored,
+    _RunTally tally,
+  ) async {
+    await _e._checkHalt(bound);
+    final db = _e._db;
+    final touched = <SyncInvalidation>{};
+    try {
+      final floor =
+          await db.syncDao.getValue(SyncDao.keyBindMergePending) != null
+          ? await _e._binding.bindFloor()
+          : null;
+      for (final table in _e._tables) {
+        final envelopes = [
+          for (final envelope in stored.envelopes)
+            if (envelope.table == table.table) envelope,
+        ];
+        if (envelopes.isEmpty) continue;
+        final room = await _makeRoom(bound, table, envelopes, touched);
+        try {
+          await _apply(
+            bound,
+            table,
+            SyncPullPage(
+              envelopes: envelopes,
+              next: null,
+              hasMore: false,
+              pushed: stored.pushed,
+            ),
+            floor: floor,
+            touched: touched,
+            tally: tally,
+            held: room.held,
+          );
+        } finally {
+          await _restoreUnlanded(table.table, room.evicted);
+        }
+      }
+    } finally {
+      await notifyRun(touched);
+    }
+  }
+
   /// The documents [table]'s next page asks for.
   int _takeOf(SyncTableBinding<Object> table) {
     final most = _e._gateway.maxBatch;
@@ -465,6 +521,9 @@ class _Puller {
     }
     if (initial && everyTable) {
       await db.syncDao.deleteValue(SyncDao.keyBindMergePending);
+      // The rows the merge left as they were — identical on both sides —
+      // carry a foreign stamp no merge recorded as seen.
+      await db.syncDao.seedNoteSeen();
       _e._downloadedRows = 0;
     }
     await _refileStrandedNotes();

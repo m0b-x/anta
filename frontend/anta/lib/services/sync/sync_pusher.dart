@@ -440,6 +440,7 @@ class _Pusher {
       if (cutPartAt != null) await _keepSpacing(cutPartAt);
       cutPartAt = cut ? _e._now() : null;
       await _push(bound, part, tally, drain);
+      await _mergeHeld(bound, tally, drain, pushed);
     }
     await _unshareHeld(bound);
     // The backlog that strained the link is through; the pull's sizes are
@@ -786,6 +787,9 @@ class _Pusher {
 
   static const String _chunksTable = 'content_chunks';
 
+  /// The one table whose pushes name what this device has seen ([_send]).
+  static final String _notesTable = const NotesBinding().table;
+
   /// The stamp a pushed row's entry is retired through: the row's stamp at
   /// read time, so an edit made during the push stays queued — except for a
   /// chunk, whose rows carry the stamps of the notes that hold it while its
@@ -898,7 +902,7 @@ class _Pusher {
     _DrainState drain,
   ) async {
     try {
-      await _send(bound, batch, tally);
+      if (!await _send(bound, batch, tally, drain)) return;
     } on SyncGatewayException catch (error) {
       if (error.timedOut) {
         final half = _budget ~/ 2;
@@ -1041,7 +1045,59 @@ class _Pusher {
     }
   }
 
-  /// One push of [batch], and on a refusal of rows the bisect of it.
+  /// Merges the versions [_send] found unseen while it pushed the last part
+  /// ([_DrainState.held]), then lets that part's held keys through again.
+  ///
+  /// Here, after [_push] returned, and never inside it: a gateway failure of
+  /// the merge — a chunk read that times out or is denied — is no refusal of
+  /// the push, so it must not halve the part budget, start a bisect or park
+  /// a row the rules never refused. It leaves the drain and ends the run as
+  /// the same failure in a pull page does, the held entries still queued.
+  ///
+  /// A round is counted only for the keys whose stored version was unseen;
+  /// every other key of a held batch goes again whatever the count. Each
+  /// hold raises a contested key's count, so the drain still ends: a key
+  /// held past [SyncEngine.maxUnseenRounds] waits for the next run.
+  Future<void> _mergeHeld(
+    SyncBinding bound,
+    _RunTally tally,
+    _DrainState drain,
+    Map<(String, String), String> pushed,
+  ) async {
+    if (drain.held.isEmpty) return;
+    final held = List.of(drain.held);
+    drain.held.clear();
+    final waiting = <String>[];
+    for (final (:stored, :keys) in held) {
+      await _e._puller.mergeUnseen(bound, stored, tally);
+      final contested = {
+        for (final envelope in stored.envelopes)
+          (envelope.table, envelope.rowKey),
+      };
+      for (final key in keys) {
+        if (contested.contains(key)) {
+          final rounds = drain.unseenRounds[key] =
+              (drain.unseenRounds[key] ?? 0) + 1;
+          if (rounds > SyncEngine.maxUnseenRounds) {
+            waiting.add('${key.$1}/${key.$2}');
+            continue;
+          }
+        }
+        pushed.remove(key);
+      }
+    }
+    if (waiting.isNotEmpty) {
+      _warn(
+        'a push met an unseen version ${SyncEngine.maxUnseenRounds + 1} '
+        'times in one drain; these wait for the next run: '
+        '${waiting.join(', ')}',
+      );
+    }
+  }
+
+  /// One push of [batch], and on a refusal of rows the bisect of it. A half
+  /// held for an unseen version ([_send]) is neither parked nor counted: the
+  /// drain merges it and sends it again ([_mergeHeld]).
   Future<void> _tryPush(
     SyncBinding bound,
     List<_Queued> batch,
@@ -1049,7 +1105,7 @@ class _Pusher {
     _DrainState drain,
   ) async {
     try {
-      await _send(bound, batch, tally);
+      await _send(bound, batch, tally, drain);
     } on SyncGatewayException catch (error) {
       if (!await _refusesRows(bound, error, drain)) rethrow;
       await _isolate(bound, batch, error, tally, drain);
@@ -1092,24 +1148,66 @@ class _Pusher {
   }
 
   /// One push, then each entry retired at the stamp its row had when read:
-  /// an entry an edit raised during the push stays queued.
-  Future<void> _send(
+  /// an entry an edit raised during the push stays queued. False when the
+  /// push was held for a version of one of its notes this device had not
+  /// seen ([SyncUnseenVersions]): nothing landed, so nothing is retired,
+  /// parked or counted, and the stored versions wait in [_DrainState.held]
+  /// for [_mergeHeld] before the batch goes again.
+  ///
+  /// Every note of the batch — upserts, tombstones, re-sends — names the
+  /// highest stamp of another device's version of it this device has seen:
+  /// its `note_seen`, or the envelope's own stamp when it re-sends another
+  /// device's version, which is the fallback `NoteDao._keptOver` reads. A
+  /// note has no merge of its text, so one pushed over a version this
+  /// device never saw loses that text everywhere (scalability record
+  /// §11.1, D4 B); the other tables merge field by field and are not named.
+  Future<bool> _send(
     SyncBinding bound,
     List<_Queued> batch,
     _RunTally tally,
+    _DrainState drain,
   ) async {
     await _e._checkHalt(bound);
     final db = _e._db;
     tally.pushAttempts++;
-    await _e._gateway.pushBatch(
-      _e._spaceOf(bound),
-      [for (final queued in batch) queued.envelope],
-      pushedBy: _e._deviceId,
-      schema: _e._schema,
-      // Read at every push, not once a drain: a mark set or cleared while
-      // the drain runs queued the rows this very drain goes on to send.
-      sharedPair: await db.folderDao.sharedPairOfNotes(),
-    );
+    final notes = [
+      for (final queued in batch)
+        if (queued.envelope.table == _notesTable) queued.envelope,
+    ];
+    final seenThrough = <(String, String), String>{};
+    if (notes.isNotEmpty) {
+      final seen = await db.syncDao.valuesOf([
+        for (final note in notes) SyncDao.keyNoteSeen(note.rowKey),
+      ]);
+      for (final note in notes) {
+        final stored = seen[SyncDao.keyNoteSeen(note.rowKey)] ?? '';
+        final resent =
+            note.deviceId != _e._deviceId && note.hlc.compareTo(stored) > 0;
+        seenThrough[(_notesTable, note.rowKey)] = resent ? note.hlc : stored;
+      }
+    }
+    try {
+      await _e._gateway.pushBatch(
+        _e._spaceOf(bound),
+        [for (final queued in batch) queued.envelope],
+        pushedBy: _e._deviceId,
+        schema: _e._schema,
+        // Read at every push, not once a drain: a mark set or cleared while
+        // the drain runs queued the rows this very drain goes on to send.
+        sharedPair: await db.folderDao.sharedPairOfNotes(),
+        seenThrough: seenThrough,
+      );
+    } on SyncUnseenVersions catch (unseen) {
+      await _e._reached(tally);
+      drain.held.add((
+        stored: unseen.stored,
+        keys: [
+          for (final queued in batch)
+            (queued.entry.syncedTable, queued.entry.rowKey),
+        ],
+      ));
+      return false;
+    }
     // Again after the call, not only before it: a restore that began while
     // the push was in flight is rewriting the very rows it acknowledges, and
     // retiring their entries would leave the re-queued ones unsent. The
@@ -1160,6 +1258,7 @@ class _Pusher {
       '${DateTime.now().millisecondsSinceEpoch}',
     );
     _e._emit();
+    return true;
   }
 
   /// The keys whose entry [_send] left queued in this drain because their

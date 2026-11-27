@@ -526,6 +526,20 @@ void main() {
     expect(FirestoreSyncGateway().maxBatch, 499);
   });
 
+  // The plugin's own handler deadline is 30 s; a full part of notes reads
+  // ten waves of fifty documents before its commit (S21 review item 3).
+  test('the push that reads what it writes over gives its transaction the '
+      'gateway\'s deadline', () {
+    final source = File(
+      'lib/services/sync/firestore_sync_gateway.dart',
+    ).readAsStringSync();
+    final start = source.indexOf('runTransaction<SyncPullPage?>');
+    expect(start, isNot(-1));
+    final call = source.substring(start, source.indexOf('if (unseen', start));
+    expect(call, contains('timeout: _timeout'));
+    expect(call, contains('maxAttempts: _writeAttempts'));
+  });
+
   test('no file outside the two gateways imports cloud_firestore or its '
       'platform interface', () {
     const allowed = {

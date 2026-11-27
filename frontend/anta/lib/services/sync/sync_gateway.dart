@@ -399,6 +399,28 @@ class SyncGatewayException implements Exception {
       '${message == null ? '' : ': $message'})';
 }
 
+/// A push that wrote nothing because the space holds a version of a row it
+/// names that the pushing device has not seen ([SyncGateway.pushBatch]'s
+/// `seenThrough`). Not a [SyncGatewayException]: nothing failed and no row
+/// is refused — the device merges [stored] and pushes again, where a
+/// refusal would be bisected and parked.
+class SyncUnseenVersions implements Exception {
+  /// The stored documents that failed the test, as [SyncGateway.readRows]
+  /// returns them: envelopes and [SyncPullPage.pushed], no cursor.
+  final SyncPullPage stored;
+
+  const SyncUnseenVersions(this.stored);
+
+  @override
+  String toString() {
+    final keys = [
+      for (final envelope in stored.envelopes)
+        '${envelope.table}/${envelope.rowKey}',
+    ];
+    return 'SyncUnseenVersions(${keys.join(', ')})';
+  }
+}
+
 /// The remote store, seen by the sync engine. The engine is built and tested
 /// against a fake; the Firestore implementation is the last piece to land,
 /// and no Firestore type crosses this interface.
@@ -416,12 +438,22 @@ abstract interface class SyncGateway {
   /// `touched[table]` for every table in the batch, `lastWriter` =
   /// [pushedBy], `lastWriteAt`, and `schema` = [schema].
   ///
-  /// The stored row is replaced unconditionally — no HLC check: a stale
-  /// overwrite is repaired by the device holding the newer row, which keeps
-  /// it on the next pull and re-queues it (record §3.4). Every document
-  /// carries the `data` key (null for a tombstone) and `ownerId` =
-  /// [SyncSpaceRef.ownerUid], as the rules require. An envelope whose
-  /// `ownerId` is not that uid is a programming error, never a remote
+  /// The stored row is replaced with no HLC check — a stale overwrite is
+  /// repaired by the device holding the newer row, which keeps it on the
+  /// next pull and re-queues it (record §3.4) — except where [seenThrough]
+  /// names it. There the stored document is read inside the push's own
+  /// write, and the push stands only when [isSeen] holds of it for the stamp
+  /// the map gives: the highest version of that row's from another device
+  /// that the pusher has seen. If any named row fails, nothing of the batch
+  /// is written and the call throws [SyncUnseenVersions] with those stored
+  /// documents. The engine names every note it pushes: a note's text has no
+  /// merge, so a version written over unseen is gone everywhere, while the
+  /// device that never saw it repairs nothing (scalability record §11.1,
+  /// D4 B). An empty map — every batch with no note — reads nothing.
+  ///
+  /// Every document carries the `data` key (null for a tombstone) and
+  /// `ownerId` = [SyncSpaceRef.ownerUid], as the rules require. An envelope
+  /// whose `ownerId` is not that uid is a programming error, never a remote
   /// condition: the gateway throws [ArgumentError] before writing anything.
   ///
   /// Denied with [SyncGatewayFailure.permissionDenied] before anything is
@@ -445,7 +477,23 @@ abstract interface class SyncGateway {
     required String pushedBy,
     required int schema,
     String? sharedPair,
+    Map<(String, String), String> seenThrough = const {},
   });
+
+  /// Whether a push by [pushedBy] may write over [stored], the document a
+  /// row's key holds, when the pusher has seen that row's versions from
+  /// other devices up to [seenThrough] ([pushBatch]). Null — no document, or
+  /// one this build cannot decode, which it could not merge either — is
+  /// seen; so is a version the pusher stamped itself, whoever pushed it
+  /// last. Every gateway asks this one test.
+  static bool isSeen(
+    SyncEnvelope? stored, {
+    required String pushedBy,
+    required String seenThrough,
+  }) =>
+      stored == null ||
+      stored.deviceId == pushedBy ||
+      stored.hlc.compareTo(seenThrough) <= 0;
 
   /// Writes [sharedPair] on the space's document and nothing else — no row,
   /// no table touched — as [pushBatch] writes it with rows: for a device

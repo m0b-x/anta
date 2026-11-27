@@ -177,6 +177,11 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// recorded under, written at a bind.
   static const String keyNoteSeenSpace = 'note_seen_space';
 
+  /// Present once [seedNoteSeen] has run on this database, so a binding
+  /// older than the push's guard on unseen versions is seeded once.
+  /// Deleted with the [keyNoteSeen] values.
+  static const String keyNoteSeenSeeded = 'note_seen_seeded';
+
   /// The account whose shared rows this database holds — the partner the
   /// reader of shared rows last read from
   /// (`docs/cloud-sharing-foundations.md` §5, §7). A row is another
@@ -449,6 +454,37 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
 
   Future<void> deleteValue(String key) async {
     await (delete(syncMetadata)..where((s) => s.key.equals(key))).go();
+  }
+
+  /// Raises [keyNoteSeen] to the stamp of every live note of the person's
+  /// own whose row still carries another device's version, in one
+  /// statement, then sets [keyNoteSeenSeeded].
+  ///
+  /// `note_seen` is raised only where a foreign version is applied or kept
+  /// out, so a row that never went that way — accepted before that
+  /// bookkeeping existed, or left unchanged by a merge of identical data —
+  /// has none, and once edited here its foreign stamp is gone from the row.
+  /// The push's guard would then find the space's copy of the very version
+  /// the edit was made on unseen, and its merge would file that version as
+  /// a false copy. A tombstone needs none: its text is gone, so no copy is
+  /// filed for it. The prefix is written into the SQL, so the statement
+  /// carries no `note_seen.` argument.
+  Future<void> seedNoteSeen() async {
+    await customUpdate(
+      'INSERT INTO sync_metadata (key, value, updated_at) '
+      "SELECT '$noteSeenPrefix' || id, hlc_timestamp, ?1 FROM notes "
+      'WHERE is_deleted = 0 AND device_id IS NOT ?2 AND $mineSql '
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, '
+      'updated_at = excluded.updated_at '
+      'WHERE excluded.value > sync_metadata.value',
+      variables: [
+        Variable<DateTime>(DateTime.now()),
+        Variable<String>(db.deviceId),
+      ],
+      updates: {syncMetadata},
+      updateKind: UpdateKind.insert,
+    );
+    await setValue(keyNoteSeenSeeded, '1');
   }
 
   /// Every key starting with [prefix] with its value, in key order; matched

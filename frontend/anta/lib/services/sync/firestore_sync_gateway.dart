@@ -74,6 +74,25 @@ class FirestoreSyncGateway implements SyncGateway {
   @override
   int get maxBatch => 499;
 
+  /// With [seenThrough] empty, a write-only transaction. With it named, a
+  /// read-write one, after [unshareRows]: every named document is read
+  /// first, [_unshareReads] at a time, and only when each passes
+  /// [SyncGateway.isSeen] are the same sets made. That is a real
+  /// compare-and-swap: a document read in a transaction and then written
+  /// carries a precondition on the version read, so another device's write
+  /// in between fails the commit and the SDK runs the handler again, which
+  /// reads the new version. A failed test returns the stored documents from
+  /// the handler, having written nothing, and is thrown outside it — how
+  /// the plugin wraps an error a handler throws is not this code's to rely
+  /// on.
+  ///
+  /// A full part of notes — 499 named rows — is ten waves of fifty reads
+  /// before the commit, 499 billed reads beside the 500 writes, so the
+  /// handler takes [_timeout] rather than the plugin's 30 s. A handler past
+  /// it fails as `deadline-exceeded` (the Android plugin's own wait for the
+  /// handler), and [_guard]'s clock bounds the whole call as well: both
+  /// reach the engine as [SyncGatewayException.timedOut], which halves the
+  /// next part rather than repeating this one.
   @override
   Future<void> pushBatch(
     SyncSpaceRef space,
@@ -81,6 +100,7 @@ class FirestoreSyncGateway implements SyncGateway {
     required String pushedBy,
     required int schema,
     String? sharedPair,
+    Map<(String, String), String> seenThrough = const {},
   }) async {
     if (batch.isEmpty) {
       throw ArgumentError.value(batch.length, 'batch', 'no rows');
@@ -97,35 +117,98 @@ class FirestoreSyncGateway implements SyncGateway {
         );
       }
     }
-    await _guard(
-      () => _writeOnly((transaction) {
-        final now = FieldValue.serverTimestamp();
-        final spaceDoc = _space(space);
-        for (final envelope in batch) {
-          transaction.set(
-            spaceDoc.collection(envelope.table).doc(envelope.rowKey),
-            FirestoreSyncWire.documentOf(
-              envelope,
-              pushedBy: pushedBy,
-              serverTime: now,
-              wire: schema,
-            ),
-          );
-        }
+    void write(Transaction transaction) {
+      final now = FieldValue.serverTimestamp();
+      final spaceDoc = _space(space);
+      for (final envelope in batch) {
         transaction.set(
-          spaceDoc,
-          FirestoreSyncWire.spaceMergeOf(
-            {for (final envelope in batch) envelope.table},
+          spaceDoc.collection(envelope.table).doc(envelope.rowKey),
+          FirestoreSyncWire.documentOf(
+            envelope,
             pushedBy: pushedBy,
-            schema: schema,
             serverTime: now,
-            sharedPair: sharedPair,
-            removed: FieldValue.delete(),
+            wire: schema,
           ),
-          SetOptions(merge: true),
         );
-      }),
+      }
+      transaction.set(
+        spaceDoc,
+        FirestoreSyncWire.spaceMergeOf(
+          {for (final envelope in batch) envelope.table},
+          pushedBy: pushedBy,
+          schema: schema,
+          serverTime: now,
+          sharedPair: sharedPair,
+          removed: FieldValue.delete(),
+        ),
+        SetOptions(merge: true),
+      );
+    }
+
+    if (seenThrough.isEmpty) {
+      await _guard(() => _writeOnly(write));
+      return;
+    }
+    final named = [
+      for (final envelope in batch)
+        if (seenThrough[(envelope.table, envelope.rowKey)] case final seen?)
+          (envelope, seen),
+    ];
+    final spaceDoc = _space(space);
+    final unseen = await _guard(
+      () => _db.runTransaction<SyncPullPage?>(
+        (transaction) async {
+          final envelopes = <SyncEnvelope>[];
+          final pushed = <String, SyncPush>{};
+          for (var from = 0; from < named.length; from += _unshareReads) {
+            final slice = named.skip(from).take(_unshareReads).toList();
+            final snapshots = await Future.wait([
+              for (final (envelope, _) in slice)
+                transaction.get(
+                  spaceDoc.collection(envelope.table).doc(envelope.rowKey),
+                ),
+            ]);
+            for (var i = 0; i < slice.length; i++) {
+              final (envelope, seen) = slice[i];
+              final data = snapshots[i].data();
+              final stored = data == null
+                  ? null
+                  : FirestoreSyncWire.envelopeOf(
+                      envelope.table,
+                      envelope.rowKey,
+                      data,
+                    );
+              if (SyncGateway.isSeen(
+                stored,
+                pushedBy: pushedBy,
+                seenThrough: seen,
+              )) {
+                continue;
+              }
+              envelopes.add(stored!);
+              final at = data!['pushedAt'];
+              pushed[envelope.rowKey] = FirestoreSyncWire.pushOf(
+                data,
+                at is Timestamp ? at.toDate() : null,
+              );
+            }
+          }
+          if (envelopes.isNotEmpty) {
+            return SyncPullPage(
+              envelopes: envelopes,
+              next: null,
+              hasMore: false,
+              pushed: pushed,
+            );
+          }
+          write(transaction);
+          return null;
+        },
+        timeout: _timeout,
+        maxAttempts: _writeAttempts,
+      ),
     );
+    if (unseen != null) throw SyncUnseenVersions(unseen);
   }
 
   @override

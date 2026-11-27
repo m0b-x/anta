@@ -137,7 +137,10 @@ enum SyncRunSkip {
 
 /// What one run did, for "Sync now" to report and for the tests to read.
 class SyncRunReport extends Equatable {
-  /// Envelopes the pull merged, repeats included.
+  /// Envelopes merged from the space, repeats included: a pull's pages, a
+  /// parked document read again, and a version a push found unseen — which
+  /// a drain-only run merges too, so a drain can report rows here and no
+  /// [pages]. Only [pages] counts the space being pulled.
   final int pulledRows;
 
   /// Rows the space acknowledged.
@@ -161,7 +164,9 @@ class SyncRunReport extends Equatable {
   /// Pull pages read, empty ones included: one document read each at least.
   final int pages;
 
-  /// Push calls made, refused and failed ones included.
+  /// Push calls made, refused and failed ones included, and those held for
+  /// a version this device had not seen (`SyncUnseenVersions`), which
+  /// reached the space and wrote nothing.
   final int pushAttempts;
 
   /// Resumes and starts whose snapshot did not come in time, so this run
@@ -312,6 +317,13 @@ class SyncEngine {
   /// a launch keeps the retry cheap while each still comes round
   /// (scalability record S8).
   static const int maxParkRetries = 100;
+
+  /// How many times one drain lets a row through again after a push found
+  /// a version of it this device had not seen and merged that version
+  /// (`SyncUnseenVersions`). Each round is one more push and one more
+  /// merge, and a device writing the note as fast as this one merges it
+  /// would hold the drain forever; past this the row waits for the next run.
+  static const int maxUnseenRounds = 2;
 
   /// The most chunk text, in code units, one pull page of notes may read
   /// from the space and hold before its transaction, counted as its missing
@@ -742,6 +754,11 @@ class SyncEngine {
   @visibleForTesting
   int get schemaForTesting => _schema;
 
+  /// The push's part budget as it stands, so a suite can tell a failure
+  /// that shrank it from one that must not.
+  @visibleForTesting
+  int get partBudgetForTesting => _pusher._budget;
+
   /// Stops and drops the singleton, so a switched database is never synced
   /// with the previous one's space: the signal, the triggers and the timers
   /// end at once, a run in flight ends before its next page or batch.
@@ -816,6 +833,7 @@ class SyncEngine {
     _puller.resetParks();
     _pusher.resetParks();
     _retryEveryPark = false;
+    _noteSeenChecked = false;
     _puller.resetSizes();
     _pusher.resetSizes();
     // An engine built while the app is away has heard no leave (S5 review
@@ -990,6 +1008,11 @@ class SyncEngine {
   /// Set by [syncNow] and taken by the next run as it starts, never during
   /// one: a drain in flight reads the push's parks as it bisects.
   bool _retryEveryPark = false;
+
+  /// Whether this start has made sure the database's `note_seen` was
+  /// seeded ([SyncDao.seedNoteSeen]): one read of its flag at a start's
+  /// first run that passes the gate, none after.
+  bool _noteSeenChecked = false;
 
   /// When the engine runs unasked, as it stands now.
   SyncCadence get cadence => _cadence;
@@ -1284,6 +1307,16 @@ class SyncEngine {
       // as often as not, and it must hold back what the stored parks hold.
       await _puller.restoreParks();
       await _pusher.restoreParks();
+      // Before anything may drain, as the parks: a binding older than the
+      // push's guard on unseen versions has rows its `note_seen` never
+      // recorded, which the guard would read as unseen (scalability record
+      // S21).
+      if (!_noteSeenChecked) {
+        if (await _db.syncDao.getValue(SyncDao.keyNoteSeenSeeded) == null) {
+          await _db.syncDao.seedNoteSeen();
+        }
+        _noteSeenChecked = true;
+      }
       final initial =
           await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
       if (initial && mode == _RunMode.drain) {
@@ -1363,6 +1396,11 @@ class SyncEngine {
       var drained = false;
       try {
         if (!initial || pulled.reached) {
+          // A bind's first pull that faulted on a table still drains, its
+          // merge pending: the rows it left unchanged carry a foreign stamp
+          // no merge recorded as seen, which the push's guard would hold. A
+          // complete one seeded them where it cleared the flag.
+          if (initial && !pulled.complete) await _db.syncDao.seedNoteSeen();
           // The drain takes every write queued so far; a write during it
           // arms both timers again.
           _drainAhead = false;
@@ -2419,6 +2457,16 @@ class _DrainState {
   /// its text cannot change under its hash, and encoding it again would
   /// gzip and hash it once more per part a large note spans.
   _Queued? chunkAhead;
+
+  /// The batches the part being pushed had held for an unseen version: the
+  /// stored versions to merge and the batch's keys, which the drain lets
+  /// through again at the stamp it just pushed them at, once
+  /// [_Pusher._push] returns ([_Pusher._mergeHeld]).
+  final List<({SyncPullPage stored, List<(String, String)> keys})> held = [];
+
+  /// How many times each contested key — one whose stored version was
+  /// unseen — was held in this drain, against [SyncEngine.maxUnseenRounds].
+  final Map<(String, String), int> unseenRounds = {};
 }
 
 class _Queued {

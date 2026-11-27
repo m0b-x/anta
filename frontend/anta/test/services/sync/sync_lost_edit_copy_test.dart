@@ -108,8 +108,9 @@ void main() {
     await expectBody(note.id, 'typed on A');
   });
 
-  test('an older version pushed over a newer one — a drain that never pulled '
-      '— is healed by the requeue and leaves one copy of its text', () async {
+  test('an older version a drain that never pulled would push over a newer '
+      'one is held, and its text is filed as a copy on its own device '
+      '(S21)', () async {
     final note = await sharedNote();
     await b().engine.start();
     await b().settle();
@@ -119,10 +120,10 @@ void main() {
     await editNote(a(), note.id, 'typed on A');
     await a().sync();
 
-    // B leaves the app again: the drain pushes its older edit over A's newer
-    // one: its new chunk, then its manifest.
-    expect((await b().engine.onAppBackgrounded()).pushedRows, 2);
-    expect(pair.gateway.rowsOf(pair.space, 'notes')[note.id]!.deviceId, b().id);
+    // B leaves the app again: the push finds A's newer version unseen and
+    // writes nothing; merged, it retires B's older edit as a copy.
+    expect((await b().engine.onAppBackgrounded()).pushedRows, 0);
+    expect(pair.gateway.rowsOf(pair.space, 'notes')[note.id]!.deviceId, a().id);
     b().engine.onAppResumed();
     await b().settle();
 
@@ -130,10 +131,10 @@ void main() {
     await b().sync();
     await a().sync();
 
-    final conflict = a().hooks.conflicts.single;
-    expect(conflict.incoming, isTrue);
+    final conflict = b().hooks.conflicts.single;
+    expect(conflict.incoming, isFalse);
     expect(conflict.loserContent, 'typed on B');
-    expect(b().hooks.conflicts, isEmpty);
+    expect(a().hooks.conflicts, isEmpty);
     await expectBody(note.id, 'typed on A');
   });
 

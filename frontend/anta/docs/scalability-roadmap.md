@@ -45,6 +45,14 @@ what survived, why the rest fell (§10), and the designs as the critics
 amended them. Nothing in it is built. The implementing sessions run on Opus
 5.5 (§1); this Fable session ends at the approved plan.
 
+**Added 2026-11-26 — S21 (§8.7), BUILT AND REVIEWED, UNCOMMITTED:** a push
+no longer writes over a note version the device has not seen, which closes
+the two text losses §11.1 kept under "D4 B" (a drain that pushes before it
+pulled; three devices). No rules deploy, no wire change, no migration; the
+owner's one step is to run this build on every device, since an older one
+still writes without looking. §11's "Background pull" was reconciled the
+same day with `cloud-shared-freshness.md` §11.
+
 Contents: 1 How to run this · 2 Why — the limits found · 3 What the big
 apps do · 4 Decisions for the owner (D1–D14) · 5 The design (5.1 foundations
 · 5.2 the note body on the device · 5.3 the note body on the wire · 5.4 sync
@@ -2297,6 +2305,188 @@ still holds. The death on "Stop syncing" at 13:12 stays unread; a tap handled
 in a frame zone whose reads never return is a plausible path to an ANR-style
 kill, not a proven one.
 
+### 8.7 S21 — a push never writes over a note version this device has not seen (2026-11-26)
+
+**Built 2026-11-26 in its own worktree (one implementer, two passes; one
+reviewer), merged into the main tree, UNCOMMITTED.** The owner's word on
+§11.1's first item: do it. Designed by the session's lead (Fable 5.2). It
+closes the two losses §11.1 kept under "D4 B", another way than D4 B
+planned.
+
+**The loss, as it stood.** `SyncGateway.pushBatch` replaced the stored
+document unconditionally, and three runs push without having pulled what
+the space holds: the drain as the app leaves (`onAppBackgrounded`),
+`pushNow`, and a `stale` run whose signal named no table — the push timer
+beating the snapshot at a reconnect. Device A edits a note and pushes; B,
+which never pulled that version, edits later and its drain goes first: B's
+document replaces A's, B's next pull meets only its own echo, and A applies
+B's version over a row it had already pushed, where no copy rule fires. A's
+text is gone on every device and nothing says so. With three devices the
+same blind write, stamped below what the others had seen, was kept out by
+them, pushed over again and lost on the device that wrote it.
+
+**The rule.** A push names every `notes` row it carries — upsert, tombstone
+or re-send — with the highest stamp of another device's version of that
+note this device has seen (`pushBatch`'s `seenThrough`): its `note_seen`
+(S8), or the row's own stamp while the row still carries a foreign version.
+The gateway reads the stored document inside the push's own transaction and
+writes only when `SyncGateway.isSeen` holds: none is stored, or this build
+cannot read it; or this device stamped it; or its stamp is at or below the
+one named. Otherwise nothing of the batch is written
+(`SyncUnseenVersions`): the drain merges the stored version through the
+pull's own merge and sends the part again — twice at most per contested
+note in one drain (`SyncEngine.maxUnseenRounds`), then at the next run. The
+merge files the copy by rules that already stood: a pending local text that
+loses is the copy (D3); a local text that wins files the incoming one once
+(S8); a local delete files the edit it would have taken with it (decision
+G). No rule about copies is new.
+
+Why it is exact once every device runs it: a version is then only ever
+replaced by a device that has merged it, and a clock follows what it merges
+(`HybridLogicalClock.adopt`), so a note's stamps in the space only rise —
+and "at or below the highest foreign stamp I merged" is then exactly "a
+version I merged", which S8's `seen` could not promise while a blind write
+could land a lower stamp over a higher one.
+
+**Decisions** — the lead's, on the owner's delegation; the option not taken
+is named so it can be taken instead.
+
+| | Decision | Why, and the option not taken |
+| --- | --- | --- |
+| a | **The check is in the push's own transaction, on the device**, not in the rules. | A document read in a Firestore transaction and then written carries a precondition on the version read, so the server refuses a write over anything newer: a real compare-and-swap with no rules deploy, no field on the wire and no cutover — a build with it reads and writes a space exactly as the build before it. Not taken, D4 B as planned: `data.baseHlc` on the wire and a rule comparing it with the stored stamp — no read per push, but a deploy before any build may run, a field every build must agree on, a denial the device can tell from any other only by reading the document anyway, and nothing a tombstone could carry (its `data` is null). |
+| b | **`note_seen` is what "seen" means**, with the row's own foreign stamp beside it. | It is the state S8 already keeps and the merge already raises. Not taken: the stamp of the version each pending edit was made on, kept per outbox entry — exact without the argument above, but the outbox is fed by several writers, most of which never read the row they stamp. |
+| c | **Rows from before the bookkeeping are seeded**: every live note of the person's own whose row carries another device's stamp gets that stamp as its `note_seen` — once per database, and at every bind's first merge. | A version accepted before S8, or found equal to the space's by a Merge of identical data, was never "accepted" as far as `note_seen` knows; edited, its row forgets the foreign stamp, the push would be held, and the merge would file a copy of the very version the edit was made on. One statement, no per-row work. |
+| d | **No older build is locked out.** The wire version stays 48. | The guarantee is between devices on this build; an older one still writes without looking, and what it writes over is lost as before. Not taken: a bump to 49, so that an older build pauses as "update the app" — it would also stop the partner's phone reading what I share until that phone updates, for a change that alters no document. The owner's to turn: one constant. |
+| e | **Notes only.** | The other tables are last-writer-wins by design and hold no text a copy could keep. |
+| f | **A stored document this build cannot read does not hold a push.** | It is what a pull parks as malformed; held, the note could never be pushed again. A newer build's document never comes this far: the space's schema pauses the engine first. |
+
+**As built.**
+
+- *The gateway* (`sync_gateway.dart`, `firestore_sync_gateway.dart`):
+  `pushBatch(…, seenThrough)`, `SyncGateway.isSeen` — the one test both
+  gateways ask — and `SyncUnseenVersions`, which is not a
+  `SyncGatewayException`: nothing failed and no row is refused. With an
+  empty map the Firestore push is the write-only transaction it was. With
+  notes named it is a read-write `runTransaction`: every named document read
+  fifty at a time, then the same sets; a handler that finds one unseen
+  returns the stored documents without writing, and the exception is thrown
+  outside it. It passes `timeout: _timeout`: the plugin's own thirty
+  seconds bound the handler, and a full part of notes is ten waves of
+  reads. A handler deadline reaches the pusher as `timedOut`, never as
+  `unknown` (the mapping `firestore_sync_gateway_test` already pinned).
+- *The pusher* (`sync_pusher.dart`): `_send` builds the map with one
+  `SyncDao.valuesOf` per batch. Held, it acknowledges, parks, tallies as
+  pushed and stamps nothing, and hands the page to the drain
+  (`_DrainState.held`); the drain merges after `_push` has returned
+  (`_mergeHeld` → `_Puller.mergeUnseen`, modelled on `_readParked`, under
+  the bind's floor while a first merge is pending). The merge runs outside
+  the push's refusal handling on purpose: a chunk read that times out or
+  is denied while merging ends the run as the same failure in a pull page
+  does — it neither halves the part budget, nor starts a bisect, nor parks
+  a row the rules never refused. A round is counted only for the notes the
+  gateway reported; every other row of a held part goes again whatever the
+  count. A held half inside a bisect is neither parked nor counted. A
+  merged page that parks its document holds its entry back through
+  `_Puller.holdsBack`, as any parked pull does.
+- *The seed* (`SyncDao.seedNoteSeen`): one raise-only statement, behind
+  `note_seen_seeded` — read once per engine start, dropped with the
+  `note_seen` keys at a bind to another space; run again where a bind's
+  first merge completes, and before the drain of one that faulted on a
+  table and so drains with its merge still pending. Tombstones and a
+  partner's rows are left out. An import needs none: `NoteDao.importNote`
+  mints the id and stamps the row as this device's.
+- *A run's report*: a held call counts in `pushAttempts` (it reached the
+  space and wrote nothing); the rows a held push merged count in
+  `pulledRows` with `pages` 0; "Last synced" is stamped only by a pull of
+  the space, so a drain that merged does not move it.
+
+**Tests.** `sync_unseen_write_test` (24): the older edit pushed first and
+the newer device draining blind — one copy, on the draining device, and
+its own text lands; the draining device's edit the older one — nothing of
+it lands and its text is the copy; three devices with the third's clock
+behind — its text survives as exactly one copy; a tombstone drained over
+an unseen edit — the edit is the copy, then the tombstone lands; the
+device's own version stored (a lost acknowledgement, then an edit) — one
+call; a note nobody else touched — one call, one read; an unreadable
+stored document; a rival writing after every merge — the drain ends, the
+note waits, and an event in the same part lands; a batch with no note
+reads nothing; the seed's three moments and its drop at a bind elsewhere;
+a mixed batch; the merge failing as a timeout, a denial and offline; a
+hold inside a bisect; a merge that parks; two unseen notes in one part;
+`pushNow` and a `stale` run that names no table, each through the guard;
+a held batch with a grant owing its poke only once it lands; and a blind
+older overwrite by a peer that names nothing (an older build), which the
+device holding the newer row still repairs as S8 said. Red without the
+fix, shown by disabling it: the first, third and fourth cases (no copy
+filed anywhere), and each review fix's case. `sync_lost_edit_copy_test`'s
+"an older version pushed over a newer one — a drain that never pulled"
+asserted the blind overwrite itself and was rewritten to the new outcome;
+what it pinned of `_keptOver` lives on in the last case above. Gate of
+the stream: `dart analyze lib test tool` clean, `test/services/sync`
+1,124, `test/database` 1,291.
+
+**On a device** (2026-11-26, two fleet guests, the cloud-define QA build
+against a freshly started Firebase emulator suite). The transaction
+itself cannot run under `flutter test`, so the new suite `qa pass
+sync_pair` is its proof: two guests signed in to one account and bound to
+one space, the second on the manual cadence and made to drain without
+pulling through a new harness seam, `qa drain` (the engine's own
+`pushNow`). 3 of 3: the second guest's edit of a note the first had
+edited and synced — `drain  pushed 4  pulled 1  calls 2`, the conflict
+copy listed on both guests, holding the first guest's line, the note
+holding the second's; an edit of a note nobody else touched — `drain
+pushed 2  pulled 0  calls 1`; a delete over an unseen edit — `drain
+pushed 3  pulled 1  calls 2`, the edit kept as a copy and the note gone on
+both. `qa pass sync`, the happy path of the guarded push (a bind uploads
+the seed's notes), 5 of 5. What no pass shows: two writes racing inside
+the transaction's own window — the commit's precondition on the version
+read is the Firestore SDK's, read in the plugin's Android code and not
+exercised.
+
+**The gate on the merged tree** (2026-11-26 → 27, with the day's other
+two changes — the note inks of `guide-hub-roadmap.md` §12 and the QA
+seed's relative weekdays). `dart analyze lib test tool test_driver`
+clean; the whole suite 19,090 passed, 17 skipped, none red, in six calls
+on a quiet machine (the services 3,557, the other directories but the
+widgets 8,469, the widgets 3,179 and 3,706, the editor 139 and 40). On
+the fleet guests: `settings` 21 of 21 and `browser` 3 of 3 on the plain
+QA build; on the cloud-define build, each against a freshly started
+emulator suite, `sync` 5 of 5, `sync_pair` 3 of 3 and `share` 27 of 27 —
+the share pass started at 00:05 on Friday the 27th, its flows' armed
+alerts all on Sunday the 29th, two days ahead as the relative seed makes
+them. No rule, index, migration, string or generated file changed; the
+Drift schema stays 56, the wire 48.
+
+**The review** (one reviewer, four items, by reading — a reviewer writes
+no probe): a failure of the merge handled as a refusal of the push, and
+rounds counted for every row of a held part — both fixed, as above; the
+plugin's thirty-second handler deadline — fixed; the seed missing a bind
+whose first merge faulted — fixed; the rest are the limits below.
+
+**What it costs.** One document read per pushed note, inside the push's
+call; nothing for a part that holds no note. A held part: the held call,
+one page merged, one more push. A bind's first upload reads once per note
+it sends. An engine start: one read of the seed's flag.
+
+**What stays open** (§11.1 keeps the index):
+
+- **A copy of text nothing lost**, when the other device changed only the
+  note's title, folder, label or position: `_keptOver` compares the
+  incoming body with the local one, not with the one the local edit
+  started from. True of the pull-first order since S8; S21 makes it true
+  of the push-first order too, where before the other device's change was
+  silently written over. Closing it needs the body's fingerprint as of the
+  last sync, kept per note.
+- A lost acknowledgement on the other device still gives two copies of
+  one text. A note with an edit still unpushed at the moment this build
+  first runs, made on a version accepted before S8, can file one false
+  copy.
+- An older build writes without looking (decision d).
+- A part of 499 notes reads 499 documents inside one sixty-second call; on
+  a link that cannot carry that, the part times out and repeats — the byte
+  budget halves, the count of notes does not. Design when seen: a note
+  take that halves on a timeout, as the pull's does (S10).
+
 ## 9. Definition of done
 
 1. Every acceptance line in §5 shown by a pin or a benchmark figure
@@ -2402,12 +2592,25 @@ Each with the trigger that reopens it and enough to resume from here.
 - **The echo skip** (a clean-push mark decided inside the push transaction,
   ≤ 1 MiB batches only, cleared on stop/rebind/`exists:false`). Trigger:
   the budget table shows the own read-back matters. **Server
-  compare-and-swap** on `baseHlc` and **`data.baseHlc` on the wire** (D4 B).
-  Trigger: old builds retired, or a three-device residual seen.
+  compare-and-swap** on `baseHlc` and **`data.baseHlc` on the wire** (D4 B)
+  — the two losses they were kept for are closed since 2026-11-26 by S21
+  (§8.7), on the device: a compare-and-swap inside the push's transaction,
+  with no field on the wire and no rule. What is left of D4 B: locking an
+  older build out (§8.7 decision d), and a base per note for the copies
+  §8.7 lists as filed of text nothing lost. Trigger: one of those seen.
 - **Background pull** (readiness D7 B: a Cloudflare Worker → FCM "pull
-  now"). Trigger: the owner's Cloudflare account exists. **The Android
-  foreground data-transfer hold** for a large first sync. Trigger: a
-  measured first sync of the real database over ~2 minutes on screen.
+  now"). The trigger written here, the owner's Cloudflare account, is met
+  since 2026-11-14: the relay of `cloud-shared-freshness.md` runs there
+  and wakes the *partner's* phone for what a pair shares. It does not wake
+  my own other devices, and the job it starts reads the partner's rows
+  alone — so what this item is for is still open, and is the owner's
+  decision now rather than a wait: an alert on an event of mine that I
+  make, move or delete on one device follows on another only once ANTA is
+  opened there (readiness D11). What closing it takes, and why the
+  freshness record did not: its §11, rewritten 2026-11-26 to say so (it
+  used to read "a closed one needs nothing"). **The Android foreground
+  data-transfer hold** for a large first sync. Trigger: a measured first
+  sync of the real database over ~2 minutes on screen.
 - **Tombstone row GC** with device presence, a horizon and a rules change;
   **a per-event `childrenClearedHlc`** to make cascade deletes one write
   (the wire-implied cascade was rejected: it diverges after a revival).
@@ -2434,15 +2637,20 @@ Each with the trigger that reopens it and enough to resume from here.
 Each is recorded in its slice's as-built note; this list is the index.
 
 - **D4 B items** (`data.baseHlc` on the wire, server compare-and-swap).
-  A lost acknowledgement on the OTHER device gives two copies of one text
+  *Closed 2026-11-26 by S21 (§8.7), between devices on that build:* the
+  newer device's drain pushing before it pulled, which lost the older edit
+  with no copy, and three devices editing one note with the third's clock
+  behind the second's, which lost the third's text. *Still as they were:*
+  a lost acknowledgement on the OTHER device gives two copies of one text
   (the incoming copy under S8's rule, then D3's when the newer version
-  overwrites the still-pending text); the newer device's background drain
-  pushing before it pulled loses the older edit with no copy (pre-existing;
-  neither device can see the overwrite); three devices editing one note with
-  the third's clock behind the second's can lose the third's text; a row
-  accepted before the `note_seen` rule shipped can file one false copy on a
-  bulk write followed by an edit, once per such row. Trigger: any of them
-  seen on the owner's devices, or old builds retired.
+  overwrites the still-pending text); a row accepted before the
+  `note_seen` rule shipped can file one false copy — S21's seed covers
+  such a row unless an edit of it was still unpushed when that build first
+  ran. *Named by S21's review:* a copy filed of text nothing lost, when
+  the other device changed only the note's title, folder, label or
+  position (`_keptOver` compares bodies, not bases); an older build still
+  writes without looking; a part of 499 notes reads 499 documents inside
+  one call. Trigger: any of them seen on the owner's devices.
 - **Chunked sync** (S6): a manifest grows with the body (about 30 KB
   of hashes for a 5 MB note), so an edit's bytes are the changed chunk plus
   the whole hash list; the lazy re-cut of legacy notes runs one short

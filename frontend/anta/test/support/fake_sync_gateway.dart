@@ -310,6 +310,33 @@ class FakeSyncGateway implements SyncGateway {
   /// offline — a run cut between two batches.
   int? landPushes;
 
+  /// The `seenThrough` map of every [pushBatch] past a scripted failure, an
+  /// empty one included, in order.
+  final List<Map<(String, String), String>> seenMaps = [];
+
+  /// How many stored documents [pushBatch]'s guard read, as the Firestore
+  /// gateway reads one per named row.
+  int guardReads = 0;
+
+  /// Run inside [pushBatch] when its guard found [stored] unseen, after the
+  /// page is made and before the call throws — so a test can stand for a
+  /// rival that writes the row again before the merge and the retry.
+  void Function(SyncPullPage stored)? onUnseenVersions;
+
+  /// Run at the start of every [pushBatch], before anything is judged — so
+  /// a test can land another device's write between two calls of one drain,
+  /// inside a bisect.
+  void Function(List<SyncEnvelope> batch)? beforePushBatch;
+
+  /// Devices whose pushes the fake takes as a build before the guard on
+  /// unseen versions sends them: with no `seenThrough`, written blind.
+  final Set<String> olderBuilds = {};
+
+  /// While true, a push changes the space without telling its listeners —
+  /// a snapshot listener lagging behind the write, whose next run judges
+  /// the tables from a snapshot that predates it.
+  bool muteSignals = false;
+
   @override
   Future<void> pushBatch(
     SyncSpaceRef space,
@@ -317,7 +344,10 @@ class FakeSyncGateway implements SyncGateway {
     required String pushedBy,
     required int schema,
     String? sharedPair,
+    Map<(String, String), String> seenThrough = const {},
   }) async {
+    beforePushBatch?.call(batch);
+    if (olderBuilds.contains(pushedBy)) seenThrough = const {};
     _ensureOwner(space.ownerUid);
     _throwIfScripted();
     final landing = landPushes;
@@ -342,6 +372,14 @@ class FakeSyncGateway implements SyncGateway {
           '${envelope.table}/${envelope.rowKey} is not owned by the space owner',
         );
       }
+    }
+    seenMaps.add(Map.unmodifiable(seenThrough));
+    // Before every rule the write meets: Firestore reads the named
+    // documents first, and a push that fails the test commits nothing.
+    final unseen = _unseenOf(space, batch, seenThrough, pushedBy);
+    if (unseen != null) {
+      onUnseenVersions?.call(unseen);
+      throw SyncUnseenVersions(unseen);
     }
     final record = _spaces[space];
     if (record == null) {
@@ -406,7 +444,7 @@ class FakeSyncGateway implements SyncGateway {
       ..schema = schema
       ..sharedPair = sharedPair;
     pushes.add(List.unmodifiable(batch));
-    _signalOf(space).add(record.signal);
+    if (!muteSignals) _signalOf(space).add(record.signal);
     await onPushBatch?.call(batch);
   }
 
@@ -767,6 +805,38 @@ class FakeSyncGateway implements SyncGateway {
     calls.add('chunks');
     sharedChunkReads.add(List.of(hashes));
     return _rowsOf(space, 'content_chunks', hashes);
+  }
+
+  /// The stored documents of the rows [seenThrough] names in [batch] that
+  /// fail [SyncGateway.isSeen], as [readRows] answers them; null when every
+  /// one passes. One guard read per named row, as the Firestore gateway's.
+  SyncPullPage? _unseenOf(
+    SyncSpaceRef space,
+    List<SyncEnvelope> batch,
+    Map<(String, String), String> seenThrough,
+    String pushedBy,
+  ) {
+    final unseen = <_Arrival>[];
+    for (final envelope in batch) {
+      final key = (envelope.table, envelope.rowKey);
+      final seen = seenThrough[key];
+      if (seen == null) continue;
+      guardReads++;
+      final arrival = _store[space]?[envelope.table]?[envelope.rowKey];
+      final stored = arrival == null || unreadable.contains(key)
+          ? null
+          : arrival.envelope;
+      if (!SyncGateway.isSeen(stored, pushedBy: pushedBy, seenThrough: seen)) {
+        unseen.add(arrival!);
+      }
+    }
+    if (unseen.isEmpty) return null;
+    return SyncPullPage(
+      envelopes: [for (final arrival in unseen) arrival.envelope],
+      next: null,
+      hasMore: false,
+      pushed: _pushesOf(unseen),
+    );
   }
 
   /// The documents of [table] in [space] under [rowKeys], as [readRows]

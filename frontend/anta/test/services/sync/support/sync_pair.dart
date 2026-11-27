@@ -182,7 +182,49 @@ class SyncPair {
   /// The files of a [open] with `background: true`, deleted by [close].
   final Directory? _files;
 
-  SyncPair._(this.gateway, this.space, this.a, this.b, this._files);
+  final _SharedClock _clock;
+
+  /// The devices [addDevice] opened, closed with the pair.
+  final List<SyncDevice> _added = [];
+
+  SyncPair._(
+    this.gateway,
+    this.space,
+    this.a,
+    this.b,
+    this._files,
+    this._clock,
+  );
+
+  /// A third device of the account over the same gateway and clock, bound
+  /// to the space: in memory, at this build's schema. [ahead] puts its wall
+  /// clock that far off the shared one — negative for one running behind.
+  Future<SyncDevice> addDevice(
+    String id, {
+    Duration ahead = Duration.zero,
+  }) async {
+    final statements = StatementCounter();
+    final db = AppDatabase.forTesting(
+      NativeDatabase.memory().interceptWith(statements),
+      deviceId: id,
+      wallClock: () => _clock().add(ahead),
+    );
+    await db.customSelect('SELECT 1').get();
+    SettingsService.reset();
+    final device = SyncDevice._(
+      id,
+      db,
+      statements,
+      SettingsService.forTesting(db),
+      gateway,
+      const SyncEngineTiming(),
+      null,
+      syncSchema,
+    );
+    _added.add(device);
+    await bind(device);
+    return device;
+  }
 
   /// Opens both databases and creates the space; binds both unless [bind]
   /// is false, for a test that writes before the bind. [tables] replaces
@@ -254,7 +296,7 @@ class SyncPair {
       deviceId: 'A',
       schema: syncSchema,
     )).ref;
-    final pair = SyncPair._(gateway, space, a, b, files);
+    final pair = SyncPair._(gateway, space, a, b, files, clock);
     if (bind) {
       await pair.bind(a);
       await pair.bind(b);
@@ -268,6 +310,9 @@ class SyncPair {
   Future<void> close() async {
     await a._close();
     await b._close();
+    for (final device in _added) {
+      await device._close();
+    }
     SettingsService.reset();
     await _files?.delete(recursive: true);
   }

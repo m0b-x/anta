@@ -493,6 +493,7 @@ class SyncBindingService {
     final name = '${space.ownerUid}/${space.spaceId}';
     if (await _db.syncDao.getValue(SyncDao.keyNoteSeenSpace) == name) return;
     await _db.syncDao.deleteByPrefix(SyncDao.noteSeenPrefix);
+    await _db.syncDao.deleteValue(SyncDao.keyNoteSeenSeeded);
     await _db.syncDao.setValue(SyncDao.keyNoteSeenSpace, name);
   }
 

@@ -43,6 +43,9 @@ class FakeSyncEngine implements SyncEngine {
   int get schemaForTesting => 0;
 
   @override
+  int get partBudgetForTesting => 0;
+
+  @override
   bool isStarted = false;
 
   @override
