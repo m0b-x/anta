@@ -440,7 +440,9 @@ class EditorMoneyRowBuilder {
             // resolve to the warning inside); op rows and the `$=`/`$!`
             // declaration slot spellings take the dimmed bare-number
             // look their preview annotation has.
-            accent: isDisplay ? accent : baseColor.withValues(alpha: 0.5),
+            accent: isDisplay
+                ? accent
+                : baseColor.withValues(alpha: MarkdownConstants.hintTextAlpha),
             balance: balance,
             kind: m.kind,
             atSlot: true,

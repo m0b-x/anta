@@ -694,7 +694,9 @@ void main() {
       );
       expect(
         inner.style?.color,
-        _renderContext.baseColor.withValues(alpha: 0.45),
+        _renderContext.baseColor.withValues(
+          alpha: MarkdownConstants.hintTextAlpha,
+        ),
         reason: 'the inner pipe is dimmed ghost content',
       );
     });
@@ -1236,6 +1238,21 @@ void main() {
       }
       final body = _visibleLeaves(at(lines, 1, caretLine: 3)!);
       expect(body.single.style?.fontFamily, 'monospace');
+    });
+
+    test('a fence delimiter line is drawn in the syntax tier', () {
+      final lines = ['```dart', 'x = 1', '```', _pad];
+      for (final index in [0, 2]) {
+        for (final leaf in _visibleLeaves(at(lines, index, caretLine: 3)!)) {
+          expect(
+            leaf.style?.color,
+            _renderContext.baseColor.withValues(
+              alpha: MarkdownConstants.syntaxMarkerAlpha,
+            ),
+            reason: 'line $index, "${leaf.text}"',
+          );
+        }
+      }
     });
 
     test('a one-line ```npm i``` is inline code, not a fence', () {
@@ -2633,7 +2650,7 @@ const double _ruleAlpha = 0.3;
 /// Mirrors `EditorSpanEmitter.dimAlpha`: the tone a marker renders in on
 /// a reveal (caret) line, where it is present but receding rather than
 /// concealed.
-const double _dimAlpha = 0.45;
+const double _dimAlpha = MarkdownConstants.syntaxMarkerAlpha;
 
 /// A marker span: transparent and shrunk to a 0.01 font size, which is
 /// exactly what the builder's `_concealStyle` produces.

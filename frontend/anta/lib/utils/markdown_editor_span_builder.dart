@@ -119,7 +119,6 @@ class MarkdownEditorSpanBuilder {
   /// colour so the columns read as structure without competing with the
   /// cell text.
   static const double _tablePipeAlpha = 0.55;
-  static const double _fenceDelimiterAlpha = 0.6;
   static const double _h56PrimaryBlend = 0.35;
   static const double _h6Alpha = 0.7;
 
@@ -1582,9 +1581,12 @@ class MarkdownEditorSpanBuilder {
         ? GhostText.findGhosts(text)
         : const <GhostMatch>[];
     final lineStyle = switch (role) {
-      MarkdownFenceRole.delimiter => EditorInlineEmitter.codeStyle(
-        style,
-      ).copyWith(color: ctx.baseColor.withValues(alpha: _fenceDelimiterAlpha)),
+      MarkdownFenceRole.delimiter =>
+        EditorInlineEmitter.codeStyle(style).copyWith(
+          color: ctx.baseColor.withValues(
+            alpha: MarkdownConstants.syntaxMarkerAlpha,
+          ),
+        ),
       MarkdownFenceRole.comment || MarkdownFenceRole.frontMatter =>
         EditorSpanEmitter.dimStyle(style, ctx.baseColor),
       _ => EditorInlineEmitter.codeStyle(style),

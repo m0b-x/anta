@@ -228,7 +228,9 @@ class MoneyDetailSheet extends StatelessWidget {
                             _format(e.valueAfter, signed: false),
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.textTheme.bodySmall?.color
-                                  ?.withValues(alpha: 0.6),
+                                  ?.withValues(
+                                    alpha: MarkdownConstants.hintTextAlpha,
+                                  ),
                             ),
                           ),
                   );

@@ -32,6 +32,8 @@ card and the "Your own shortcuts" page — is BUILT and UNCOMMITTED.**
 - §10 Phase 3 — the bar on the stage and "Your own shortcuts" (2026-11-11)
 - §11 Phase 4 — "Sync and sharing", a guide of its own with two phones on
   the stage (2026-11-21)
+- §12 The dim inks of a note, lifted (2026-11-26) — the two findings §7
+  left to the owner
 
 ## 0. How to run this
 
@@ -536,7 +538,8 @@ pass (`qa-runner`, 2026-11-09, `emulator-5556`, APK built from this tree):
   sit under 4.5:1 on `surfaceContainerLow` — app-wide `LineMarkdownStyle`
   values, left as they are so the guide keeps rendering what a note renders
   (D14); the owner decides whether the renderer should keep `= amount`
-  together and lift the dim inks.
+  together and lift the dim inks. *Decided and built 2026-11-26: both —
+  §12.*
 - **Device bucket (design review):** TalkBack phrasing of `#`, `•`, `☐`,
   `☑`, `┃`, `Σ`, `Δ`, `◎` inside the example previews; glyph coverage of
   `◎`, `┃`, the callout's icon and `⋮` on a Pixel (the emoji-font trap);
@@ -555,7 +558,8 @@ pass (`qa-runner`, 2026-11-09, `emulator-5556`, APK built from this tree):
   neutral 4.09) in `lib/constants/markdown_constants.dart` ~221. Both are
   the note editor's own values; lifting them is an app-wide decision. The
   guide's own `GuideTextContrastGuideline` cannot see re_editor's painted
-  lines, so only a token test would pin them.
+  lines, so only a token test would pin them. *Lifted 2026-11-26, with
+  the token tests — §12.*
 - **The full-bleed stage at 1.0** (design review): B1 chose full bleed at
   every scale so the editor keeps 328 of 360 dp and its text starts under
   the coach line; the calendar cards go full-bleed only from 1.3, and at
@@ -2333,3 +2337,112 @@ button; the pairing code in the phone's own monospace font at the
 largest text, and the sheet's field and Connect over the real keyboard;
 the one-second beat as the eye sees it; the setup card with a real
 account — the QA build only ever shows its "not available" line.
+
+## 12. The dim inks of a note, lifted (2026-11-26)
+
+**Status: BUILT AND REVIEWED 2026-11-26, UNCOMMITTED.** §7 left two
+findings of this record's design reviews to the owner — the ghost
+placeholders and the running balance under 4.5:1, with the dimmed
+markers and the light money inks beside them — and on 2026-11-26 he said:
+do it. These are not the guide's values: every note is drawn with them,
+in the editor, the preview, the money detail sheet and the "Try it"
+cards. One `designer` wrote the spec with its defaults lettered, one
+`implementer` built it in a worktree (two passes), one `design-reviewer`
+measured and rendered the result in a fresh context; the lead read the
+diff. No string, no id, no layout rule of the guide changed.
+
+**The three tiers.** Typed text; hints and derived values at
+`MarkdownConstants.hintTextAlpha` (0.72); revealed syntax at
+`syntaxMarkerAlpha` (0.64). Contrast is computed as Flutter draws it —
+`Color.alphaBlend(ink, ground)`, then the WCAG ratio, never rounded — on
+the six grounds a note meets: `surface`, `surfaceContainerLow` and
+`surfaceContainer`, light and dark. Worst ground, before → after:
+
+| Ink | Was | Is | Light | Dark |
+| --- | --- | --- | --- | --- |
+| Ghost placeholders, editor and preview | text @ 0.45 | text @ `hintTextAlpha` | 2.78 → 6.29 | 3.65 → 7.15 |
+| Running balance: the preview's `= amount` echo, the editor's unfilled slot value, the detail sheet's trailing balance | text @ 0.5 (the sheet 0.6) | text @ `hintTextAlpha` | 3.19 → 6.29 (the sheet 4.35 → 6.42) | 4.18 → 7.15 |
+| Revealed syntax (`EditorSpanEmitter.dimAlpha`), the fence's delimiter and info lines, an inline image's glyph and alt text | text @ 0.45 (the fence 0.6) | text @ `syntaxMarkerAlpha` | 2.78 → 4.86 | 3.65 → 5.94 |
+| Done and cancelled task text in the preview | text @ 0.5 | text @ `checkedTextOpacity` (0.62, as the editor) | 3.19 → 4.56 | 4.18 → 5.67 |
+| Light money inks on their chip | `#2E7D32`, `#C62828`, `#BF360C`, `#8A6A00` | `#286E2C`, `#B71C1C`, `#B0320B`, `#7A5C00` | 3.80–4.09 → 4.60–4.70 | unchanged (≥ 5.55) |
+| An error row's message in the preview | warning @ 0.7 | the warning ink, solid | 2.66 → 5.44 | 10.0 |
+
+Typed text stands at 14.85 and 12.57 on those grounds, so the order typed
+> hint > syntax holds strictly on every one.
+
+**Decisions** — the designer's defaults, taken by the lead; each is one
+constant to turn back.
+
+| | Decision | The option not taken |
+| --- | --- | --- |
+| A | **Revealed syntax is text**, so it gets 4.5:1 too: characters the person is editing are neither decoration nor an inactive control (WCAG 1.4.3). | A marker alpha of about 0.48 (3:1), treating markers as incidental. |
+| B | **Three tiers, two named alphas**: hints at 0.72 above syntax at 0.64. | One tier at 0.64 for ghosts, the balance and markers alike. |
+| C | **A hint is an alpha of the line's own colour**, not the `onSurfaceVariant` role: in dark that role sits 1.32:1 from typed text, too close for a placeholder. | Ghost and balance in `onSurfaceVariant`. |
+| D | **The light money inks are darkened inside their own hue** until the amount holds 4.5:1 on its tinted chip; they no longer mirror the callout accents, and their comments say so. | Green 900 and a matching lift of the callouts. |
+| E | **The warning ink and the error message are lifted with them**, the message drawn solid. | Leaving the warning at 3.80 on its chip and the message at 2.66. |
+| F | **`= amount currency` stays together**: no-break spaces inside the echo and inside a total's pill, the same code-unit count, the break opportunity left before the `=`. A unit wider than a whole line breaks inside, as before. | Free breaks: a dangling `=` and a `€` on a line of its own at 1.3 and 2.0. |
+| G | **The preview's done and cancelled task text takes the editor's 0.62.** | The preview left at 3.19:1. |
+| H | **The fence's delimiter and info lines join the syntax tier.** | 0.6 kept at 4.29:1. |
+| I | **The detail sheet's balance is the same hint.** Added from the review: it was a literal 0.6 the spec did not name. | `onSurfaceVariant`, which passes too but is another hue than the note's echo. |
+| J | **A list row of the preview scales its text once.** Found by the review, older than this slice: a bullet, numbered or task row is an inline widget, the paragraph scales an inline widget by the text scale, and the `Text` inside scaled again — measured 2.016 times a paragraph line at 2.0. The rows' texts now take `TextScaler.noScaling` and the paragraph's scaling alone stands. Every preview shows it: an event's description, the guide's "You get" rows. | Left as it was: list rows four times their size at 2.0. |
+
+**What moves on the screen.** Colours, and two wraps: at 2.0 a money row
+whose `=` used to end a line is one line shorter, and a long total keeps
+its currency. At text scale 1.0 and 1.3 every preview height is as it
+was. Above 1.0 a list row of the preview is now the size of the text
+around it (J). No font size, weight or line height changed, and nothing
+in the editor's geometry.
+
+**Tests.** `markdown_color_contrast_test` reads the app's real themes and
+constants: ghost, balance (read off the builder's echo span), syntax,
+done text and each money ink — on the ground, on its chip and on the
+callout band's tint — at ≥ 4.5 on all six grounds, the detail sheet's
+balance on its own, the strict order of the tiers, and a pin that the
+theme's text colour is `onSurface`. `line_based_markdown_builder_test`:
+the echo's exact text and colour, the wrap at de 2.0 for the echo and
+for a total's pill (the `=`, the last digit and the `€` share a line
+top), done and cancelled text at both sites, the error message solid.
+The editor's units suite: the fence delimiter on the syntax tier.
+`preview_list_text_scale_test`: a task row's line is the height of a
+paragraph line at 2.0. The existing pins of the old literals now read
+the named constants; no golden master was rewritten.
+
+**What the review found and where each went.** Fixed: the detail sheet
+(I), the total's pill (F), the preview's fence info line (H), the list
+rows (J), the coverage it named. Left, measured, for the owner:
+
+- **The editor's table delimiter row** (`| --- |`, text @ `_ruleAlpha`
+  0.3) reads 1.91:1 light and 2.34 dark, and **the table pipes** 2.32
+  (editor, `primary` @ 0.55) and 2.43 (preview, text @ 0.4) in light.
+  The spec left them as drawn structure (WCAG 1.4.11 asks 3:1 of that);
+  the reviewer reads the delimiter row as typed syntax. Smallest change:
+  the delimiter row on the syntax tier, the pipes at 0.7 and 0.5.
+- **The editor's unfilled slot value is bold**; at the new hint ink it
+  is about as loud as the row's accent (hue alone tells them apart).
+  Normal weight would match the preview's echo and change the slot's
+  width.
+- **An image on a line by itself** is a link-coloured, underlined
+  `🖼 alt` in the preview and a dim `▣ alt` in the editor; only the
+  inline form was brought to one tier.
+- **A blank ghost** has its underline in the editor and is a bare gap in
+  the preview.
+- **In dark the hint sits 1.22:1 from the syntax tier**: the order holds,
+  the step is small.
+- **A balance copied out of a preview carries the no-break spaces**
+  (`SourceMappedMarkdownView`'s `SelectionArea` copies the rendered
+  text). The editor copies source and is not concerned.
+
+**The gate** (2026-11-26 → 27, the merged tree, with the day's sync
+change — `scalability-roadmap.md` §8.7). `dart analyze lib test tool
+test_driver` clean; no ARB touched; the whole suite 19,090 passed, 17
+skipped, none red, in six calls on a quiet machine. On `emulator-5556`:
+`qa pass settings` 21 of 21 — `20_guide_books` walks the notes book's
+"Try it" cards, which draw these inks — and `qa pass browser` 3 of 3,
+whose `01_note_edit` types into a note; the cloud suites of that day ran
+on the same inks. None of them judges a colour: the token tests do.
+
+**Only a phone shows:** `−`, `×`, `Σ`, `◎` and the no-break space against
+the emoji-font trap; the dark ghost beside typed text on OLED black;
+Android's non-linear 200 % scaling on the echo's wrap and on a list
+row's size; TalkBack's reading of `=` followed by no-break spaces; the
+detail sheet's balance on the real sheet.

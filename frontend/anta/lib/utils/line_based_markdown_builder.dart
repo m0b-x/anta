@@ -52,7 +52,8 @@ class LineMarkdownStyle {
   final Color highlightColor;
   final Color currentHighlightColor;
 
-  /// Colour for ghost-text placeholders (`{{ … }}`), rendered dimmed.
+  /// Colour for ghost-text placeholders (`{{ … }}`): the text colour at
+  /// [MarkdownConstants.hintTextAlpha], the editor's ghost tone.
   final Color ghostColor;
 
   /// Background colour for `==highlighted==` ("marker"/highlighter) text.
@@ -102,7 +103,7 @@ class LineMarkdownStyle {
       blockquoteColor: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
       highlightColor: theme.colorScheme.primaryContainer,
       currentHighlightColor: theme.colorScheme.primary.withValues(alpha: 0.5),
-      ghostColor: base.withValues(alpha: 0.45),
+      ghostColor: base.withValues(alpha: MarkdownConstants.hintTextAlpha),
       markColor: isDark
           ? MarkdownConstants.markBackgroundDark
           : MarkdownConstants.markBackgroundLight,
@@ -894,7 +895,9 @@ class LineBasedMarkdownBuilder {
     // A cancelled `[-]` reads like a done task, as in the editor.
     final contentStyle = isChecked || state == '-'
         ? baseStyle.copyWith(
-            color: style.textColor.withValues(alpha: 0.5),
+            color: style.textColor.withValues(
+              alpha: MarkdownConstants.checkedTextOpacity,
+            ),
             decoration: TextDecoration.lineThrough,
           )
         : baseStyle;
@@ -935,6 +938,7 @@ class LineBasedMarkdownBuilder {
                     onTap: checkboxRecognizer?.onTap,
                     child: Text(
                       '$checkboxChar ',
+                      textScaler: _scaledByParagraph,
                       style: baseStyle.copyWith(
                         color: marked && state != '-'
                             ? style.primaryColor
@@ -942,7 +946,13 @@ class LineBasedMarkdownBuilder {
                       ),
                     ),
                   ),
-                  Expanded(child: Text.rich(contentSpan, style: contentStyle)),
+                  Expanded(
+                    child: Text.rich(
+                      contentSpan,
+                      style: contentStyle,
+                      textScaler: _scaledByParagraph,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -986,12 +996,19 @@ class LineBasedMarkdownBuilder {
                 children: [
                   Text(
                     '$bullet ',
+                    textScaler: _scaledByParagraph,
                     style: baseStyle.copyWith(
                       color: style.primaryColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Expanded(child: Text.rich(contentSpan, style: baseStyle)),
+                  Expanded(
+                    child: Text.rich(
+                      contentSpan,
+                      style: baseStyle,
+                      textScaler: _scaledByParagraph,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1035,12 +1052,19 @@ class LineBasedMarkdownBuilder {
                 children: [
                   Text(
                     '$number$delimiter ',
+                    textScaler: _scaledByParagraph,
                     style: baseStyle.copyWith(
                       color: style.primaryColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Expanded(child: Text.rich(contentSpan, style: baseStyle)),
+                  Expanded(
+                    child: Text.rich(
+                      contentSpan,
+                      style: baseStyle,
+                      textScaler: _scaledByParagraph,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1054,6 +1078,12 @@ class LineBasedMarkdownBuilder {
   /// nesting [level]. One em per level keeps nesting readable at any font
   /// size; this is decorative only and never affects source offsets.
   double _listIndent(int level) => level * style.baseFontSize;
+
+  /// The text scaler of a list row's own `Text`s. The row is a
+  /// [WidgetSpan], and the paragraph around it already scales an inline
+  /// widget by the text scale; a `Text` inside that also read the scale
+  /// from `MediaQuery` drew at its square (4x at 2.0).
+  static const TextScaler _scaledByParagraph = TextScaler.noScaling;
 
   /// Builds a (possibly nested) blockquote line: one `┃` bar per `>`
   /// marker at [depth], then the quoted content at its true source
@@ -1201,7 +1231,9 @@ class LineBasedMarkdownBuilder {
         );
         if (checked || item.state == '-') {
           itemStyle = contentStyle.copyWith(
-            color: style.textColor.withValues(alpha: 0.5),
+            color: style.textColor.withValues(
+              alpha: MarkdownConstants.checkedTextOpacity,
+            ),
             decoration: TextDecoration.lineThrough,
           );
         }
@@ -1406,7 +1438,7 @@ class LineBasedMarkdownBuilder {
             ),
             TextSpan(
               text: '  — ${moneyConfig.errorText(m.error!)}',
-              style: baseStyle.copyWith(color: warn.withValues(alpha: 0.7)),
+              style: baseStyle.copyWith(color: warn),
             ),
           ],
         ),
@@ -1515,10 +1547,18 @@ class LineBasedMarkdownBuilder {
           symbol: moneyConfig.currencySymbol,
           suffix: moneyConfig.currencySuffix,
         );
+        // No-break spaces inside the echo, same code-unit count: a wrap
+        // falls before the `=`, so `=`, the amount and its currency move
+        // to the next line whole instead of leaving `=` dangling.
+        final unbroken = text.replaceAll(' ', '\u{00A0}');
         return TextSpan(
-          text: atSlot ? text : '  =  $text',
+          text: atSlot ? unbroken : '  =\u{00A0}\u{00A0}$unbroken',
           style: baseStyle.copyWith(
-            color: pinned ? warnColor : style.textColor.withValues(alpha: 0.5),
+            color: pinned
+                ? warnColor
+                : style.textColor.withValues(
+                    alpha: MarkdownConstants.hintTextAlpha,
+                  ),
           ),
         );
       }
@@ -1531,12 +1571,25 @@ class LineBasedMarkdownBuilder {
       // Like a pinned value, the "no target" chip keeps the warning
       // colour even under an accent token — it marks a measurement that
       // could not be made, and that outranks row styling.
+      // The amount keeps its currency on its line, as the echo does: its
+      // inner spaces are no-break, the pill's padding spaces stay ordinary.
+      final amount =
+          (signed
+                  ? MarkdownMoneySyntax.formatCentsSignedWithSymbol(
+                      value,
+                      symbol: moneyConfig.currencySymbol,
+                      suffix: moneyConfig.currencySuffix,
+                    )
+                  : MarkdownMoneySyntax.formatCentsWithSymbol(
+                      value,
+                      symbol: moneyConfig.currencySymbol,
+                      suffix: moneyConfig.currencySuffix,
+                    ))
+              .replaceAll(' ', '\u{00A0}');
       InlineSpan pill = TextSpan(
         text: noTarget
             ? ' ${moneyConfig.errorMessages?.noTarget ?? MarkdownMoneySyntax.noTargetLabel} '
-            : signed
-            ? ' ${MarkdownMoneySyntax.formatCentsSignedWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} '
-            : ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} ',
+            : ' $amount ',
         style: accentStyle.copyWith(
           color: pinned || noTarget ? warnColor : null,
           fontWeight: FontWeight.bold,
@@ -1768,12 +1821,19 @@ class LineBasedMarkdownBuilder {
                 children: [
                   Text(
                     marker,
+                    textScaler: _scaledByParagraph,
                     style: markerStyle.copyWith(
                       color: style.primaryColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Expanded(child: Text.rich(span, style: baseStyle)),
+                  Expanded(
+                    child: Text.rich(
+                      span,
+                      style: baseStyle,
+                      textScaler: _scaledByParagraph,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1889,7 +1949,7 @@ class LineBasedMarkdownBuilder {
         text: language.isNotEmpty ? '// $language' : '',
         style: codeStyle.copyWith(
           color: style.textColor.withValues(
-            alpha: MarkdownConstants.checkedTextOpacity,
+            alpha: MarkdownConstants.syntaxMarkerAlpha,
           ),
           fontStyle: FontStyle.italic,
         ),
@@ -2393,10 +2453,15 @@ class LineBasedMarkdownBuilder {
   }
 
   /// The dimmed style of an image's picture glyph and alt text — the
-  /// editor's dimmed chrome (base at 0.45, which is what [style]'s ghost
-  /// colour is, at normal weight), so the two surfaces read alike.
-  TextStyle _imageChromeStyle(TextStyle base) =>
-      base.copyWith(color: style.ghostColor, fontWeight: FontWeight.normal);
+  /// editor's dimmed chrome (the text colour at
+  /// [MarkdownConstants.syntaxMarkerAlpha], at normal weight), so the two
+  /// surfaces read alike.
+  TextStyle _imageChromeStyle(TextStyle base) => base.copyWith(
+    color: style.textColor.withValues(
+      alpha: MarkdownConstants.syntaxMarkerAlpha,
+    ),
+    fontWeight: FontWeight.normal,
+  );
 
   /// Applies the style delta for an emphasis [kind] on top of [base],
   /// so nested emphasis composes (e.g. strikethrough + bold).

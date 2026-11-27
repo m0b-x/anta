@@ -41,7 +41,7 @@ import 'package:re_editor/re_editor.dart';
 /// 3. **headings** — only H1–H4 are in the corpus. H5/H6 blend toward
 ///    primary in the editor by design (a documented colour divergence),
 ///    and font size is not compared at all.
-/// 4. **ghosts** — both dim the inner run to base@0.45 and hide the
+/// 4. **ghosts** — both dim the inner run to base@`hintTextAlpha` and hide the
 ///    `{{` / `}}`; only the editor underlines a *blank* ghost, so
 ///    underline is not compared on ghost-coloured units.
 /// 5. **callout band** — the preview tints every line of a callout
@@ -1021,7 +1021,9 @@ List<_Raw> _walk(InlineSpan root, TextStyle inherited, Color? chip) {
 
 List<_Unit> _project(InlineSpan root, {required bool editor}) {
   final primary = _editorContext.primary;
-  final ghostColor = _baseColor.withValues(alpha: 0.45);
+  final ghostColor = _baseColor.withValues(
+    alpha: MarkdownConstants.hintTextAlpha,
+  );
   final codeChip = _baseColor.withValues(alpha: 0.08);
   final tagChip = primary.withValues(alpha: 0.12);
 

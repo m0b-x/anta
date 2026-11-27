@@ -30,9 +30,10 @@ class EditorSpanEmitter {
   static const Color transparent = Color(0x00000000);
   static const double concealedFontSize = 0.01;
 
-  /// Alpha for raw markers on a reveal (caret) line and for ghost inner
-  /// text — the "present but receding" tone this surface uses.
-  static const double dimAlpha = 0.45;
+  /// Alpha for raw markers on a reveal (caret) line — the third ink tier,
+  /// under ghosts and derived values. Ghost inner text no longer uses it:
+  /// it takes [MarkdownConstants.hintTextAlpha], one tier up.
+  static const double dimAlpha = MarkdownConstants.syntaxMarkerAlpha;
 
   /// Markers rendered raw on a reveal line: dimmed and de-emphasised so
   /// the content still leads while the source is editable.
@@ -277,7 +278,9 @@ class EditorSpanEmitter {
         out.add(_plainSpan(text.substring(pos, g.start), style, decoration));
       }
       final ghostGround = ghostStyle ?? style;
-      final ghostColor = baseColor.withValues(alpha: dimAlpha);
+      final ghostColor = baseColor.withValues(
+        alpha: MarkdownConstants.hintTextAlpha,
+      );
       var innerStyle = ghostGround.copyWith(color: ghostColor);
       if (_ghostBlank(text, g)) {
         innerStyle = innerStyle.copyWith(

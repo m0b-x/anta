@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
+import '../constants/markdown_constants.dart';
 import '../constants/settings_keys.dart';
 import '../utils/editor_render_context.dart';
 import '../utils/ghost_text.dart';
@@ -197,7 +198,9 @@ class EditorRenderController {
     final ghosts = GhostText.findGhosts(text);
     if (ghosts.isEmpty) return textSpan;
 
-    final ghostColor = baseColor.withValues(alpha: 0.45);
+    final ghostColor = baseColor.withValues(
+      alpha: MarkdownConstants.hintTextAlpha,
+    );
     final ghostStyle = style.copyWith(color: ghostColor);
     // Markers stay in the model (offset integrity) but are painted
     // transparent and collapsed to ~0 width so they read as invisible.

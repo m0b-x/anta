@@ -137,6 +137,16 @@ class MarkdownConstants {
   /// 4.5:1 on the light page (0.5 read at 3.26:1) while it still recedes.
   static const double checkedTextOpacity = 0.62;
 
+  /// Alpha of the second ink tier over the text colour: ghost placeholders
+  /// and derived values (the running balance). 0.72 holds 4.5:1 on every
+  /// light and dark note ground while it still sits under typed text.
+  static const double hintTextAlpha = 0.72;
+
+  /// Alpha of the third ink tier: revealed syntax markers and a code
+  /// fence's delimiter lines. The dimmest text a note draws, still held
+  /// at 4.5:1 on every note ground and kept under [hintTextAlpha].
+  static const double syntaxMarkerAlpha = 0.64;
+
   /// Opacity for quote text
   static const double quoteTextOpacity = 0.7;
 
@@ -217,26 +227,29 @@ class MarkdownConstants {
 
   /// Accent for money-ledger additions (`$+`), in a light/dark variant.
   /// Shared by the preview renderer and the live editor so the two
-  /// surfaces always match; values mirror the tip-callout greens.
+  /// surfaces always match. The light green is darker than the
+  /// tip-callout green so the amount holds 4.5:1 on its tinted chip.
   static Color moneyPositive({required bool dark}) =>
-      dark ? const Color(0xFF81C784) : const Color(0xFF2E7D32);
+      dark ? const Color(0xFF81C784) : const Color(0xFF286E2C);
 
-  /// Accent for money-ledger subtractions (`$-`) and negative totals;
-  /// values mirror the caution-callout reds.
+  /// Accent for money-ledger subtractions (`$-`) and negative totals.
+  /// The light red is darker than the caution-callout red so the amount
+  /// holds 4.5:1 on its tinted chip.
   static Color moneyNegative({required bool dark}) =>
-      dark ? const Color(0xFFEF9A9A) : const Color(0xFFC62828);
+      dark ? const Color(0xFFEF9A9A) : const Color(0xFFB71C1C);
 
-  /// Accent for money-ledger multiply/divide (`$*` / `$/`); values
-  /// mirror the warning-callout ambers.
+  /// Accent for money-ledger multiply/divide (`$*` / `$/`). The light
+  /// orange is darker than the warning-callout amber so the amount holds
+  /// 4.5:1 on its tinted chip.
   static Color moneyNeutral({required bool dark}) =>
-      dark ? const Color(0xFFFFB74D) : const Color(0xFFBF360C);
+      dark ? const Color(0xFFFFB74D) : const Color(0xFFB0320B);
 
   /// Accent for money-ledger error rows (over-limit amount, divide by
   /// zero, …) and for computed values pinned at the balance cap. Shared
   /// by the preview renderer, the live editor, and the detail sheet so
   /// every surface warns in the same yellow.
   static Color moneyWarning({required bool dark}) =>
-      dark ? const Color(0xFFFFC107) : const Color(0xFF8A6A00);
+      dark ? const Color(0xFFFFC107) : const Color(0xFF7A5C00);
 
   /// Semantic accent for a money row: fixed sign colours on op rows,
   /// value-sign colours on display rows (`$$` red only when negative,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'package:anta/constants/markdown_constants.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/controllers/editor_render_controller.dart';
 import 'package:anta/utils/editor_render_context.dart';
@@ -66,7 +67,10 @@ void main() {
         expect(marker.style?.color, const Color(0x00000000));
         expect(marker.style?.fontSize, 0.01);
       }
-      expect(leaves[2].style?.color, _baseColor.withValues(alpha: 0.45));
+      expect(
+        leaves[2].style?.color,
+        _baseColor.withValues(alpha: MarkdownConstants.hintTextAlpha),
+      );
       expect(leaves[0].style, _style);
       expect(leaves[4].style, _style);
     });
@@ -75,7 +79,10 @@ void main() {
       final blank = _leaves(_ghost('{{  }}'))[1];
       expect(blank.text, '  ');
       expect(blank.style?.decoration, TextDecoration.underline);
-      expect(blank.style?.decorationColor, _baseColor.withValues(alpha: 0.45));
+      expect(
+        blank.style?.decorationColor,
+        _baseColor.withValues(alpha: MarkdownConstants.hintTextAlpha),
+      );
 
       final filled = _leaves(_ghost('{{ x }}'))[1];
       expect(filled.text, ' x ');

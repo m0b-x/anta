@@ -156,7 +156,7 @@ void main() {
     final result = chip('{{exercise}} 3x8');
     expect(
       leaf(result, 'exercise').style!.color,
-      style.color!.withValues(alpha: EditorSpanEmitter.dimAlpha),
+      style.color!.withValues(alpha: MarkdownConstants.hintTextAlpha),
     );
   });
 

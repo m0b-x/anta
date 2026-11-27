@@ -9,6 +9,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../goldens/support/golden_fonts.dart';
+
 /// Preview-side guards for the three things `LineBasedMarkdownBuilder`
 /// owns beyond span shape: which tap recognizer a nested zone resolves
 /// to, that search highlighting never duplicates or drops a code unit,
@@ -123,7 +125,10 @@ void main() {
 
       expect(_text(span), 'a ${MarkdownLinkPatterns.imageGlyph}leg day b');
       final alt = _leaves(span).singleWhere((s) => s.text == 'leg day');
-      expect(alt.style?.color, _style.ghostColor);
+      expect(
+        alt.style?.color,
+        _baseColor.withValues(alpha: MarkdownConstants.syntaxMarkerAlpha),
+      );
       _fire(span, 'leg day');
       expect(calls.links, <String>['https://x.y/a.png']);
     });
@@ -1261,7 +1266,151 @@ void main() {
       expect(MarkdownMoneySyntax.noTargetLabel, 'no target');
     });
   });
+
+  // The running balance an op row echoes is a derived value: it takes the
+  // hint tier, and its `=`, amount and currency wrap as one piece.
+  group('the running-balance echo', () {
+    const config = MoneyDisplayConfig(
+      enabled: true,
+      currencySymbol: '€',
+      currencySuffix: true,
+    );
+
+    InlineSpan echoRow(String row) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        moneyConfig: config,
+      );
+      addTearDown(builder.dispose);
+      final source = '\$= 500 Budget\n$row';
+      builder.prepare(source);
+      return builder.buildLine(row, 1);
+    }
+
+    test('holds no-break spaces at the old length, in the hint tier', () {
+      final echo = _leaves(
+        echoRow(r'$- 40 Mittagessen'),
+      ).singleWhere((s) => s.text!.contains('='));
+      expect(echo.text, '  =\u{00A0}\u{00A0}460.00\u{00A0}€');
+      expect(echo.text!.length, '  =  460.00 €'.length);
+      expect(
+        echo.style?.color,
+        _baseColor.withValues(alpha: MarkdownConstants.hintTextAlpha),
+      );
+    });
+
+    group('at text scale 2.0', () {
+      setUpAll(loadGoldenFonts);
+
+      test('wraps the `=` with its amount, never alone', () {
+        const row = r'$- 40 Mittagessen mit Kollegen';
+        final painter = TextPainter(
+          text: TextSpan(
+            style: const TextStyle(fontFamily: 'Roboto'),
+            children: [echoRow(row)],
+          ),
+          textDirection: TextDirection.ltr,
+          textScaler: const TextScaler.linear(2.0),
+        )..layout(maxWidth: 230);
+        addTearDown(painter.dispose);
+        final plain = painter.text!.toPlainText();
+        final equals = plain.indexOf('=');
+        final last = plain.length - 1;
+        double topOf(int offset) => painter
+            .getBoxesForSelection(
+              TextSelection(baseOffset: offset, extentOffset: offset + 1),
+            )
+            .single
+            .top;
+        expect(topOf(equals), topOf(last));
+      });
+
+      test('keeps a total pill\'s currency beside its last digit', () {
+        final builder = LineBasedMarkdownBuilder(
+          style: _style,
+          colorPalette: MarkdownColorPalette.presets,
+          moneyConfig: config,
+        );
+        addTearDown(builder.dispose);
+        const row = _pillRow;
+        builder.prepare('\$= 1840000 Konto\n$row');
+        final painter = TextPainter(
+          text: TextSpan(
+            style: const TextStyle(fontFamily: 'Roboto'),
+            children: [builder.buildLine(row, 1)],
+          ),
+          textDirection: TextDirection.ltr,
+          textScaler: const TextScaler.linear(2.0),
+        )..layout(maxWidth: 230);
+        addTearDown(painter.dispose);
+        final plain = painter.text!.toPlainText();
+        final euro = plain.indexOf('€');
+        expect(plain.substring(euro - 4, euro), '.00\u{00A0}');
+        double topOf(int offset) => painter
+            .getBoxesForSelection(
+              TextSelection(baseOffset: offset, extentOffset: offset + 1),
+            )
+            .single
+            .top;
+        expect(topOf(euro - 2), topOf(euro));
+      });
+    });
+  });
+
+  // The dim inks are drawn through these code paths, not only declared.
+  group('dim inks as drawn', () {
+    LineBasedMarkdownBuilder built(String source, {MoneyDisplayConfig? money}) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        moneyConfig: money ?? MoneyDisplayConfig.disabled,
+      );
+      addTearDown(builder.dispose);
+      builder.prepare(source);
+      return builder;
+    }
+
+    final done = _baseColor.withValues(
+      alpha: MarkdownConstants.checkedTextOpacity,
+    );
+
+    test('a done or cancelled task row recedes to the done tier', () {
+      for (final line in ['- [x] squats', '- [-] squats']) {
+        final row = _listRowContent(built(line).buildLine(line, 0));
+        final content = _leaves(row).singleWhere((s) => s.text == 'squats');
+        expect(content.style?.color ?? row.style?.color, done, reason: line);
+      }
+    });
+
+    test('a quoted done or cancelled task recedes to the done tier', () {
+      for (final line in ['> - [x] squats', '> - [-] squats']) {
+        final span = built(line).buildLine(line, 0);
+        final content = _leaves(span).singleWhere((s) => s.text == 'squats');
+        expect(content.style?.color, done, reason: line);
+      }
+    });
+
+    test('an error row says why in the solid warning ink', () {
+      const line = r'$/ 0 split';
+      final span = built(
+        '\$= 10 a\n$line',
+        money: const MoneyDisplayConfig(enabled: true),
+      ).buildLine(line, 1);
+      final message = _leaves(
+        span,
+      ).singleWhere((s) => s.text!.startsWith('  — '));
+      expect(message.style?.color, MarkdownConstants.moneyWarning(dark: false));
+      expect(message.style?.color?.a, 1.0);
+      expect(message.style?.fontWeight ?? FontWeight.normal, FontWeight.normal);
+    });
+  });
 }
+
+/// A display row whose 1840000.00 € total pill ends the first line at
+/// text scale 2.0 and width 230, where an ordinary space let the `€`
+/// drop to the next line (measured in Roboto on Flutter 3.44.2).
+const String _pillRow = r'$$ Gesamt';
 
 /// The marker text of a list row. The preview lays a list item — plain
 /// or money — out as a [WidgetSpan] holding a `Row` whose first child is
