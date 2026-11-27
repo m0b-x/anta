@@ -339,6 +339,7 @@ void main() {
         text: searchProjection('Session', 'squat'),
         title: titleProjection('Session'),
         tags: tagProjection('squat'),
+        ledgerTags: '',
       ),
     ]);
 
@@ -710,5 +711,214 @@ void main() {
       reason: 'the stale probe, the match, then one batched body read',
     );
     expect(large, small);
+  });
+
+  // The tag catalog's input (v57): each note's tags ride its ledger row,
+  // written with the projection and gone with the row.
+  group('the ledger\'s tags', () {
+    Future<Map<String, String>> ledgerTags() async {
+      final rows = await db
+          .customSelect('SELECT note_id, tags FROM note_search_ledger')
+          .get();
+      return {
+        for (final row in rows)
+          row.read<String>('note_id'): row.read<String>('tags'),
+      };
+    }
+
+    test('are written with the projection: each folded form once, as first '
+        'spelled, none for a note without', () async {
+      final legs = await note(
+        'Legs',
+        '#LegDay squat #legday #Café `#code` #cafe https://a.b/#frag #Cardio',
+      );
+      final plain = await note('Plain', 'bench');
+      final inside = <String>[];
+      var from = 0;
+      statements.onTransaction = (begins) {
+        if (begins) {
+          from = statements.count;
+        } else {
+          inside.addAll(statements.statements.skip(from));
+        }
+      };
+      statements.reset();
+
+      await indexerWith().drain();
+
+      expect(await ledgerTags(), {legs.id: 'LegDay Café Cardio', plain.id: ''});
+      // Inside the transactions, the orphan sweep's two deletes aside: the
+      // claim, the FTS delete and the FTS insert per note, nothing else.
+      expect(
+        inside.where((sql) => !sql.contains(NoteSearchDao.orphanRowids)),
+        hasLength(3 * 2),
+      );
+      expect(
+        statements.executions('INSERT OR REPLACE INTO note_search_ledger'),
+        2,
+        reason: 'the tags ride the claiming statement, not one of their own',
+      );
+      expect(
+        statements.matching('UPDATE note_search_ledger SET tags'),
+        isEmpty,
+      );
+    });
+
+    test('are rewritten when the body changes and kept when only the label '
+        'or the folder does', () async {
+      final legs = await note('Legs', '#squat');
+      final indexer = indexerWith();
+      await indexer.drain();
+
+      await db.noteDao.updateNote(
+        id: legs.id,
+        contentLength: 12,
+        content: '#Bench #row',
+      );
+      await indexer.drain();
+      expect((await ledgerTags())[legs.id], 'Bench row');
+
+      final other = await db.folderDao.createFolder(name: 'Other');
+      await db.noteDao.updateNoteLabel(id: legs.id, label: ItemLabel.teal);
+      await db.noteDao.moveNote(id: legs.id, targetFolderId: other.id);
+      statements.reset();
+      await indexer.drain();
+
+      expect(statements.executions('INSERT INTO note_body_fts'), 0);
+      expect((await ledgerTags())[legs.id], 'Bench row');
+      expect((await ledger())[legs.id], await hlcOf(legs.id));
+    });
+
+    test('are empty for a body the drain cannot read', () async {
+      final broken = await note('Broken', '#squat');
+      await db.customUpdate(
+        "UPDATE content_chunks SET is_compressed = 1, content = 'not base64!' "
+        'WHERE note_id = ?',
+        variables: [Variable<String>(broken.id)],
+      );
+
+      await indexerWith().drain();
+
+      expect(await ledgerTags(), {broken.id: ''});
+    });
+
+    test('a projection that loses its compare-and-set leaves the tags as '
+        'they were', () async {
+      final legs = await note('Legs', '#squat');
+      await indexerWith().drain();
+      await db.noteDao.updateNote(
+        id: legs.id,
+        contentLength: 6,
+        content: '#bench',
+      );
+      final dao = NoteSearchDao(db);
+      final stale = (await dao.staleNotes()).single;
+      await db.noteDao.updateNote(
+        id: legs.id,
+        contentLength: 4,
+        content: '#row',
+      );
+
+      final written = await dao.writeProjections([
+        BodyProjection(
+          rowid: stale.rowid,
+          id: stale.id,
+          hlc: stale.hlc,
+          text: searchProjection('Legs', '#bench'),
+          title: titleProjection('Legs'),
+          tags: tagProjection('#bench'),
+          ledgerTags: 'bench',
+        ),
+      ]);
+
+      expect(written, 0);
+      expect((await ledgerTags())[legs.id], 'squat');
+    });
+
+    test('go with the ledger row: a deleted note at the next drain, a '
+        'forgotten one at once', () async {
+      final deleted = await note('Deleted', '#squat');
+      final forgotten = await note('Forgotten', '#bench');
+      final kept = await note('Kept', '#row');
+      final indexer = indexerWith();
+      await indexer.drain();
+      final dao = NoteSearchDao(db);
+
+      await db.noteDao.softDeleteNote(deleted.id);
+      expect(
+        await dao.catalogTags(),
+        unorderedEquals(['bench', 'row']),
+        reason: 'a tombstone is not counted before the sweep',
+      );
+      await indexer.drain();
+      await db.transaction(() => dao.forgetNotes([forgotten.id]));
+
+      expect(await ledgerTags(), {kept.id: 'row'});
+      expect(await dao.catalogTags(), ['row']);
+    });
+  });
+
+  group('the drain\'s change signal', () {
+    late List<void> heard;
+    late StreamSubscription<void> subscription;
+
+    setUp(() {
+      heard = [];
+      subscription = BodySearchIndexer.changes.listen(heard.add);
+    });
+
+    tearDown(() => subscription.cancel());
+
+    test('fires once for a drain that stored, and not for one that only '
+        'touched or found nothing', () async {
+      final legs = await note('Legs', '#squat');
+      final indexer = indexerWith();
+
+      await indexer.drain();
+      await pumpEventQueue();
+      expect(heard, hasLength(1));
+
+      await db.noteDao.updateNoteLabel(id: legs.id, label: ItemLabel.red);
+      await indexer.drain();
+      await indexer.drain();
+      await pumpEventQueue();
+      expect(heard, hasLength(1));
+    });
+
+    test('fires for a drain that only dropped an orphan', () async {
+      final legs = await note('Legs', '#squat');
+      final indexer = indexerWith();
+      await indexer.drain();
+      await pumpEventQueue();
+      heard.clear();
+
+      await db.noteDao.softDeleteNote(legs.id);
+      await indexer.drain();
+      await pumpEventQueue();
+
+      expect(heard, hasLength(1));
+    });
+
+    test('fires after each page that wrote, while the drain goes', () async {
+      for (var i = 0; i < 3; i++) {
+        await note('Session $i', '#set$i');
+      }
+      final seen = <int>[];
+
+      await indexerWith(
+        pageBytes: 1,
+        scheduler: BodyIndexScheduler(
+          yieldBetweenPages: () async {
+            await pumpEventQueue();
+            seen.add(heard.length);
+          },
+          editorBusy: _neverBusy,
+          editorPoll: _noWait,
+          run: _inline,
+        ),
+      ).drain();
+
+      expect(seen, [1, 2, 3]);
+    });
   });
 }

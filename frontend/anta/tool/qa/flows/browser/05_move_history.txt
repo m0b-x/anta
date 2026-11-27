@@ -1,0 +1,43 @@
+# A move, then its history: Session 1 moved out of Week 1 into Training
+# through its sheet's Move and the picker's Up and confirm; the ⋮ menu's
+# Move history lists it, its undo puts it back, and Clear empties the
+# sheet through the confirm.
+# - The picker opens inside the note's own folder, where the confirm is
+#   off (the same folder); Up goes to Training.
+# - Each note's preview names the other, so "Session 1" matches both rows
+#   of Week 1: its own row is the last match. A row is told by a word only
+#   its own preview holds (Squat, Deadlift).
+# - The undo's id counts entries newest first: the one move is 0.
+wait "Training"
+tap "Training"
+wait id:create-note
+wait "Week 1"
+tap "Week 1"
+expect "Squat" "Deadlift" --timeout 10
+longpress "Session 1" --nth=-1
+wait id:row-action-move
+tap id:row-action-move --settle 1000
+wait id:folder-picker-search
+expect "SUBFOLDERS OF WEEK 1" --timeout 5
+tap id:folder-picker-up
+expect "SUBFOLDERS OF TRAINING" --timeout 5
+tap id:folder-picker-confirm
+wait id:folder-picker-confirm --gone
+expect "Deadlift" --absent "Squat" --timeout 10
+tap id:folder-more
+wait id:folder-menu-move-history
+tap id:folder-menu-move-history
+wait id:move-history-sheet
+expect "Moved to Training" id:move-history-clear id:move-history-undo-0 --absent id:move-history-undo-1
+look 05_history
+tap id:move-history-undo-0
+expect "Undone" --absent id:move-history-undo-0 --timeout 10
+tap id:move-history-clear
+wait id:sheet-confirm
+tap id:sheet-confirm
+wait id:sheet-confirm --gone
+expect "No recent moves" --absent id:move-history-clear --timeout 5
+key back
+wait id:move-history-sheet --gone
+expect "Squat" "Deadlift" --timeout 10
+errors

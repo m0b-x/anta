@@ -187,6 +187,7 @@ class FolderOverflowMenu extends StatelessWidget {
           icon: Icons.sort,
           label: l10n.sortBy,
           trailing: sortLabel,
+          identifier: SemanticsIds.folderMenuSort,
         ),
         _row(
           colorScheme,
@@ -201,6 +202,7 @@ class FolderOverflowMenu extends StatelessWidget {
           icon: Icons.history,
           label: l10n.moveHistory,
           count: moveHistoryCount,
+          identifier: SemanticsIds.folderMenuMoveHistory,
         ),
         const PopupMenuDivider(height: AppTheme.menuDividerHeight),
         if (!isRootPage) ...[
@@ -266,6 +268,7 @@ class FolderOverflowMenu extends StatelessWidget {
     int count = 0,
     Color? color,
     bool enabled = true,
+    String? identifier,
   }) {
     final labelText = Text(
       label,
@@ -283,53 +286,57 @@ class FolderOverflowMenu extends StatelessWidget {
       maxLines: FormMetrics.menuLabelLines,
       overflow: TextOverflow.ellipsis,
     );
+    final row = Row(
+      children: [
+        Icon(
+          icon,
+          size: AppTheme.menuIconSize,
+          // A disabled row's glyph dims with its label, as the note
+          // menu's does.
+          color: (color ?? colorScheme.onSurfaceVariant).withValues(
+            alpha: enabled ? 1 : FormMetrics.disabledOpacity,
+          ),
+        ),
+        const SizedBox(width: FormMetrics.menuRowGap),
+        Expanded(
+          child: trailing == null
+              ? labelText
+              // The value sits on the row's end while both fit, and goes
+              // under the label at large text rather than either being
+              // cut (German 2.0's "Sortieren nach / Zuletzt aktualisiert").
+              : Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: FormMetrics.menuRowGap,
+                  children: [
+                    labelText,
+                    Text(
+                      trailing,
+                      textAlign: TextAlign.end,
+                      maxLines: FormMetrics.menuLabelLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppTheme.menuTrailingSize,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        if (count > 0) ...[
+          const SizedBox(width: FormMetrics.menuRowGap),
+          MenuCountPill(count: count),
+        ],
+      ],
+    );
     return PopupMenuItem<_FolderMenuAction>(
       value: value,
       enabled: enabled,
       height: AppTheme.menuItemHeight,
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: AppTheme.menuIconSize,
-            // A disabled row's glyph dims with its label, as the note
-            // menu's does.
-            color: (color ?? colorScheme.onSurfaceVariant).withValues(
-              alpha: enabled ? 1 : FormMetrics.disabledOpacity,
-            ),
-          ),
-          const SizedBox(width: FormMetrics.menuRowGap),
-          Expanded(
-            child: trailing == null
-                ? labelText
-                // The value sits on the row's end while both fit, and goes
-                // under the label at large text rather than either being
-                // cut (German 2.0's "Sortieren nach / Zuletzt aktualisiert").
-                : Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: FormMetrics.menuRowGap,
-                    children: [
-                      labelText,
-                      Text(
-                        trailing,
-                        textAlign: TextAlign.end,
-                        maxLines: FormMetrics.menuLabelLines,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: AppTheme.menuTrailingSize,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-          if (count > 0) ...[
-            const SizedBox(width: FormMetrics.menuRowGap),
-            MenuCountPill(count: count),
-          ],
-        ],
-      ),
+      // The item merges its subtree, so the id lands on its one node.
+      child: identifier == null
+          ? row
+          : Semantics(identifier: identifier, child: row),
     );
   }
 

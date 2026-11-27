@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_constants.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/utils/position_plan.dart';
 
 import 'support/db_test_support.dart';
 
@@ -519,6 +520,78 @@ void main() {
         updateParent: true,
       );
       expect(top!.parentId, isNull);
+    });
+
+    test('a move lands after the new parent\'s last live folder, as '
+        'moveFolder\'s does (B11)', () async {
+      final other = await db.folderDao.createFolder(name: 'Other');
+      await db.folderDao.createFolder(name: 'First', parentId: other.id);
+      final last = await db.folderDao.createFolder(
+        name: 'Last',
+        parentId: other.id,
+      );
+      expect(box.position, lessThanOrEqualTo(last.position));
+
+      final moved = await db.folderDao.updateFolder(
+        id: box.id,
+        parentId: other.id,
+        updateParent: true,
+      );
+
+      expect(moved!.position, greaterThan(last.position));
+      final top = await db.folderDao.updateFolder(
+        id: box.id,
+        parentId: null,
+        updateParent: true,
+      );
+      expect(top!.position, greaterThan(other.position));
+    });
+
+    test('a rename alone keeps the position (B11)', () async {
+      final renamed = await db.folderDao.updateFolder(
+        id: box.id,
+        name: 'Crate',
+      );
+
+      expect(renamed!.position, box.position);
+    });
+
+    test('a move into a parent whose folders are all deleted takes the first '
+        'position (B11)', () async {
+      final other = await db.folderDao.createFolder(name: 'Other');
+      final gone = await db.folderDao.createFolder(
+        name: 'Gone',
+        parentId: other.id,
+      );
+      await db.folderDao.softDeleteFolder(gone.id);
+
+      final moved = await db.folderDao.updateFolder(
+        id: box.id,
+        parentId: other.id,
+        updateParent: true,
+      );
+
+      expect(moved!.position, nextPosition(null));
+    });
+
+    test('a move is stamped once, version up by one, and queued once '
+        '(B11)', () async {
+      final other = await db.folderDao.createFolder(name: 'Other');
+      final before = await folderRow(box.id);
+      await db.syncOutboxDao.clear();
+
+      final moved = await db.folderDao.updateFolder(
+        id: box.id,
+        parentId: other.id,
+        updateParent: true,
+      );
+
+      expect(moved!.version, before.version + 1);
+      expect(moved.hlcTimestamp.compareTo(before.hlcTimestamp), greaterThan(0));
+      expect(moved.deviceId, before.deviceId);
+      final rows = await db.syncOutboxDao.pending(limit: 10);
+      expect([for (final r in rows) r.rowKey], [box.id]);
+      expect(rows.single.hlc, moved.hlcTimestamp);
     });
   });
 

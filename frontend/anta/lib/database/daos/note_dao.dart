@@ -1051,7 +1051,10 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
             // count needs the row — but its words go: the title, the preview,
             // the text (above) and the search rows (share surfaces P4). Its
             // folder, position, label, lengths and stamps stay.
-            if (shared) await NoteSearchDao(db).forgetNotes([remote.id]);
+            if (shared) {
+              await NoteSearchDao(db).forgetNotes([remote.id]);
+              NoteSearchDao.ledgerChanged();
+            }
             await (update(notes)..where((n) => n.id.equals(remote.id))).write(
               NotesCompanion(
                 hlcTimestamp: Value(remote.hlcTimestamp),

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_templates.dart';
+import 'package:anta/constants/tag_catalog.dart';
 import 'package:anta/constants/vocabularies.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
@@ -13,16 +14,20 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_template_service.dart';
 import 'package:anta/services/filter_preset_service.dart';
+import 'package:anta/services/body_search_indexer.dart';
 import 'package:anta/services/overview_view_service.dart';
+import 'package:anta/services/tag_catalog_service.dart';
 import 'package:anta/services/vocabulary_service.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/body_index_support.dart';
 
 void _resetSingletons() {
   CategoryService.reset();
   EventTemplateService.reset();
   FilterPresetService.reset();
   OverviewViewService.reset();
+  TagCatalogService.reset();
   VocabularyService.reset();
 }
 
@@ -194,6 +199,32 @@ void main() {
       [for (final item in Vocabularies.byId(saved.id)!.items) item.term],
       ['Bench press', 'Deadlift'],
     );
+  });
+
+  test('tags: a failed read keeps the catalog the editor suggests '
+      'from', () async {
+    final folder = await db.folderDao.createFolder(name: 'Log');
+    await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Legs',
+      content: '#squat',
+    );
+    await BodySearchIndexer(
+      database: db,
+      scheduler: inlineBodyIndexScheduler,
+    ).drain();
+    final service = await TagCatalogService.forTesting(db);
+    expect([for (final t in TagCatalog.all) t.tag], ['squat']);
+
+    // The catalog's one read: the ledger's tags, which nothing else selects.
+    reads.failing = (sql) =>
+        sql.contains('FROM note_search_ledger') && sql.contains('l.tags');
+    await service.refresh();
+
+    expect(reads.failed, 1, reason: 'the read under test never ran');
+    expect([for (final t in service.tags) t.tag], ['squat']);
+    expect([for (final t in TagCatalog.all) t.tag], ['squat']);
+    expect([for (final c in TagCatalog.candidates) c.term], ['#squat']);
   });
 }
 

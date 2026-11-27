@@ -1,8 +1,11 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'package:anta/constants/tag_catalog.dart';
 import 'package:anta/constants/vocabularies.dart';
 import 'package:anta/controllers/vocabulary_suggestion_controller.dart';
+import 'package:anta/models/catalog_tag.dart';
 import 'package:anta/models/vocabulary.dart';
 import 'package:anta/models/vocabulary_item.dart';
 import 'package:anta/utils/vocabulary_matcher.dart';
@@ -86,6 +89,18 @@ void main() {
     editor.selection = CodeLineSelection.collapsed(
       index: 0,
       offset: caret ?? text.length,
+    );
+  }
+
+  /// What the input method hands the editor for line 0, the caret at the
+  /// text's end and [composing] the word it has not committed yet.
+  void ime(String text, {TextRange composing = TextRange.empty}) {
+    editor.edit(
+      TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+        composing: composing,
+      ),
     );
   }
 
@@ -373,5 +388,554 @@ void main() {
       expect(offered(), ['Bench Press']);
       expect(suggestions.value?.atLineStart, isFalse);
     });
+  });
+
+  group('the tag session', () {
+    setUp(() {
+      // The catalog's order: most notes first, then the folded form.
+      TagCatalog.updateCache(const [
+        CatalogTag(tag: 'legpress', folded: 'legpress', noteCount: 7),
+        CatalogTag(tag: 'Legday', folded: 'legday', noteCount: 5),
+        CatalogTag(tag: 'legdays', folded: 'legdays', noteCount: 1),
+        CatalogTag(tag: 'lunge', folded: 'lunge', noteCount: 1),
+        CatalogTag(tag: 'mobile', folded: 'mobile', noteCount: 1),
+        CatalogTag(tag: 'Monday', folded: 'monday', noteCount: 1),
+      ]);
+    });
+
+    tearDown(TagCatalog.resetCache);
+
+    /// Leaves [text] in the editor with the caret on [line] at [caret] (the
+    /// line's end when omitted), the character before the caret arriving
+    /// as a keystroke: a tag session opens on typing, never on the caret
+    /// being put into a tag.
+    void typeAt(String text, int line, {int? caret}) {
+      final lines = text.split('\n');
+      final at = caret ?? lines[line].length;
+      final key = lines[line].substring(at - 1, at);
+      lines[line] = lines[line].replaceRange(at - 1, at, '');
+      final before = lines.join('\n');
+      if (editor.text != before) editor.text = before;
+      editor.selection = CodeLineSelection.collapsed(
+        index: line,
+        offset: at - 1,
+      );
+      editor.replaceSelection(key);
+    }
+
+    /// [typeAt] on line 0; shadows the plain `type`, which only puts the
+    /// caret where the text ends.
+    void type(String text, {int? caret}) => typeAt(text, 0, caret: caret);
+
+    test('opens on the first character after #, ranked by the catalog '
+        'inside a tier, and narrows', () {
+      type('#');
+      expect(suggestions.value, isNull, reason: 'a bare # may be a heading');
+
+      type('#l');
+      // `#mobile` holds `#l` as a subsequence, the matcher's last tier.
+      expect(offered(), [
+        '#legpress',
+        '#Legday',
+        '#legdays',
+        '#lunge',
+        '#mobile',
+      ]);
+      expect(suggestions.value!.start, 0);
+      expect(suggestions.value!.end, 2);
+      expect(suggestions.value!.atLineStart, isTrue);
+      expect(suggestions.value!.scopeNames, isEmpty);
+
+      type('squats #legd');
+      expect(offered(), ['#Legday', '#legdays']);
+      expect(suggestions.value!.atLineStart, isFalse);
+    });
+
+    test('closes on a space after the tag', () {
+      type('#leg');
+      expect(suggestions.value, isNotNull);
+
+      type('#leg ');
+      expect(suggestions.value, isNull);
+    });
+
+    test('leaves out only the tag spelled as written, letter for letter, '
+        'over the whole tag', () {
+      type('#Legday');
+      expect(offered(), ['#legdays']);
+
+      // Another spelling is offered, so a tag can be brought into line.
+      type('#LEGDAY');
+      expect(offered(), ['#Legday', '#legdays']);
+
+      // The caret inside a finished tag: that tag is no pill to offer.
+      type('#Legday sets', caret: 4);
+      expect(offered(), ['#legpress', '#legdays']);
+    });
+
+    test('the same rule for this note\'s own tags', () {
+      // `#Tempox` is read first, so it is the note's spelling of the tag.
+      typeAt('a #Tempox\n#tempox', 1, caret: 4);
+      expect(offered(), ['#Tempox']);
+    });
+
+    test('the tag a session opened on is not offered once it is edited', () {
+      type('x #le');
+      expect(suggestions.value, isNotNull);
+
+      editor.replaceSelection(
+        '',
+        const CodeLineSelection(
+          baseIndex: 0,
+          baseOffset: 4,
+          extentIndex: 0,
+          extentOffset: 5,
+        ),
+      );
+
+      expect(editor.codeLines[0].text, 'x #l');
+      expect(offered(), isNot(contains('#le')));
+    });
+
+    test('reads the note\'s tags again only after an edit, never because '
+        'the caret moved', () {
+      typeAt('a #alpha #beta #gamma', 0, caret: 4);
+
+      for (final caret in [12, 19, 4]) {
+        editor.selection = CodeLineSelection.collapsed(index: 0, offset: caret);
+      }
+
+      expect(suggestions.noteTagScans, 1);
+    });
+
+    test('offers this note\'s own tags after the catalog\'s, read once per '
+        'session', () {
+      typeAt('warm-up #mobility #MONDAY\n#mo', 1);
+
+      // `#MONDAY` is the catalog's `#Monday`, offered once in its spelling.
+      expect(offered(), ['#mobile', '#Monday', '#mobility']);
+      expect(suggestions.noteTagScans, 1);
+
+      editor.replaceSelection('b');
+      editor.replaceSelection('i');
+
+      expect(editor.codeLines[1].text, '#mobi');
+      expect(offered(), ['#mobile', '#mobility']);
+      expect(suggestions.noteTagScans, 1, reason: 'never per keystroke');
+
+      editor.replaceSelection(' #m');
+      expect(suggestions.noteTagScans, 2, reason: 'a new tag, a new session');
+    });
+
+    test('skips the note\'s fence lines', () {
+      suggestions.configure(
+        enabled: true,
+        trigger: '@',
+        isFenceLine: (line) => line == 1,
+      );
+      typeAt('intro\n#mobster\n#mobs', 2);
+
+      expect(suggestions.value, isNull);
+    });
+
+    test('works with no vocabulary at all', () {
+      Vocabularies.resetCache();
+
+      type('#lu');
+      expect(offered(), ['#lunge']);
+
+      type('@ben');
+      expect(suggestions.value, isNull);
+    });
+
+    test('stays shut while autocomplete is off', () {
+      suggestions.configure(enabled: false, trigger: '@');
+
+      type('#le');
+
+      expect(suggestions.value, isNull);
+    });
+
+    test('never opens on a fence line', () {
+      suggestions.configure(
+        enabled: true,
+        trigger: '@',
+        isFenceLine: (_) => true,
+      );
+
+      type('#le');
+
+      expect(suggestions.value, isNull);
+    });
+
+    test('accepting writes the catalog\'s spelling over the whole tag', () {
+      type('#legdya sets', caret: 4);
+      expect(suggestions.value!.end, 7);
+
+      suggestions.accept(
+        suggestions.value!.suggestions.firstWhere((c) => c.term == '#Legday'),
+      );
+      expect(editor.codeLines[0].text, '#Legday sets');
+
+      type('squats #lu');
+      suggestions.accept(suggestions.value!.suggestions.single);
+      expect(editor.codeLines[0].text, 'squats #lunge ');
+    });
+
+    test('a completion mid-line keeps the bar shut for that tag until its '
+        'text changes', () {
+      type('#leg x', caret: 4);
+      suggestions.accept(
+        suggestions.value!.suggestions.firstWhere((c) => c.term == '#Legday'),
+      );
+
+      expect(editor.codeLines[0].text, '#Legday x');
+      expect(editor.selection.baseOffset, 7);
+      expect(suggestions.value, isNull);
+
+      // The same tap again: no pill is there to take it.
+      final again = suggestions.value;
+      if (again != null) suggestions.accept(again.suggestions.first);
+      expect(editor.codeLines[0].text, '#Legday x');
+
+      editor.replaceSelection('s');
+      expect(editor.codeLines[0].text, '#Legdays x');
+      expect(offered(), ['#legdays']);
+    });
+
+    test('a completion adds a space only when the tag ends the line', () {
+      for (final (typed, written) in [
+        ('#leg.', '#Legday.'),
+        ('#leg, then', '#Legday, then'),
+        ('#leg)', '#Legday)'),
+        ('#leg x', '#Legday x'),
+        ('#leg', '#Legday '),
+      ]) {
+        type(typed, caret: 4);
+        suggestions.accept(
+          suggestions.value!.suggestions.firstWhere(
+            (c) => c.term == '#Legday',
+          ),
+        );
+        expect(editor.codeLines[0].text, written);
+        expect(suggestions.value, isNull, reason: typed);
+      }
+    });
+
+    test('a dismissed tag stays shut until another tag starts', () {
+      type('#le');
+      suggestions.dismiss();
+      expect(suggestions.value, isNull);
+
+      type('#leg');
+      expect(suggestions.value, isNull);
+
+      type('#leg #lu');
+      expect(offered(), ['#lunge']);
+    });
+
+    test('the vocabulary trigger still opens its own session, with only its '
+        'own terms', () {
+      type('#legday @');
+
+      expect(offered(), ['Bench Press', 'Deadlift', 'Oats']);
+    });
+
+    test('a trigger run offering nothing leaves its tag to the tag '
+        'session', () {
+      type('@zzz #lu');
+
+      expect(offered(), ['#lunge']);
+    });
+
+    test('a ghost still wins', () {
+      editor.text = '{{exercise}} #le';
+      editor.selection = const CodeLineSelection(
+        baseIndex: 0,
+        baseOffset: 0,
+        extentIndex: 0,
+        extentOffset: 12,
+      );
+
+      expect(offered(), ['Bench Press', 'Deadlift']);
+    });
+
+    // The bar takes the toolbar's place, undo and redo with it: a session
+    // the caret alone opened would put a pill where a toolbar tap lands.
+    group('opens on typing alone', () {
+      test('a caret or a selection put into a tag offers nothing; typing in '
+          'it does, and the session stays while the caret stays in that '
+          'tag', () {
+        editor.text = 'squats #Legday x';
+        for (final caret in [14, 10, 9]) {
+          editor.selection = CodeLineSelection.collapsed(
+            index: 0,
+            offset: caret,
+          );
+          expect(suggestions.value, isNull, reason: 'caret at $caret');
+        }
+        editor.selection = const CodeLineSelection(
+          baseIndex: 0,
+          baseOffset: 8,
+          extentIndex: 0,
+          extentOffset: 14,
+        );
+        expect(suggestions.value, isNull);
+        expect(suggestions.noteTagScans, 0, reason: 'nothing typed, no read');
+
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 14,
+        );
+        editor.replaceSelection('s');
+        expect(editor.codeLines[0].text, 'squats #Legdays x');
+        expect(offered(), ['#legdays']);
+
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 11,
+        );
+        expect(offered(), contains('#Legday'), reason: 'the same tag');
+
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 3,
+        );
+        expect(suggestions.value, isNull);
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 11,
+        );
+        expect(suggestions.value, isNull, reason: 'back by the caret alone');
+      });
+
+      test('an undo or a redo opens nothing; the next typed character '
+          'does', () {
+        type('#leg x', caret: 4);
+        suggestions.accept(
+          suggestions.value!.suggestions.firstWhere((c) => c.term == '#Legday'),
+        );
+        expect(editor.codeLines[0].text, '#Legday x');
+
+        editor.undo();
+        expect(editor.codeLines[0].text, '#leg x');
+        expect(editor.selection.baseOffset, 4);
+        expect(suggestions.value, isNull, reason: 'undo is not typing');
+
+        editor.redo();
+        expect(editor.codeLines[0].text, '#Legday x');
+        expect(suggestions.value, isNull, reason: 'redo is not typing');
+
+        editor.replaceSelection('s');
+        expect(offered(), ['#legdays']);
+      });
+
+      test('an undo inside an open session shuts it until the next typed '
+          'character', () {
+        type('#le');
+        editor.replaceSelection('g');
+        expect(suggestions.value, isNotNull);
+
+        editor.undo();
+        expect(suggestions.value, isNull);
+
+        editor.replaceSelection('g');
+        expect(suggestions.value, isNotNull);
+      });
+
+      test('switching autocomplete off and on leaves a completed tag '
+          'shut', () {
+        type('#leg x', caret: 4);
+        suggestions.accept(
+          suggestions.value!.suggestions.firstWhere((c) => c.term == '#Legday'),
+        );
+
+        suggestions.configure(enabled: false, trigger: '@');
+        suggestions.configure(enabled: true, trigger: '@');
+
+        expect(suggestions.value, isNull);
+      });
+
+      test('a dismissal ends when the caret leaves the tag', () {
+        typeAt('#le\nplain', 0);
+        suggestions.dismiss();
+        expect(suggestions.value, isNull);
+
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 1,
+          offset: 5,
+        );
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 3,
+        );
+        // The line rewritten into another tag, key by key, at the same `#`.
+        editor.deleteBackward();
+        editor.deleteBackward();
+        editor.replaceSelection('m');
+        editor.replaceSelection('o');
+
+        expect(editor.codeLines[0].text, '#mo');
+        expect(offered(), ['#mobile', '#Monday']);
+      });
+
+      test('a tag that opens nothing keeps a typed-over ghost\'s session, '
+          'so backspacing out of it brings the terms back', () {
+        editor.text = '{{exercise}}';
+        editor.selection = const CodeLineSelection(
+          baseIndex: 0,
+          baseOffset: 0,
+          extentIndex: 0,
+          extentOffset: 12,
+        );
+        editor.replaceSelection('ben');
+        expect(offered(), ['Bench Press']);
+
+        editor.replaceSelection(' #z');
+        expect(editor.codeLines[0].text, 'ben #z');
+        expect(suggestions.value, isNull);
+
+        for (var i = 0; i < 3; i++) {
+          editor.deleteBackward();
+        }
+
+        expect(editor.codeLines[0].text, 'ben');
+        expect(offered(), ['Bench Press']);
+      });
+    });
+
+    // A phone keyboard composes a word before it commits it.
+    group('while the input method composes', () {
+      test('a tag offers nothing; the commit opens it with the caret at '
+          'the tag, and a completion leaves nothing composing', () {
+        ime('#l', composing: const TextRange(start: 1, end: 2));
+        expect(suggestions.value, isNull);
+        ime('#le', composing: const TextRange(start: 1, end: 3));
+        expect(suggestions.value, isNull);
+
+        ime('#le');
+        expect(editor.isComposing, isFalse);
+        expect(offered(), contains('#legpress'));
+
+        suggestions.accept(
+          suggestions.value!.suggestions.firstWhere((c) => c.term == '#Legday'),
+        );
+        expect(editor.codeLines[0].text, '#Legday ');
+        expect(editor.composing, TextRange.empty);
+      });
+
+      test('a word the keyboard only marks, then commits with the caret '
+          'unmoved, opens nothing', () {
+        editor.text = '#leg x';
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 4,
+        );
+        // A tap: the keyboard marks the word under the caret, no text
+        // changed, then commits it as it hides.
+        for (final composing in const [
+          TextRange(start: 1, end: 4),
+          TextRange.empty,
+        ]) {
+          editor.edit(
+            TextEditingValue(
+              text: '#leg x',
+              selection: const TextSelection.collapsed(offset: 4),
+              composing: composing,
+            ),
+          );
+        }
+
+        expect(suggestions.value, isNull);
+      });
+    });
+
+    group('a change nobody typed', () {
+      test('a vocabulary term ending in a tag, accepted mid-line, leaves '
+          'the bar shut', () {
+        Vocabularies.updateCache([
+          const Vocabulary(
+            id: 'v1',
+            name: 'Exercises',
+            isEnabled: true,
+            sortOrder: 0,
+            items: [
+              VocabularyItem(
+                id: 'i1',
+                vocabularyId: 'v1',
+                term: 'Squat #legday',
+                sortOrder: 0,
+              ),
+            ],
+          ),
+        ]);
+        editor.text = '@sq x';
+        editor.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 3,
+        );
+        expect(offered(), ['Squat #legday']);
+
+        suggestions.accept(suggestions.value!.suggestions.single);
+
+        expect(editor.codeLines[0].text, 'Squat #legday x');
+        expect(editor.selection.baseOffset, 13);
+        expect(suggestions.value, isNull);
+      });
+
+      test('an insert the host makes from code opens nothing', () {
+        var fromCode = false;
+        final host = CodeLineEditingController();
+        final watcher = VocabularySuggestionController(
+          controller: host,
+          onInsert: (_) {},
+          isProgrammaticEdit: () => fromCode,
+        )..configure(enabled: true, trigger: '@');
+        addTearDown(() {
+          watcher.dispose();
+          host.dispose();
+        });
+
+        host.text = 'x';
+        host.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 1,
+        );
+        fromCode = true;
+        host.replaceSelection(' #le');
+        fromCode = false;
+        expect(watcher.value, isNull);
+
+        host.replaceSelection('g');
+        expect(watcher.value, isNotNull, reason: 'typed after it, it opens');
+      });
+
+      test('a notification that carries no new value is no keystroke', () {
+        type('#leg x', caret: 4);
+        suggestions.accept(
+          suggestions.value!.suggestions.firstWhere(
+            (c) => c.term == '#Legday',
+          ),
+        );
+        editor.undo();
+        expect(suggestions.value, isNull);
+
+        // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+        editor.notifyListeners();
+
+        expect(suggestions.value, isNull);
+      });
+    });
+  });
+
+  test('the vocabulary trigger offers nothing while the input method '
+      'composes, and opens on the commit', () {
+    ime('@b', composing: const TextRange(start: 1, end: 2));
+    expect(suggestions.value, isNull);
+    ime('@be', composing: const TextRange(start: 1, end: 3));
+    expect(suggestions.value, isNull);
+
+    ime('@be');
+    expect(offered(), ['Bench Press']);
   });
 }

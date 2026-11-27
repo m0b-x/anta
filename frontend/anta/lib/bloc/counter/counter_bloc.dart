@@ -354,7 +354,10 @@ class CounterBloc extends Bloc<CounterEvent, CounterState> {
   ) async {
     if (state is! CounterLoaded) return;
     try {
-      await _counterService.updateCounter(event.counter);
+      await _counterService.updateCounter(
+        event.counter,
+        previous: event.previous,
+      );
       final latest = _loaded;
       if (latest == null) return;
       emit(latest.copyWith(counters: _counterService.counters));

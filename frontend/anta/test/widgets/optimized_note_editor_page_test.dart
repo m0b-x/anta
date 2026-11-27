@@ -76,7 +76,12 @@ import 'package:anta/services/recent_destinations_service.dart';
 import 'package:anta/services/share_service.dart';
 import 'package:anta/services/sync/open_note_registry.dart';
 import 'package:anta/widgets/content_rows.dart';
+import 'package:anta/services/body_search_indexer.dart';
+import 'package:anta/services/tag_catalog_service.dart';
+import 'package:anta/constants/tag_catalog.dart';
+import 'package:anta/widgets/vocabulary_suggestion_bar.dart';
 
+import '../services/support/body_index_support.dart';
 import '../support/fake_share_service.dart';
 
 /// The first page-level test in the app.
@@ -1141,6 +1146,139 @@ void main() {
         '- [ ] squat 5x5',
         reason: 'one undo reverts one toggle',
       );
+      await teardownPage(tester);
+    });
+  });
+
+  group('#tag suggestions', () {
+    late Folder tagFolder;
+    late NoteMetadata tagged;
+
+    setUp(() async {
+      // Plain `async`, as the wiki group's: outside the fake clock a drift
+      // round trip simply completes. The catalog reads the ledger the body
+      // index drain writes, so the tag is drained in, never faked.
+      TagCatalogService.reset();
+      tagFolder = await db.folderDao.createFolder(name: 'Tagged');
+      tagged = await storageService.createNote(
+        folderId: tagFolder.id,
+        title: 'Leg day',
+        content: 'squats #legday',
+      );
+      await BodySearchIndexer(
+        database: db,
+        scheduler: inlineBodyIndexScheduler,
+      ).drain();
+    });
+
+    tearDown(() async {
+      TagCatalogService.reset();
+      await db.noteDao.hardDeleteNote(tagged.id);
+      await db.folderDao.hardDeleteFolder(tagFolder.id);
+    });
+
+    Finder bar() =>
+        find.byType(VocabularySuggestionBar, skipOffstage: false);
+
+    List<String> offered(WidgetTester tester) => [
+      for (final candidate
+          in tester.widget<VocabularySuggestionBar>(bar()).session.suggestions)
+        candidate.term,
+    ];
+
+    /// The caret at the end of the note's last line, `fourth`.
+    void caretAtEnd(CodeLineEditingController controller) {
+      controller.selection = CodeLineSelection.collapsed(
+        index: 3,
+        offset: controller.codeLines[3].text.length,
+      );
+    }
+
+    testWidgets('typing #le offers the catalog\'s tag in the toolbar\'s '
+        'box, and a tap writes it as one undo step', (tester) async {
+      final controller = await loadNote(tester);
+      final toolbar = tester.getSize(
+        find.byType(MarkdownBar, skipOffstage: false),
+      );
+      caretAtEnd(controller);
+      controller.replaceSelection(' #le');
+      await tester.pump();
+      // The catalog opens off the mount, never ahead of it.
+      await settleUntil(tester, () => bar().evaluate().isNotEmpty);
+
+      // Other cases' notes share this database; this one's tag is the pin.
+      expect(offered(tester), contains('#legday'));
+      expect(
+        tester.getSize(find.byType(MarkdownBar, skipOffstage: false)),
+        toolbar,
+        reason: 'a session never moves the editor',
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: bar(),
+          matching: find.text('#legday', findRichText: true),
+        ),
+      );
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[3].text, 'fourth #legday ');
+      expect(bar(), findsNothing);
+
+      controller.undo();
+      await tester.pump();
+      expect(
+        controller.codeLines[3].text,
+        'fourth #le',
+        reason: 'one undo reverts the completion, not the typing before it',
+      );
+      await teardownPage(tester);
+    });
+
+    testWidgets('a heading typed key by key never opens it; `#L` is a tag '
+        'until a space after the # makes it a heading', (tester) async {
+      final controller = await loadNote(tester);
+      caretAtEnd(controller);
+
+      /// Types [keys] one character at a time, asserting the bar after
+      /// each: [open] says which of them leave it showing.
+      Future<void> typeKeys(String keys, {required Set<String> open}) async {
+        for (final key in keys.split('')) {
+          controller.replaceSelection(key);
+          await settle(tester, rounds: 3);
+          expect(
+            bar(),
+            open.contains(key) ? findsOneWidget : findsNothing,
+            reason: '"${controller.codeLines.last.text}"',
+          );
+        }
+      }
+
+      controller.replaceSelection('\n');
+      // Let the catalog land first, so "shut" below is the grammar's.
+      await settleUntil(
+        tester,
+        () => TagCatalog.all.any((tag) => tag.tag == 'legday'),
+      );
+
+      // A heading, typed the way a person types one: `#`, the space, then
+      // the title. The bar never shows.
+      await typeKeys('# Legs', open: const {});
+      expect(controller.codeLines[4].text, '# Legs');
+
+      // `#L` on a fresh line is a tag by the grammar, so it offers tags;
+      // a space put between the `#` and the `L` makes it a heading.
+      controller.replaceSelection('\n');
+      await typeKeys('#', open: const {});
+      await typeKeys('L', open: const {'L'});
+      expect(offered(tester), contains('#legday'));
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 5,
+        offset: 1,
+      );
+      controller.replaceSelection(' ');
+      await settle(tester, rounds: 3);
+      expect(controller.codeLines[5].text, '# L');
+      expect(bar(), findsNothing);
       await teardownPage(tester);
     });
   });
@@ -7222,13 +7360,14 @@ void main() {
     Future<CodeLineEditingController> mount(
       WidgetTester tester, {
       bool newNote = false,
+      CounterBloc? counterBloc,
     }) async {
       await tester.pumpWidget(
         MultiBlocProvider(
           providers: [
             BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
             BlocProvider<MarkdownBarBloc>.value(value: barBloc),
-            BlocProvider<CounterBloc>.value(value: counting),
+            BlocProvider<CounterBloc>.value(value: counterBloc ?? counting),
           ],
           child: MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -7328,6 +7467,7 @@ void main() {
       await pick(tester, 'Sets');
 
       expect(controller.codeLines[0].text, '1first line');
+      expect(find.text('Not counted — nothing inserted'), findsNothing);
       expect(held(sets, ''), 1);
       expect(await stored(tester, sets, ''), 1);
       await teardownPage(tester);
@@ -7347,7 +7487,110 @@ void main() {
       await settle(tester, rounds: 4);
 
       expect(controller.codeLines[0].text, 'first line');
+      // Said, not silent: the person picked a counter and sees no number.
+      expect(find.text('Not counted — nothing inserted'), findsOneWidget);
       await teardownPage(tester);
+    });
+
+    group('with the counters not loaded', () {
+      late CounterBloc unloaded;
+
+      setUp(() async {
+        unloaded = CounterBloc(counterService: counters);
+      });
+
+      tearDown(() => unloaded.close());
+
+      testWidgets('the counter button waits for a load in flight and opens '
+          'the picker', (tester) async {
+        final controller = await mount(tester, counterBloc: unloaded);
+
+        barOf(tester).onCounter!();
+        await settle(tester, rounds: 2);
+        // The launch's load, or the one after a database switch.
+        unloaded.add(const LoadCounters());
+        // The bloc was built outside the test's fake zone: its handlers run
+        // on real microtasks.
+        await settle(tester, rounds: 4);
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.text('Sets'));
+        await settle(tester, rounds: 4);
+
+        expect(controller.codeLines[0].text, '1first line');
+        expect(find.text('Not counted — nothing inserted'), findsNothing);
+        await teardownPage(tester);
+      });
+
+      testWidgets('the counter button says nothing was counted when the '
+          'counters never load', (tester) async {
+        final controller = await mount(tester, counterBloc: unloaded);
+
+        barOf(tester).onCounter!();
+        await settle(tester, rounds: 2);
+        expect(find.text('Not counted — nothing inserted'), findsNothing);
+        await tester.pump(const Duration(seconds: 2));
+        await settle(tester, rounds: 4);
+
+        expect(controller.codeLines[0].text, 'first line');
+        expect(find.text('Not counted — nothing inserted'), findsOneWidget);
+        await teardownPage(tester);
+      });
+
+      testWidgets('the counter button says the counters failed to load', (
+        tester,
+      ) async {
+        // ignore: invalid_use_of_visible_for_testing_member
+        unloaded.emit(const CounterError('counters unreadable'));
+        final controller = await mount(tester, counterBloc: unloaded);
+
+        barOf(tester).onCounter!();
+        await settle(tester, rounds: 4);
+
+        expect(controller.codeLines[0].text, 'first line');
+        expect(find.text('Failed to load counters'), findsOneWidget);
+        expect(find.text('Not counted — nothing inserted'), findsNothing);
+        await teardownPage(tester);
+      });
+
+      testWidgets('a second tap during the wait opens no second picker', (
+        tester,
+      ) async {
+        final controller = await mount(tester, counterBloc: unloaded);
+
+        barOf(tester).onCounter!();
+        barOf(tester).onCounter!();
+        await settle(tester, rounds: 2);
+        unloaded.add(const LoadCounters());
+        await settle(tester, rounds: 4);
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Two pickers would draw two rows for the counter.
+        expect(find.text('Sets', skipOffstage: false), findsOneWidget);
+        await tester.tap(find.text('Sets'));
+        await settle(tester, rounds: 4);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(controller.codeLines[0].text, '1first line');
+        expect(find.text('Sets', skipOffstage: false), findsNothing);
+        await teardownPage(tester);
+      });
+
+      testWidgets('a load that fails during the wait says so once and opens '
+          'no picker', (tester) async {
+        final controller = await mount(tester, counterBloc: unloaded);
+
+        barOf(tester).onCounter!();
+        barOf(tester).onCounter!();
+        await settle(tester, rounds: 2);
+        // ignore: invalid_use_of_visible_for_testing_member
+        unloaded.emit(const CounterError('counters unreadable'));
+        await settle(tester, rounds: 4);
+
+        expect(controller.codeLines[0].text, 'first line');
+        expect(find.text('Failed to load counters'), findsOneWidget);
+        expect(find.text('Sets', skipOffstage: false), findsNothing);
+        expect(find.text('Not counted — nothing inserted'), findsNothing);
+        await teardownPage(tester);
+      });
     });
 
     group('in a new note, before its create lands', () {

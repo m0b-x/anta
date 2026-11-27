@@ -8,3 +8,8 @@ Training
 Money
 Inbox
 January
+# Training's subfolder and its two notes. Each note's preview names the
+# other, so a note's title matches both rows: a flow picks with --nth.
+Week 1
+Session 1
+Session 2

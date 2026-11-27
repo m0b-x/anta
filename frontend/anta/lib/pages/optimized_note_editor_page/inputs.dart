@@ -14,6 +14,7 @@ mixin _NoteEditorInputs on _NoteEditorTyping {
   Future<void> _refreshVocabularies() async {
     final settings = _editorSettings.value;
     if (settings.vocabularySuggestionsEnabled) {
+      unawaited(_primeTagCatalog());
       try {
         await VocabularyService.getInstance();
       } catch (e) {
@@ -30,6 +31,19 @@ mixin _NoteEditorInputs on _NoteEditorTyping {
       trigger: settings.vocabularyTriggerChar,
       isFenceLine: _render.lineInFence,
     );
+  }
+
+  /// Opens the tag catalog the `#…` suggestions read, never awaited by the
+  /// mount: until its read lands the facade is empty and a tag offers only
+  /// this note's own. The catalog follows the search index's drains, so
+  /// priming also asks the index to catch up on what other notes saved
+  /// ([TagCatalogService.prime]).
+  Future<void> _primeTagCatalog() async {
+    try {
+      await TagCatalogService.prime();
+    } catch (e) {
+      debugPrint('[NoteEditor] Tag catalog load error: $e');
+    }
   }
 
   /// Applies an accepted suggestion, with the same bookkeeping every other

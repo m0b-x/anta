@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 
 /// Bottom action bar shown while the folder content page is in selection mode.
@@ -60,6 +61,7 @@ class SelectionActionBar extends StatelessWidget {
                   label: l10n.labelSelected,
                   color: colorScheme.primary,
                   onPressed: enabled ? onLabel : null,
+                  identifier: SemanticsIds.selectionLabel,
                 ),
               ),
               Flexible(
@@ -99,19 +101,21 @@ class _Action extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback? onPressed;
+  final String? identifier;
 
   const _Action({
     required this.icon,
     required this.label,
     required this.color,
     required this.onPressed,
+    this.identifier,
   });
 
   @override
   Widget build(BuildContext context) {
     final disabled = onPressed == null;
     final c = disabled ? Theme.of(context).disabledColor : color;
-    return InkWell(
+    final action = InkWell(
       onTap: onPressed,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -132,5 +136,9 @@ class _Action extends StatelessWidget {
         ),
       ),
     );
+    if (identifier case final id?) {
+      return Semantics(container: true, identifier: id, child: action);
+    }
+    return action;
   }
 }

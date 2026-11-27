@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../l10n/app_localizations.dart';
 import '../models/counter.dart';
 import '../services/app_navigator.dart';
+import 'form_rows.dart';
 
 /// Result returned from [showCounterFormDialog].
 class CounterFormResult {
@@ -35,11 +36,77 @@ Future<CounterFormResult?> showCounterFormDialog(
   final stepController = TextEditingController(text: '${existing?.step ?? 1}');
   var scope = existing?.scope ?? CounterScope.global;
 
+  // The numbers the form may save, or null while a field holds none it can
+  // keep: a step of 0 moves nothing, and an unreadable field used to be
+  // saved as 1 (review C12). Read from the controllers at Save and after
+  // the dialog, never from the last frame — the text can change between a
+  // frame and the tap.
+  ({int start, int step})? numbers() {
+    final start = int.tryParse(startController.text);
+    final step = int.tryParse(stepController.text);
+    if (start == null || step == null || step == 0) return null;
+    return (start: start, step: step);
+  }
+
   final result = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setDialogState) {
         final l10n = AppLocalizations.of(ctx)!;
+        final theme = Theme.of(ctx);
+        final start = int.tryParse(startController.text);
+        final step = int.tryParse(stepController.text);
+        final startError = start == null ? l10n.counterNumberInvalid : null;
+        final stepError = switch (step) {
+          null => l10n.counterNumberInvalid,
+          0 => l10n.counterStepZero,
+          _ => null,
+        };
+        final errorStyle = theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.error,
+        );
+        // The error line keeps its room, sized for the longest reason that
+        // field can give, whether it shows or not: a number retyped through
+        // an empty field would otherwise move everything below it twice.
+        // An `error` widget, unlike `errorText`, never reaches the field's
+        // own semantics node, so the shown reason is set there as its hint
+        // and is read out with the field, as a plain `errorText` would be.
+        // The hint is set, if empty, while the field is valid too: a hint
+        // that comes and goes rebuilds the field's node, and TalkBack's
+        // focus on it with the node.
+        Widget numberField(
+          TextEditingController controller,
+          String label,
+          String? error,
+          List<String> reasons,
+        ) {
+          final slot = FormCaptionSlot(
+            candidates: [
+              for (final reason in reasons) Text(reason, style: errorStyle),
+            ],
+            child: error == null
+                ? const SizedBox.shrink()
+                : Text(error, style: errorStyle),
+          );
+          return Semantics(
+            hint: error ?? '',
+            child: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')),
+              ],
+              decoration: InputDecoration(
+                labelText: label,
+                border: const OutlineInputBorder(),
+                helper: error == null ? slot : null,
+                error: error == null ? null : slot,
+              ),
+              onChanged: (_) => setDialogState(() {}),
+            ),
+          );
+        }
+
         return AlertDialog(
           title: Text(existing != null ? l10n.editCounter : l10n.addCounter),
           content: SingleChildScrollView(
@@ -55,29 +122,14 @@ Future<CounterFormResult?> showCounterFormDialog(
                   autofocus: true,
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: startController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')),
-                  ],
-                  decoration: InputDecoration(
-                    labelText: l10n.startValue,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
+                numberField(startController, l10n.startValue, startError, [
+                  l10n.counterNumberInvalid,
+                ]),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: stepController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')),
-                  ],
-                  decoration: InputDecoration(
-                    labelText: l10n.step,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
+                numberField(stepController, l10n.step, stepError, [
+                  l10n.counterNumberInvalid,
+                  l10n.counterStepZero,
+                ]),
                 const SizedBox(height: 12),
                 Text(
                   l10n.counterScope,
@@ -113,7 +165,15 @@ Future<CounterFormResult?> showCounterFormDialog(
               child: Text(l10n.cancel),
             ),
             FilledButton(
-              onPressed: () => AppNavigator.pop(ctx, true),
+              onPressed: startError == null && stepError == null
+                  ? () {
+                      if (numbers() == null) {
+                        setDialogState(() {});
+                        return;
+                      }
+                      AppNavigator.pop(ctx, true);
+                    }
+                  : null,
               child: Text(l10n.save),
             ),
           ],
@@ -123,15 +183,13 @@ Future<CounterFormResult?> showCounterFormDialog(
   );
 
   final name = nameController.text.trim();
-  final startValue = int.tryParse(startController.text) ?? 1;
-  final step = int.tryParse(stepController.text) ?? 1;
-
-  if (result != true || name.isEmpty) return null;
+  final saved = numbers();
+  if (result != true || name.isEmpty || saved == null) return null;
 
   return CounterFormResult(
     name: name,
-    startValue: startValue,
-    step: step,
+    startValue: saved.start,
+    step: saved.step,
     scope: scope,
   );
 }

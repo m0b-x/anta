@@ -3,6 +3,9 @@ part of '../optimized_note_editor_page.dart';
 /// The markdown bar's work: a shortcut and its counters, ghost text, the
 /// format keys, paste and indent, the bar switcher, and a dragged order.
 mixin _NoteEditorToolbar on _NoteEditorTaps {
+  /// Whether the counter button is waiting for a load in flight.
+  bool _counterLoadAwaited = false;
+
   /// Adopts a dragged shortcut order locally before the bloc answers, so
   /// the row does not snap back for the length of the write.
   Future<void> _handleReorderComplete(
@@ -28,9 +31,49 @@ mixin _NoteEditorToolbar on _NoteEditorTaps {
     List<UtilityButtonConfig> reorderedUtilities,
   ) => _editorSettings.setToolbarUtilityConfig(reorderedUtilities);
 
+  /// A pick that counted nothing — the counters not loaded, the counter
+  /// gone, a write that failed — writes nothing into the note and says so,
+  /// or the person reads the missing number as a slow insert.
+  ///
+  /// A load in flight (the launch's, or the one after a database switch)
+  /// lands within a second, so the button waits for it as the picker's own
+  /// return from the counters page does, rather than call a press that
+  /// would have worked a failure.
+  ///
+  /// One wait at a time: every tap in it would resume on the same load and
+  /// stack a picker of its own, each able to count.
   Future<void> _showCounterPicker() async {
-    final counterState = context.read<CounterBloc>().state;
-    if (counterState is! CounterLoaded) return;
+    final bloc = context.read<CounterBloc>();
+    var counterState = bloc.state;
+    if (counterState is! CounterLoaded && counterState is! CounterError) {
+      if (_counterLoadAwaited) return;
+      _counterLoadAwaited = true;
+      try {
+        counterState = await bloc.stream
+            .where((s) => s is CounterLoaded || s is CounterError)
+            .first
+            .timeout(const Duration(seconds: 2), onTimeout: () => bloc.state);
+      } on StateError {
+        // The bloc closed under the wait — the page leaving, or a database
+        // switch replacing it: there is nothing left to pick from.
+        return;
+      } finally {
+        _counterLoadAwaited = false;
+      }
+      if (!mounted) return;
+    }
+    if (counterState is CounterError) {
+      CustomSnackbar.showError(
+        context,
+        AppLocalizations.of(context)!.counterLoadError,
+        withToolbarOffset: true,
+      );
+      return;
+    }
+    if (counterState is! CounterLoaded) {
+      _showNotCounted();
+      return;
+    }
 
     final selected = await AppDialogs.counterPicker(
       context,
@@ -63,14 +106,26 @@ mixin _NoteEditorToolbar on _NoteEditorTaps {
       selected.id,
       CounterOp.increment,
     );
+    if (!mounted) return;
     // Nothing was counted, so the note is not told a number.
-    if (currentValue == null || !mounted) return;
+    if (currentValue == null) {
+      _showNotCounted();
+      return;
+    }
     _edits.runGuarded(() {
       _contentController.runRevocableOp(() {
         _contentController.replaceSelection(currentValue.toString());
       });
     });
     _onTextChanged();
+  }
+
+  void _showNotCounted() {
+    CustomSnackbar.showError(
+      context,
+      AppLocalizations.of(context)!.counterPickerNotCounted,
+      withToolbarOffset: true,
+    );
   }
 
   /// Wraps the current editor selection as ghost text (`{{ … }}`). With

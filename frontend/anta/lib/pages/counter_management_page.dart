@@ -546,6 +546,7 @@ class _CounterCardState extends State<_CounterCard> {
               step: result.step,
               scope: result.scope,
             ),
+            previous: counter,
           ),
         );
         break;

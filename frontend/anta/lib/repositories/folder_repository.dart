@@ -427,18 +427,38 @@ class FolderRepository {
   /// returned for the note side to drop and announce
   /// (`NoteRepository.announceCascadeDeleted`), which this repository does
   /// not hold.
-  Future<FolderCascade> deleteFolder(String id) async {
-    final folder = await getFolderById(id);
+  Future<FolderCascade> deleteFolder(String id) => deleteFolders([id]);
 
-    final cascade = await _folderDao.softDeleteFolderWithDescendants(id);
+  /// [deleteFolder] for a whole selection, as one cascade: every subtree is
+  /// tombstoned in one transaction or none is
+  /// (`FolderDao.softDeleteFoldersWithDescendants`).
+  Future<FolderCascade> deleteFolders(List<String> ids) async {
+    if (ids.isEmpty) {
+      return (
+        folderIds: const <String>[],
+        noteFolders: const <String, String>{},
+        tombstonesPassed: const <String>[],
+      );
+    }
+    final picked = [for (final id in ids) (id, await getFolderById(id))];
 
-    _folderCache.remove(id);
-    for (final folderId in cascade.folderIds) {
+    final cascade = await _folderDao.softDeleteFoldersWithDescendants(ids);
+
+    for (final id in ids) {
+      _folderCache.remove(id);
+    }
+    // A folder deleted already is keyed too: the live rows the cascade found
+    // under it may sit in its cached list and count.
+    for (final folderId in [
+      ...cascade.folderIds,
+      ...cascade.tombstonesPassed,
+    ]) {
       _folderCache.remove(folderId);
       _invalidateParentCache(folderId);
     }
     shareCensus.forgetIfShared();
-    if (folder != null) {
+    for (final (id, folder) in picked) {
+      if (folder == null) continue;
       _invalidateParentCache(folder.parentId);
 
       // Emit change event for reactive updates

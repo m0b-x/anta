@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/move_coordinator.dart';
 import '../services/move_history_service.dart';
 import 'app_dialogs.dart';
+import 'automation_id.dart';
 
 void showMoveHistorySheet(BuildContext context) {
   showModalBottomSheet(
@@ -69,65 +71,82 @@ class _MoveHistorySheetState extends State<_MoveHistorySheet> {
       minChildSize: 0.3,
       maxChildSize: 0.75,
       expand: false,
-      builder: (context, scrollController) => Column(
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
+      builder: (context, scrollController) => Semantics(
+        container: true,
+        // Without it the title and the empty line would merge into the
+        // sheet-wide node and be read as one stop.
+        explicitChildNodes: true,
+        identifier: SemanticsIds.moveHistorySheet,
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Icon(Icons.history, color: colorScheme.onSurfaceVariant),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    l10n.moveHistory,
-                    style: Theme.of(context).textTheme.titleMedium,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Icon(Icons.history, color: colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      l10n.moveHistory,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                   ),
-                ),
-                if (history.isNotEmpty)
-                  TextButton(
-                    onPressed: _confirmClear,
-                    child: Text(l10n.clearHistory),
-                  ),
-              ],
-            ),
-          ),
-          const Divider(),
-          Expanded(
-            child: history.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        l10n.noMoveHistory,
-                        style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  if (history.isNotEmpty)
+                    AutomationId(
+                      identifier: SemanticsIds.moveHistoryClear,
+                      child: TextButton(
+                        onPressed: _confirmClear,
+                        child: Text(l10n.clearHistory),
                       ),
                     ),
-                  )
-                : ListView.builder(
-                    controller: scrollController,
-                    itemCount: history.length,
-                    itemBuilder: (context, index) {
-                      final entry = history[index];
-                      return _buildEntry(context, entry, colorScheme, l10n);
-                    },
-                  ),
-          ),
-        ],
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: history.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          l10n.noMoveHistory,
+                          style: TextStyle(color: colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: history.length,
+                      itemBuilder: (context, index) {
+                        final entry = history[index];
+                        return _buildEntry(
+                          context,
+                          index,
+                          entry,
+                          colorScheme,
+                          l10n,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildEntry(
     BuildContext context,
+    int index,
     MoveHistoryEntry entry,
     ColorScheme colorScheme,
     AppLocalizations l10n,
@@ -182,11 +201,18 @@ class _MoveHistorySheetState extends State<_MoveHistorySheet> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(Icons.undo, size: 20, color: colorScheme.primary),
-                  onPressed: () => MoveCoordinator.undoEntry(context, entry),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: l10n.undo,
+                AutomationId(
+                  identifier: SemanticsIds.moveHistoryUndo(index),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.undo,
+                      size: 20,
+                      color: colorScheme.primary,
+                    ),
+                    onPressed: () => MoveCoordinator.undoEntry(context, entry),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: l10n.undo,
+                  ),
                 ),
               ],
             ),

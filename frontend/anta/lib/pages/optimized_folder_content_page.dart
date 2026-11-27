@@ -1903,24 +1903,32 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.folder_outlined),
-              title: Text(l10n.sortFolders),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                AppNavigator.pop(context);
-                _showFolderSortOptions();
-              },
-            ),
-            if (widget.folderId != null)
-              ListTile(
-                leading: const Icon(Icons.note_outlined),
-                title: Text(l10n.sortNotes),
+            Semantics(
+              container: true,
+              identifier: SemanticsIds.browserSortOpenFolders,
+              child: ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(l10n.sortFolders),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   AppNavigator.pop(context);
-                  _showNoteSortOptions();
+                  _showFolderSortOptions();
                 },
+              ),
+            ),
+            if (widget.folderId != null)
+              Semantics(
+                container: true,
+                identifier: SemanticsIds.browserSortOpenNotes,
+                child: ListTile(
+                  leading: const Icon(Icons.note_outlined),
+                  title: Text(l10n.sortNotes),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    AppNavigator.pop(context);
+                    _showNoteSortOptions();
+                  },
+                ),
               ),
           ],
         ),
@@ -1957,6 +1965,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 ),
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortFolderNameAsc,
                 icon: Icons.sort_by_alpha,
                 title: '${l10n.sortByName} (A-Z)',
                 isSelected: _foldersSortOrder == FoldersSortOrder.nameAsc,
@@ -1966,6 +1975,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortFolderNameDesc,
                 icon: Icons.sort_by_alpha,
                 title: '${l10n.sortByName} (Z-A)',
                 isSelected: _foldersSortOrder == FoldersSortOrder.nameDesc,
@@ -1975,6 +1985,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortFolderCreatedDesc,
                 icon: Icons.calendar_today,
                 title: '${l10n.sortByCreated} (${l10n.descending})',
                 isSelected: _foldersSortOrder == FoldersSortOrder.createdDesc,
@@ -1984,6 +1995,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortFolderCreatedAsc,
                 icon: Icons.calendar_today,
                 title: '${l10n.sortByCreated} (${l10n.ascending})',
                 isSelected: _foldersSortOrder == FoldersSortOrder.createdAsc,
@@ -1993,6 +2005,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortFolderLabel,
                 icon: Icons.label_outline,
                 title: l10n.sortByLabel,
                 isSelected: _foldersSortOrder == FoldersSortOrder.labelAsc,
@@ -2034,6 +2047,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 ),
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteTitleAsc,
                 icon: Icons.sort_by_alpha,
                 title: '${l10n.sortByTitle} (A-Z)',
                 isSelected: _notesSortOrder == NotesSortOrder.titleAsc,
@@ -2043,6 +2057,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteTitleDesc,
                 icon: Icons.sort_by_alpha,
                 title: '${l10n.sortByTitle} (Z-A)',
                 isSelected: _notesSortOrder == NotesSortOrder.titleDesc,
@@ -2052,6 +2067,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteUpdatedDesc,
                 icon: Icons.update,
                 title: '${l10n.sortByUpdated} (${l10n.descending})',
                 isSelected: _notesSortOrder == NotesSortOrder.updatedDesc,
@@ -2061,6 +2077,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteUpdatedAsc,
                 icon: Icons.update,
                 title: '${l10n.sortByUpdated} (${l10n.ascending})',
                 isSelected: _notesSortOrder == NotesSortOrder.updatedAsc,
@@ -2070,6 +2087,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteCreatedDesc,
                 icon: Icons.calendar_today,
                 title: '${l10n.sortByCreated} (${l10n.descending})',
                 isSelected: _notesSortOrder == NotesSortOrder.createdDesc,
@@ -2079,6 +2097,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteCreatedAsc,
                 icon: Icons.calendar_today,
                 title: '${l10n.sortByCreated} (${l10n.ascending})',
                 isSelected: _notesSortOrder == NotesSortOrder.createdAsc,
@@ -2088,6 +2107,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                 },
               ),
               _buildSortOption(
+                identifier: SemanticsIds.browserSortNoteLabel,
                 icon: Icons.label_outline,
                 title: l10n.sortByLabel,
                 isSelected: _notesSortOrder == NotesSortOrder.labelAsc,
@@ -2104,13 +2124,14 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   }
 
   Widget _buildSortOption({
+    required String identifier,
     required IconData icon,
     required String title,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
-    return ListTile(
+    final tile = ListTile(
       leading: Icon(icon, color: isSelected ? colorScheme.primary : null),
       title: Text(
         title,
@@ -2124,6 +2145,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
           : null,
       onTap: onTap,
     );
+    return Semantics(container: true, identifier: identifier, child: tile);
   }
 
   void _sortFoldersBy(FoldersSortOrder order) {

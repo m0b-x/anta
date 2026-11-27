@@ -69,12 +69,27 @@ class DatabaseIndexes {
     );
   }
 
-  /// The body search index's two tables on a fresh install and in the v50
-  /// step, which recreates the FTS table in this shape (the v48 step keeps
-  /// its one-column DDL frozen in its own copy). Defensive: a SQLite without
-  /// the trigram tokenizer refuses the virtual table, the database must open
-  /// regardless, and the indexer reads the table's absence as "search the
-  /// old way".
+  /// The body search index's two tables as they stand now: a fresh install,
+  /// and `NoteSearchDao.createTables`' repair. Each step that shaped the
+  /// ledger spells it in its own frozen copy; only the FTS table is shared,
+  /// with v50 ([createBodyFtsTable]).
+  ///
+  /// The ledger's `tags` (v57) is last and nullable, as the v57 step's
+  /// `ALTER` adds it: NULL is a note whose tags were never read.
+  Future<void> createBodySearchTables() async {
+    await _db.customStatement(
+      'CREATE TABLE IF NOT EXISTS note_search_ledger ('
+      'note_rowid INTEGER PRIMARY KEY, note_id TEXT NOT NULL, '
+      'indexed_hlc TEXT NOT NULL, fingerprint TEXT NOT NULL, tags TEXT)',
+    );
+    await createBodyFtsTable();
+  }
+
+  /// The body index's FTS table on a fresh install and in the v50 step, the
+  /// newest to define it (the v48 step keeps its one-column DDL frozen in its
+  /// own copy). Defensive: a SQLite without the trigram tokenizer refuses the
+  /// virtual table, the database must open regardless, and the indexer reads
+  /// the table's absence as "search the old way".
   ///
   /// Three columns, in the order the quick search's `bm25()` weighs them:
   /// `title` (the title's tokens alone, so a title hit can outrank a body
@@ -85,12 +100,7 @@ class DatabaseIndexes {
   /// `case_sensitive 1` because the projection is folded and lower-cased in
   /// Dart before it is stored, as the query is: SQLite's own case folding
   /// could only make two strings Dart keeps apart match.
-  Future<void> createBodySearchTables() async {
-    await _db.customStatement(
-      'CREATE TABLE IF NOT EXISTS note_search_ledger ('
-      'note_rowid INTEGER PRIMARY KEY, note_id TEXT NOT NULL, '
-      'indexed_hlc TEXT NOT NULL, fingerprint TEXT NOT NULL)',
-    );
+  Future<void> createBodyFtsTable() async {
     try {
       await _db.customStatement(
         'CREATE VIRTUAL TABLE IF NOT EXISTS note_body_fts USING fts5('

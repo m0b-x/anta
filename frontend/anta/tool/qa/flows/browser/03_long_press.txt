@@ -1,0 +1,32 @@
+# A row's long-press sheet, a folder's and a note's: every action of the
+# person's own row by its id, the colour strip's band with its eight
+# swatches, and back closing the sheet on the page it was raised from.
+# - Not paired, so neither the share entry nor "Copy to my notes" is
+#   drawn: both are checked absent.
+# - In Week 1 each note's preview names the other ("Next one is
+#   [[Session 2]]"), so a title matches two rows: Session 2 sorts first
+#   (last updated) and is the first match. A row is told by a word only
+#   its own preview holds (Squat, Deadlift).
+wait "Training"
+longpress "Training"
+wait id:row-action-select
+expect id:row-action-labels id:label-swatch-none id:label-swatch-red id:label-swatch-orange id:label-swatch-yellow id:label-swatch-green id:label-swatch-teal id:label-swatch-blue id:label-swatch-pink
+expect id:row-action-rename id:row-action-move id:row-action-send-copy id:row-action-delete --absent id:row-action-share --absent id:row-action-copy-to-mine
+look 03_folder_sheet
+key back
+wait id:row-action-select --gone
+expect id:create-folder "Training" "Money" "Inbox"
+tap "Training"
+wait id:create-note
+wait "Week 1"
+tap "Week 1"
+expect "Squat" "Deadlift" --timeout 10
+longpress "Session 2" --nth 0
+wait id:row-action-select
+expect id:row-action-labels id:label-swatch-none id:label-swatch-red id:label-swatch-orange id:label-swatch-yellow id:label-swatch-green id:label-swatch-teal id:label-swatch-blue id:label-swatch-pink
+expect id:row-action-rename id:row-action-move id:row-action-send-copy id:row-action-delete --absent id:row-action-share --absent id:row-action-copy-to-mine
+look 03_note_sheet
+key back
+wait id:row-action-select --gone
+expect id:create-note "Squat" "Deadlift"
+errors

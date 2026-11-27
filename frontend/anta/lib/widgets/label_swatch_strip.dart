@@ -203,6 +203,7 @@ class _LabelSwatch extends StatelessWidget {
     );
 
     return Semantics(
+      identifier: SemanticsIds.labelSwatch(label.storageName),
       button: true,
       selected: selected,
       label: name,

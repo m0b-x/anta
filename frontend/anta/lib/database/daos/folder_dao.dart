@@ -30,13 +30,17 @@ typedef FolderImportEntry = ({
   String? ownerId,
 });
 
-/// What one [FolderDao.softDeleteFolderWithDescendants] tombstoned: the
+/// What one [FolderDao.softDeleteFoldersWithDescendants] tombstoned: the
 /// folders, and the notes by id with the folder each lay in — handed back so
 /// the repositories drop and announce exactly those rows, which no read
 /// after the delete can find again (every live-folder walk skips them).
+/// [tombstonesPassed] are the folders of the subtrees that were deleted
+/// already: written nothing, but live rows found under them went with the
+/// cascade, so whatever is cached by them is stale too.
 typedef FolderCascade = ({
   List<String> folderIds,
   Map<String, String> noteFolders,
+  List<String> tombstonesPassed,
 });
 
 @DriftAccessor(tables: [Folders])
@@ -442,6 +446,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// deleted the folder" and brought the folder's notes back everywhere
   /// (P fix pass PF-H1). A move takes [moveFolder]'s rule
   /// ([refusesParent]); a refused one writes nothing, the rename with it.
+  /// A move lands after the new parent's last live folder, as [moveFolder]'s
+  /// does (review B11): the old position, kept, would tie or interleave with
+  /// the new siblings' order on every device.
   Future<Folder?> updateFolder({
     required String id,
     String? name,
@@ -459,12 +466,16 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       if (moves && await refusesParent(id, parentId)) return null;
 
       final landing = moves ? await _landing(id, parentId) : null;
+      final position = moves
+          ? nextPosition(await _maxLivePosition(parentId))
+          : null;
       final now = DateTime.now();
       final stamp = await db.stampLocal(folders, id);
 
       final companion = FoldersCompanion(
         name: name != null ? Value(name) : const Value.absent(),
         parentId: updateParent ? Value(parentId) : const Value.absent(),
+        position: position != null ? Value(position) : const Value.absent(),
         updatedAt: Value(now),
         hlcTimestamp: Value(stamp.hlc),
         deviceId: Value(stamp.deviceId),
@@ -556,17 +567,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final landing = await _landing(id, targetParentId);
       final now = DateTime.now();
       final stamp = await db.stampLocal(folders, id);
-
-      final maxPosQuery = selectOnly(folders)
-        ..addColumns([folders.position.max()]);
-      if (targetParentId == null) {
-        maxPosQuery.where(folders.parentId.isNull());
-      } else {
-        maxPosQuery.where(folders.parentId.equals(targetParentId));
-      }
-      maxPosQuery.where(folders.isDeleted.equals(false));
-      final maxPosResult = await maxPosQuery.getSingle();
-      final maxPos = maxPosResult.read(folders.position.max());
+      final maxPos = await _maxLivePosition(targetParentId);
 
       await (update(folders)..where((f) => f.id.equals(id))).write(
         FoldersCompanion(
@@ -969,8 +970,18 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return [for (final row in rows) row.read<String>('id')];
   }
 
-  Future<FolderCascade> softDeleteFolderWithDescendants(String folderId) {
-    // Collect the full id set in one CTE query, then issue two UPDATE
+  Future<FolderCascade> softDeleteFolderWithDescendants(String folderId) =>
+      softDeleteFoldersWithDescendants([folderId]);
+
+  /// Tombstones every folder of [roots] with its whole subtree, in one
+  /// transaction under one HLC (review B9): a selection deleted folder by
+  /// folder committed each subtree on its own, so a failure half-way left
+  /// part of it deleted and synced, and every folder took its own stamp
+  /// where [moveFolders] and [applyOrder] give a selection one. A folder
+  /// picked beside its own ancestor is written once.
+  Future<FolderCascade> softDeleteFoldersWithDescendants(List<String> roots) {
+    // Collect the full id set with one walk statement per round (one round
+    // per layer of tombstones it passes, usually one), then issue two UPDATE
     // statements per id batch, all inside a single transaction:
     //  (1) soft-delete every note whose folder is in the set
     //  (2) soft-delete every folder in the set
@@ -980,7 +991,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       // Read inside the transaction: a subfolder a sync merge inserted
       // between an outer read and the writes would stay live under a
       // tombstoned parent.
-      final descendantIds = [folderId, ...await getAllDescendantIds(folderId)];
+      final walk = await _subtreesThroughTombstones(roots);
+      final descendantIds = walk.ids;
       final now = DateTime.now();
       final stamp = db.newStamp();
 
@@ -1064,8 +1076,87 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         stamp.hlc,
         op: OutboxOp.tombstone,
       );
-      return (folderIds: folderIds, noteFolders: noteFolders);
+      return (
+        folderIds: folderIds,
+        noteFolders: noteFolders,
+        tombstonesPassed: walk.tombstones,
+      );
     });
+  }
+
+  /// [roots] and every folder under them, each once, walked through
+  /// tombstones (review B8): the merge never cascades, so a live folder or
+  /// note can lie under a folder another device deleted, and a walk that a
+  /// tombstone ends ([getAllDescendantIds]) would leave it live under its
+  /// deleted ancestor. [tombstones] are the folders among them that were
+  /// deleted already; the cascade's updates skip them, and the caches keyed
+  /// by them still drop the live rows found under them.
+  ///
+  /// One statement per round: the live subtrees of the round's seeds,
+  /// sought on `idx_folders_position` as [getAllDescendantIds] seeks them,
+  /// then the folder tombstones whose parent the round reached, read in one
+  /// pass of the table — the index is partial on live rows, and a tombstone
+  /// step inside the recursion searched every tombstone once per folder it
+  /// reached. Those tombstones seed the next round, so there is one round
+  /// per layer of them, usually one; a tombstone already walked is never a
+  /// seed again, which ends a cycle through one.
+  ///
+  /// Reaches as deep as [getAllDescendantIds]: [maxFolderDepth] + 1 levels
+  /// below a root, tombstones counted. The seeds go
+  /// [AppConstants.sqlIdBatch] to a statement, each a pair of variables.
+  Future<({List<String> ids, List<String> tombstones})>
+  _subtreesThroughTombstones(List<String> roots) async {
+    const reach = maxFolderDepth + 1;
+    final depths = <String, int>{};
+    final tombstones = <String>[];
+    var seeds = {for (final id in roots) id: 0};
+    while (seeds.isNotEmpty) {
+      final found = <String, int>{};
+      final entries = seeds.entries.toList(growable: false);
+      for (var i = 0; i < entries.length; i += AppConstants.sqlIdBatch) {
+        final batch = entries.sublist(
+          i,
+          math.min(i + AppConstants.sqlIdBatch, entries.length),
+        );
+        final rows = await customSelect(
+          'WITH RECURSIVE s(id, depth) AS (VALUES '
+          '${List.filled(batch.length, '(?, ?)').join(', ')}), '
+          'd(id, depth, is_deleted) AS ('
+          '  SELECT f.id, s.depth, f.is_deleted FROM s '
+          '  JOIN folders f ON f.id = s.id '
+          '  UNION ALL '
+          '  SELECT f.id, d.depth + 1, 0 FROM folders f '
+          '  JOIN d ON f.parent_id = d.id '
+          '  WHERE f.is_deleted = 0 AND d.depth < $reach'
+          ') '
+          'SELECT id, depth, is_deleted, 0 AS found FROM d '
+          'UNION ALL '
+          // CROSS JOIN keeps the folders the outer loop: one pass of the
+          // table, each tombstone looked up among the reached rows.
+          'SELECT f.id, d.depth + 1, 1, 1 FROM folders f '
+          'CROSS JOIN d ON f.parent_id = d.id '
+          'WHERE f.is_deleted = 1 AND d.depth < $reach',
+          variables: [
+            for (final seed in batch) ...[
+              Variable<String>(seed.key),
+              Variable<int>(seed.value),
+            ],
+          ],
+          readsFrom: {folders},
+        ).get();
+        for (final row in rows) {
+          final id = row.read<String>('id');
+          if (row.read<int>('found') == 1) {
+            found.putIfAbsent(id, () => row.read<int>('depth'));
+          } else if (!depths.containsKey(id)) {
+            depths[id] = row.read<int>('depth');
+            if (row.read<int>('is_deleted') == 1) tombstones.add(id);
+          }
+        }
+      }
+      seeds = found..removeWhere((id, _) => depths.containsKey(id));
+    }
+    return (ids: depths.keys.toList(growable: false), tombstones: tombstones);
   }
 
   /// Returns true if a non-deleted folder with the same case-insensitive,
@@ -1169,11 +1260,19 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }
 
   /// Get total note count for a folder and all its descendants (for delete preview)
+  ///
+  /// Walked as the delete walks ([softDeleteFoldersWithDescendants]), through
+  /// tombstones: the confirm names the notes the delete will remove, those
+  /// a merge left under a folder deleted elsewhere included.
   Future<int> getNoteCountWithDescendants(String folderId) async {
-    final descendantIds = await getAllDescendantIds(folderId);
-    descendantIds.add(folderId);
-
-    return db.noteDao.getNoteCountInFolders(descendantIds);
+    final ids = (await _subtreesThroughTombstones([folderId])).ids;
+    var count = 0;
+    for (var i = 0; i < ids.length; i += AppConstants.sqlIdBatch) {
+      count += await db.noteDao.getNoteCountInFolders(
+        ids.sublist(i, math.min(i + AppConstants.sqlIdBatch, ids.length)),
+      );
+    }
+    return count;
   }
 
   Future<List<Folder>> getFoldersSince(String hlcTimestamp) {

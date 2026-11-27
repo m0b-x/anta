@@ -957,34 +957,63 @@ void main() {
       expect(await counters.increment(id, noteId: 'n1'), 10);
     });
 
-    test(
-      'that a value delete overtook does not bring the value back',
-      () async {
-        final hold = _HoldNoteRead('n1');
-        final held = await openTestDatabase(interceptor: hold);
-        addTearDown(held.close);
-        final counters = await CounterService.forTesting(held);
-        final id = await counters.addCounter(
-          name: 'Laps',
-          scope: CounterScope.perNote,
-          startValue: 0,
-        );
-        await counters.setValueForNote(id, 4, noteId: 'n1');
-        await counters.flush();
-        await counters.reload();
+    test('in flight when the value is deleted is waited for, and what it filed '
+        'is removed with the value', () async {
+      final hold = _HoldNoteRead('n1');
+      final held = await openTestDatabase(interceptor: hold);
+      addTearDown(held.close);
+      final counters = await CounterService.forTesting(held);
+      final id = await counters.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+        startValue: 0,
+      );
+      await counters.setValueForNote(id, 4, noteId: 'n1');
+      await counters.flush();
+      await counters.reload();
 
-        hold.armed = true;
-        final read = counters.getNoteValues('n1');
-        await hold.reached.future;
-        // The per-note page removes the note while the read holds its 4.
-        await counters.deleteNoteValue(id, 'n1');
-        hold.release.complete();
+      hold.armed = true;
+      final read = counters.getNoteValues('n1');
+      await hold.reached.future;
+      // The per-note page removes the note while the read holds its 4; the
+      // delete waits for the read and removes what it filed.
+      final deleting = counters.deleteNoteValue(id, 'n1');
+      hold.release.complete();
+      await deleting;
 
-        expect((await read).containsKey(id), isFalse);
-        expect(await counters.getValueForNote(id, 'n1'), 0);
-        expect(await counters.increment(id, noteId: 'n1'), 1);
-      },
-    );
+      expect((await read).containsKey(id), isFalse);
+      expect(await counters.getValueForNote(id, 'n1'), 0);
+      expect(await counters.increment(id, noteId: 'n1'), 1);
+    });
+
+    test('a tap waiting on it when the value is deleted counts first and is '
+        'removed with it (§4.4 left item)', () async {
+      final hold = _HoldNoteRead('n1');
+      final held = await openTestDatabase(interceptor: hold);
+      addTearDown(held.close);
+      final counters = await CounterService.forTesting(held);
+      final id = await counters.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+        startValue: 0,
+      );
+      await counters.setValueForNote(id, 4, noteId: 'n1');
+      await counters.flush();
+      await counters.reload();
+
+      hold.armed = true;
+      final tap = counters.increment(id, noteId: 'n1');
+      await hold.reached.future;
+      // The per-note page removes the note while the tap's read is out.
+      final deleting = counters.deleteNoteValue(id, 'n1');
+      hold.release.complete();
+      expect(await tap, 5);
+      await deleting;
+      await counters.flush();
+
+      expect(await held.counterDao.getValue(id, 'n1'), isNull);
+      expect(await counters.getValueForNote(id, 'n1'), 0);
+    });
   });
 
   group("the per-note page's read of a counter", () {
@@ -1056,6 +1085,114 @@ void main() {
       expect(live, isEmpty);
     },
   );
+
+  group('an edit writes only what the form edits (review C9)', () {
+    test('a pin a sync applied while the form was open stays', () async {
+      final id = await service.addCounter(name: 'Sets');
+      // What the page hands the form, and later the edit.
+      final captured = service.getCounterById(id)!;
+
+      // Pinned on another device; the pull lands beneath the open form.
+      await db.counterDao.setCounterPinned(id, true, positions: {id: 0});
+      await service.reload();
+
+      await service.updateCounter(captured.copyWith(name: 'Rounds'));
+
+      final row = (await db.counterDao.getAllCounters()).single;
+      expect(row.name, 'Rounds');
+      expect(row.isPinned, isTrue);
+      expect(service.getCounterById(id)!.isPinned, isTrue);
+    });
+
+    test('a pin and an order the pull wrote but memory has not read yet stay '
+        'in the table', () async {
+      final a = await service.addCounter(name: 'A');
+      final b = await service.addCounter(name: 'B');
+      final captured = service.getCounterById(b)!;
+
+      await db.counterDao.setCounterPinned(b, true, positions: {b: 0, a: 1});
+
+      await service.updateCounter(captured.copyWith(step: 3));
+
+      final rows = await db.counterDao.getAllCounters();
+      expect([for (final r in rows) r.id], [b, a]);
+      expect(rows.first.isPinned, isTrue);
+      expect(rows.first.position, 0);
+      expect(rows.first.step, 3);
+    });
+
+    test('a field the form left as it opened keeps what a pull wrote '
+        'meanwhile', () async {
+      final id = await service.addCounter(name: 'Sets');
+      final captured = service.getCounterById(id)!;
+
+      // Another device changed the step while the form was open.
+      await db.counterDao.updateCounter(
+        CountersCompanion(id: Value(id), step: const Value(5)),
+      );
+      await service.reload();
+
+      await service.updateCounter(
+        captured.copyWith(name: 'Rounds'),
+        previous: captured,
+      );
+
+      final row = (await db.counterDao.getAllCounters()).single;
+      expect(row.name, 'Rounds');
+      expect(row.step, 5);
+      expect(service.getCounterById(id)!.step, 5);
+    });
+
+    test('an edit that changes nothing the form opened with writes '
+        'nothing', () async {
+      final id = await service.addCounter(name: 'Sets');
+      final captured = service.getCounterById(id)!;
+      final before = (await db.counterDao.getAllCounters()).single.version;
+
+      await service.updateCounter(captured, previous: captured);
+
+      expect((await db.counterDao.getAllCounters()).single.version, before);
+    });
+  });
+
+  group('a drag keeps a row inside its pin group (review C10)', () {
+    Future<List<String>> stored() async => [
+      for (final r in await db.counterDao.getAllCounters()) r.id,
+    ];
+
+    test('an unpinned counter dropped above the pinned ones lands first '
+        'among the unpinned, in memory as in the table', () async {
+      final a = await service.addCounter(name: 'A');
+      final b = await service.addCounter(name: 'B');
+      final c = await service.addCounter(name: 'C');
+      await service.toggleCounterPin(c);
+      expect([for (final x in service.counters) x.id], [c, a, b]);
+
+      await service.reorderCounters(2, 0);
+
+      expect([for (final x in service.counters) x.id], [c, b, a]);
+      expect(await stored(), [c, b, a]);
+      await service.reload();
+      expect([for (final x in service.counters) x.id], [c, b, a]);
+    });
+
+    test('a pinned counter dropped below the unpinned ones lands last among '
+        'the pinned', () async {
+      final a = await service.addCounter(name: 'A');
+      final b = await service.addCounter(name: 'B');
+      final c = await service.addCounter(name: 'C');
+      await service.toggleCounterPin(b);
+      await service.toggleCounterPin(c);
+      final pinnedOrder = [for (final x in service.counters) x.id];
+      expect(pinnedOrder.last, a);
+
+      await service.reorderCounters(0, 2);
+
+      final expected = [pinnedOrder[1], pinnedOrder[0], a];
+      expect([for (final x in service.counters) x.id], expected);
+      expect(await stored(), expected);
+    });
+  });
 }
 
 /// Commits, then throws a SQLite I/O error while [armed]: the writes are

@@ -48,6 +48,26 @@ void main() {
     );
   });
 
+  test('the cached list of a folder deleted elsewhere drops the live folder '
+      'the delete found under it', () async {
+    final a = await storage.createFolder(name: 'A');
+    final middle = await storage.createFolder(name: 'M', parentId: a.id);
+    final stranded = await storage.createFolder(name: 'S', parentId: middle.id);
+    // Deleted on another device while S was written here: the merge never
+    // cascades.
+    await db.customStatement('UPDATE folders SET is_deleted = 1 WHERE id = ?', [
+      middle.id,
+    ]);
+    expect(
+      [for (final f in await folders.getFoldersByParent(middle.id)) f.id],
+      [stranded.id],
+    );
+
+    await storage.deleteFolder(a.id);
+
+    expect(await folders.getFoldersByParent(middle.id), isEmpty);
+  });
+
   test('the notes a folder delete tombstoned leave every note cache and are '
       'announced as local deletions', () async {
     final a = await storage.createFolder(name: 'A');
@@ -120,4 +140,82 @@ void main() {
       );
     },
   );
+
+  group('a bulk folder delete is one unit (B9)', () {
+    test('a failure on one picked folder deletes none of them', () async {
+      final a = await storage.createFolder(name: 'A');
+      final inA = await notes.createNote(
+        folderId: a.id,
+        title: 'a',
+        content: 'a',
+        preview: 'a',
+        contentLength: 1,
+        isCompressed: false,
+      );
+      final b = await storage.createFolder(name: 'B');
+      await db.customStatement(
+        'CREATE TEMP TRIGGER refuse_b BEFORE UPDATE ON folders '
+        "WHEN NEW.id = '${b.id}' BEGIN SELECT RAISE(ABORT, 'refused'); END",
+      );
+      await db.syncOutboxDao.clear();
+
+      await expectLater(storage.deleteFolders([a.id, b.id]), throwsA(anything));
+
+      expect((await db.folderDao.getFolderById(a.id))!.isDeleted, isFalse);
+      expect((await db.noteDao.getNoteById(inA.id))!.isDeleted, isFalse);
+      expect(await db.syncOutboxDao.pending(limit: 10), isEmpty);
+      expect(
+        await storage.getFolderById(a.id, includeDeleted: false),
+        isNotNull,
+      );
+    });
+
+    test('every folder and note of the selection takes one stamp, each '
+        'queued once', () async {
+      final a = await storage.createFolder(name: 'A');
+      final child = await storage.createFolder(name: 'C', parentId: a.id);
+      final b = await storage.createFolder(name: 'B');
+      final inB = await notes.createNote(
+        folderId: b.id,
+        title: 'b',
+        content: 'b',
+        preview: 'b',
+        contentLength: 1,
+        isCompressed: false,
+      );
+      await db.syncOutboxDao.clear();
+      final events = <FolderChange>[];
+      final subscription = folders.folderChanges.listen(events.add);
+
+      // The child is picked beside its parent, as a selection can hold both.
+      await storage.deleteFolders([a.id, child.id, b.id]);
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      final rows = [
+        for (final id in [a.id, child.id, b.id])
+          (await db.folderDao.getFolderById(id))!,
+      ];
+      final note = (await db.noteDao.getNoteById(inB.id))!;
+      expect(rows.every((f) => f.isDeleted), isTrue);
+      expect(note.isDeleted, isTrue);
+      expect({
+        for (final f in rows) f.hlcTimestamp,
+        note.hlcTimestamp,
+      }, hasLength(1));
+      expect(
+        [for (final f in rows) f.version],
+        everyElement(2),
+        reason: 'a folder picked beside its parent is written once',
+      );
+      final queued = await db.syncOutboxDao.pending(limit: 10);
+      expect([
+        for (final row in queued) row.rowKey,
+      ], unorderedEquals([a.id, child.id, b.id, inB.id]));
+      expect([
+        for (final e in events)
+          if (e.type == FolderChangeType.deleted) e.folderId,
+      ], unorderedEquals([a.id, child.id, b.id]));
+    });
+  });
 }

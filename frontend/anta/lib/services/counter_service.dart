@@ -49,9 +49,9 @@ class CounterService {
 
   /// The cold read of a note in flight, shared by every caller that arrives
   /// before it lands — see [_noteValuesCache]. A read files what it read
-  /// only while it is still its note's entry here: [_load] and
-  /// [deleteNoteValue] drop the entry, because the table that read answered
-  /// is no longer the one memory should show.
+  /// only while it is still its note's entry here: [_load] drops the entry,
+  /// because the table that read answered is no longer the one memory
+  /// should show. [deleteNoteValue] waits for it instead.
   final Map<String, Future<void>> _noteReads = {};
 
   // ---------------------------------------------------------------------------
@@ -391,17 +391,58 @@ class CounterService {
     return id;
   }
 
-  Future<void> updateCounter(Counter updated) async {
+  /// Takes the form's fields from [updated] — name, start, step, scope — and
+  /// nothing else: the page captured [updated] before its form opened, and a
+  /// sync pull since may have pinned or moved the counter. Writing the
+  /// captured pin and position under a fresh stamp would undo that on every
+  /// device (review C9).
+  ///
+  /// With [previous], the counter as the form opened on it, a field the
+  /// person left as it was is not written either: a pull may have changed
+  /// it meanwhile, and the form's copy is older.
+  Future<void> updateCounter(Counter updated, {Counter? previous}) async {
     final index = _counters.indexWhere((c) => c.id == updated.id);
     if (index < 0) return;
-    _counters[index] = updated;
-    _counterIndex[updated.id] = updated;
-    await _dao.updateCounter(_counterToCompanion(updated, index));
+    Value<T> edit<T>(T Function(Counter c) field) =>
+        previous == null || field(updated) != field(previous)
+        ? Value(field(updated))
+        : const Value.absent();
+    final name = edit((c) => c.name);
+    final startValue = edit((c) => c.startValue);
+    final step = edit((c) => c.step);
+    final scope = edit((c) => c.scope);
+    final edited = _counters[index].copyWith(
+      name: name.present ? name.value : null,
+      startValue: startValue.present ? startValue.value : null,
+      step: step.present ? step.value : null,
+      scope: scope.present ? scope.value : null,
+    );
+    _counters[index] = edited;
+    _counterIndex[edited.id] = edited;
+    await _dao.updateCounter(
+      CountersCompanion(
+        id: Value(edited.id),
+        name: name,
+        startValue: startValue,
+        step: step,
+        scope: scope.present ? Value(scope.value.name) : const Value.absent(),
+      ),
+    );
   }
 
+  /// A drop outside the dragged counter's pin group lands at that group's
+  /// edge: the list is read back pinned first whatever the positions say,
+  /// so a row dropped among the other group would jump back at the next
+  /// reload (review C10). [newIndex] is the index after the removal.
   Future<void> reorderCounters(int oldIndex, int newIndex) async {
     final counter = _counters.removeAt(oldIndex);
-    _counters.insert(newIndex, counter);
+    final pinnedOthers = _counters.where((c) => c.isPinned).length;
+    _counters.insert(
+      counter.isPinned
+          ? newIndex.clamp(0, pinnedOthers)
+          : newIndex.clamp(pinnedOthers, _counters.length),
+      counter,
+    );
     _rebuildIndex();
 
     final positions = <String, int>{};
@@ -425,14 +466,29 @@ class CounterService {
 
   /// Inside the flush queue: a flush in flight writes its value back into
   /// the note's cache when it ends, and would put the deleted one back.
+  ///
+  /// A cold read of the note in flight is waited for, not dropped: a tap
+  /// waiting on it was made before the delete, and a dropped read sent it to
+  /// read again after the delete, so it counted from the start value and
+  /// brought the row back. Waited for, the tap counts first on the value it
+  /// read and is removed with it.
   Future<void> deleteNoteValue(String counterId, String noteId) =>
       _serialized(() async {
+        for (
+          var read = _noteReads[noteId];
+          read != null;
+          read = _noteReads[noteId]
+        ) {
+          try {
+            await read;
+          } catch (_) {
+            // The read's failure is its caller's; the delete goes on.
+          }
+        }
         _noteValuesCache[noteId]?.remove(counterId);
         // A pending tap is written over the stored value, and would bring the
-        // deleted one back; so would a cold read of the note that answered
-        // before the delete, and the next read is queued behind it.
+        // deleted one back.
         _dirtyNoteValues.remove((counterId, noteId));
-        _noteReads.remove(noteId);
         await _dao.deleteValue(counterId, noteId);
       });
 
@@ -518,7 +574,7 @@ class CounterService {
   Future<Map<String, int>> getNoteValues(String noteId) async {
     while (true) {
       if (_noteValuesCache[noteId] case final cached?) return cached;
-      // Not filed when a reload or a delete dropped it: the loop reads again.
+      // Not filed when a reload dropped it: the loop reads again.
       await (_noteReads[noteId] ??= _readNoteValues(noteId));
     }
   }

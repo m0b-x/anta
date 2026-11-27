@@ -372,18 +372,18 @@ class FolderStorageService {
 
   /// Deletes a whole selection of folders, each with its subtree.
   ///
-  /// One call rather than one per picked row: the cascade is already per
-  /// folder in the DAO, so what this saves is the reload cycle the page used
-  /// to pay for every item it deleted. Throws `SharedRowException`, deleting
-  /// nothing, when one is a partner's.
+  /// One call rather than one per picked row, and one transaction under one
+  /// stamp (review B9): a failure deletes none of [folderIds], where one
+  /// transaction per folder kept, and synced, the folders before it. A
+  /// selection of folders and notes is still two units: its notes go by
+  /// their own call. Throws `SharedRowException`, deleting nothing, when one
+  /// is a partner's.
   Future<void> deleteFolders(List<String> folderIds) async {
     if (folderIds.isEmpty) return;
     await initialize();
     await ensureOwn(folderIds);
-    for (final folderId in folderIds) {
-      final cascade = await _repository.deleteFolder(folderId);
-      _notes?.announceCascadeDeleted(cascade.noteFolders);
-    }
+    final cascade = await _repository.deleteFolders(folderIds);
+    _notes?.announceCascadeDeleted(cascade.noteFolders);
   }
 
   /// Throws `SharedRowException` for a partner's folder, or a partner's

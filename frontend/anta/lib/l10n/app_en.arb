@@ -4680,6 +4680,14 @@
   "@step": {
     "description": "Label for counter increment step"
   },
+  "counterNumberInvalid": "Enter a whole number",
+  "@counterNumberInvalid": {
+    "description": "Error under the counter form's start value or step field while it does not hold a whole number; Save is held meanwhile"
+  },
+  "counterStepZero": "Step can't be 0",
+  "@counterStepZero": {
+    "description": "Error under the counter form's step field when it holds 0, a step no tap would move; Save is held meanwhile"
+  },
   "counterScope": "Counter Scope",
   "@counterScope": {
     "description": "Label for counter scope selection"
@@ -4825,6 +4833,10 @@
   "counterNotFound": "This counter no longer exists",
   "@counterNotFound": {
     "description": "Shown on the per-note values page when its counter is gone, for example deleted on another device"
+  },
+  "counterPickerNotCounted": "Not counted — nothing inserted",
+  "@counterPickerNotCounted": {
+    "description": "Snackbar in the note editor when the counter picker's choice could not be counted (the counters not loaded, the counter gone, a write that failed), so no number was written into the note"
   },
   "counterRetry": "Retry",
   "@counterRetry": {

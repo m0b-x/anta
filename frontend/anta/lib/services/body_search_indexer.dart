@@ -69,16 +69,26 @@ Iterable<List<T>> pagesByBytes<T>(
   if (page.isNotEmpty) yield page;
 }
 
-List<({String body, String title, String tags})> _projectAll(
-  List<(String, String)> notes,
-) => [
-  for (final (title, body) in notes)
-    (
-      body: searchProjection(title, body),
-      title: titleProjection(title),
-      tags: tagProjection(body),
-    ),
+typedef _Projected = ({
+  String body,
+  String title,
+  String tags,
+  String ledgerTags,
+});
+
+List<_Projected> _projectAll(List<(String, String)> notes) => [
+  for (final (title, body) in notes) _project(title, body),
 ];
+
+_Projected _project(String title, String body) {
+  final tags = tagColumns(body);
+  return (
+    body: searchProjection(title, body),
+    title: titleProjection(title),
+    tags: tags.projection,
+    ledgerTags: tags.spelled,
+  );
+}
 
 /// Keeps the device-local body index (`note_body_fts`, `NoteSearchDao`) in
 /// step with the notes, lazily and off the typing path
@@ -108,6 +118,11 @@ class BodySearchIndexer {
   bool _closed = false;
   Future<bool>? _available;
   Future<void>? _drain;
+
+  /// Held while the running drain is still bringing the projections up to
+  /// date, and dropped before it fills the tags v57 left unread: a search
+  /// waits on this part alone, since the tags change none of its answers.
+  Completer<void>? _indexing;
 
   BodySearchIndexer({
     required AppDatabase database,
@@ -182,6 +197,20 @@ class BodySearchIndexer {
   /// open.
   static void markActiveDirty() => _instance?._dirty = true;
 
+  /// [catchUp] on the active database's indexer, for a caller that wants
+  /// what is read from the ledger current without owning the index — the
+  /// tag catalog, as an editor opens. Free when no indexer is open: never
+  /// opens one, and a launch's own drain covers a note opened before it.
+  static void catchUpActive() => _instance?.catchUp();
+
+  /// Fires after each page a drain stored and after an orphan sweep that
+  /// dropped any row — never for a drain that only settled label and move
+  /// stamps — and whenever a path that forgets notes removes their ledger
+  /// rows itself ([NoteSearchDao.ledgerChanged]), so what is read from the
+  /// ledger (the tag catalog) reads again as the drain goes. Outlives the
+  /// indexer a database switch replaces.
+  static Stream<void> get changes => NoteSearchDao.ledgerChanges;
+
   /// Begins a drain in the background when anything may have moved.
   void start() {
     if (_dirty) unawaited(drain());
@@ -196,18 +225,34 @@ class BodySearchIndexer {
   /// Completes when no drain is running.
   Future<void> whenIdle() => _drain ?? Future<void>.value();
 
+  /// Completes once the projections are current — the moment a search that
+  /// came back incomplete is worth running again: at the end of the running
+  /// drain's index pages, at once when only its tag pages remain, and at the
+  /// end of the drain when a note moved after its index pages, since only
+  /// the drain after it projects that note.
+  Future<void> whenIndexed() {
+    final indexing = _indexing;
+    if (indexing != null) return indexing.future;
+    return _dirty ? whenIdle() : Future<void>.value();
+  }
+
   /// Drains, but answers by [budget] at the latest: true when the index is
-  /// up to date, false when the drain is still running behind the answer.
+  /// up to date, false when the drain is still projecting behind the
+  /// answer. A drain past its index pages, filling tags alone, holds no
+  /// answer back.
   ///
-  /// With no drain running, one statement asks the ledger whether any note
-  /// moved since it was indexed — so an edit is never missed for want of a
-  /// flag that the change reached the right indexer, and a search costs one
-  /// probe when nothing did.
+  /// With no drain projecting, one statement asks the ledger whether any
+  /// note moved since it was indexed — so an edit is never missed for want
+  /// of a flag that the change reached the right indexer, and a search costs
+  /// one probe when nothing did.
   Future<bool> ensureFresh(Duration budget) async {
-    if (_drain == null && !_dirty) {
+    if (_indexing == null && !_dirty) {
       if (!await _isAvailable() || !await _dao.hasPendingWork()) return true;
+      // A drain filling tags is past its index pages: the flag tells
+      // [whenIndexed] the moved note waits for the drain after it.
+      _dirty = true;
     }
-    final drained = drain().then((_) => true);
+    final drained = _projected().then((_) => true);
     final expired = Completer<bool>();
     final timer = Timer(budget, () => expired.complete(false));
     try {
@@ -215,6 +260,19 @@ class BodySearchIndexer {
     } finally {
       timer.cancel();
     }
+  }
+
+  /// Completes once a drain has projected what moved: the running drain's
+  /// index pages, or — when it is past them, filling tags — the next
+  /// drain's. Never more than that next one, so a drain that keeps failing
+  /// cannot keep this running behind an answer that has expired.
+  Future<void> _projected() async {
+    final running = drain();
+    final indexing = _indexing;
+    if (indexing != null) return indexing.future;
+    await running;
+    final next = drain();
+    await (_indexing?.future ?? next);
   }
 
   /// The live notes that may match [words] and carry every one of [tags]
@@ -249,12 +307,13 @@ class BodySearchIndexer {
     if (_dirty) unawaited(drain());
   }
 
-  /// Whether a drain is running, so a keystroke's answer may grow once it
-  /// settles. Read without a statement. A dirty index with no drain is not
-  /// behind in this sense: nothing would settle, and a re-run would only
-  /// repeat the same query — it waits for the next open or full search,
-  /// and the newest-notes scan covers fresh local edits meanwhile.
-  bool get mayBeBehind => _drain != null;
+  /// Whether a drain is still projecting notes, so a keystroke's answer may
+  /// grow once it settles. Read without a statement. A drain filling tags
+  /// alone is not behind: no answer would change. Nor is a dirty index with
+  /// no drain: nothing would settle, and a re-run would only repeat the same
+  /// query — it waits for the next open or full search, and the
+  /// newest-notes scan covers fresh local edits meanwhile.
+  bool get mayBeBehind => _indexing != null;
 
   /// The quick search's hits, best first: the matches of [titleMatch] (an
   /// FTS5 expression confined to the `title` column) cut to [limit], then
@@ -335,9 +394,15 @@ class BodySearchIndexer {
 
   Future<void> _runDrain() async {
     _dirty = false;
+    final indexing = _indexing = Completer<void>();
+    void projected() {
+      if (identical(_indexing, indexing)) _indexing = null;
+      if (!indexing.isCompleted) indexing.complete();
+    }
+
     try {
       if (!await _isAvailable() || _isStale) return;
-      await _dao.removeOrphans();
+      if (await _dao.removeOrphans() > 0) NoteSearchDao.ledgerChanged();
       if (_isStale) return;
       await _dao.touchUnchanged();
       if (_isStale) return;
@@ -353,15 +418,15 @@ class BodySearchIndexer {
       // and an unbounded pause would hold every search at its budget with
       // the notice up for that long.
       var paused = Duration.zero;
-      while (true) {
-        final stale = [
-          for (final note in await _dao.staleNotes())
-            if (!attempted.contains(note.rowid)) note,
-        ];
-        if (_isStale) return;
-        if (stale.isEmpty) break;
+      // Stores [notes] through [store] a page at a time, each page that
+      // wrote announced at once, so a drain a switch or a failure cuts short
+      // has still published what it stored. False when a switch overtook it.
+      Future<bool> inPages(
+        List<StaleBodyNote> notes,
+        Future<int?> Function(List<StaleBodyNote> page) store,
+      ) async {
         for (final page in pagesByBytes(
-          stale,
+          notes,
           (note) => note.contentLength,
           _pageBytes,
           maxItems: SearchConstants.bodyPageMaxNotes,
@@ -370,21 +435,42 @@ class BodySearchIndexer {
               scheduler.editorBusy()) {
             await scheduler.editorPoll();
             paused += SearchConstants.bodyIndexEditorPoll;
-            if (_isStale) return;
+            if (_isStale) return false;
           }
-          final written = await _indexPage(page);
-          if (written == null) return;
+          final written = await store(page);
+          if (written == null) return false;
           attempted.addAll([for (final note in page) note.rowid]);
-          if (written > 0) wrote = true;
+          if (written > 0) {
+            wrote = true;
+            NoteSearchDao.ledgerChanged();
+          }
           await scheduler.yieldBetweenPages();
-          if (_isStale) return;
+          if (_isStale) return false;
         }
+        return true;
       }
+
+      while (true) {
+        final stale = [
+          for (final note in await _dao.staleNotes())
+            if (!attempted.contains(note.rowid)) note,
+        ];
+        if (_isStale) return;
+        if (stale.isEmpty) break;
+        if (!await inPages(stale, _indexPage)) return;
+      }
+      projected();
+      // The tags v57 left unread, once the projections are current: read
+      // from the bodies alone, so the FTS table is never rewritten for them.
+      final untagged = await _dao.untaggedNotes();
+      if (_isStale || !await inPages(untagged, _tagPage)) return;
       if (wrote) await _dao.checkpoint();
     } catch (e, st) {
       _dirty = true;
       debugPrint('[BodySearchIndexer] drain failed: $e');
       debugPrintStack(stackTrace: st, maxFrames: 10);
+    } finally {
+      projected();
     }
   }
 
@@ -417,16 +503,47 @@ class BodySearchIndexer {
           text: texts[i].body,
           title: texts[i].title,
           tags: texts[i].tags,
+          ledgerTags: texts[i].ledgerTags,
           bodyUnreadable: !bodies.containsKey(note.id),
         ),
     ]);
     return _isStale ? null : written;
   }
+
+  /// Reads one page of [NoteSearchDao.untaggedNotes]' bodies and stores
+  /// their tags alone; how many it stored, or null when a switch overtook
+  /// it. An unreadable body stores `''`, as its projection would.
+  Future<int?> _tagPage(List<StaleBodyNote> page) async {
+    final bodies = await this.bodies([for (final note in page) note.id]);
+    if (_isStale) return null;
+    final texts = [for (final note in page) bodies[note.id] ?? ''];
+    var bytes = 0;
+    for (final text in texts) {
+      bytes += text.length;
+    }
+    final tags = await _tagsOfPage(this, texts, bytes);
+    if (_isStale) return null;
+    final written = await _dao.writeTags([
+      for (final (i, note) in page.indexed)
+        (rowid: note.rowid, id: note.id, hlc: note.hlc, tags: tags[i]),
+    ]);
+    return _isStale ? null : written;
+  }
 }
+
+/// [_projectPage]'s shape for the tags alone.
+Future<List<String>> _tagsOfPage(
+  BodySearchIndexer indexer,
+  List<String> bodies,
+  int bytes,
+) => indexer.offIsolate(
+  bytes,
+  () => [for (final body in bodies) tagColumns(body).spelled],
+);
 
 /// Top-level so the closure handed to an isolate captures the inputs alone,
 /// never the indexer and its database.
-Future<List<({String body, String title, String tags})>> _projectPage(
+Future<List<_Projected>> _projectPage(
   BodySearchIndexer indexer,
   List<(String, String)> inputs,
   int bytes,

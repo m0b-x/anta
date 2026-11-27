@@ -151,6 +151,64 @@ void main() {
     expect(stored.map((r) => r.noteId), expected);
   });
 
+  test('an unpinned note dropped above the pinned ones lands first among the '
+      'unpinned, on the page and in the stored order (review C10)', () async {
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    for (var i = 0; i < 3; i++) {
+      final note = await db.noteDao.createNote(folderId: 'f1', title: 'N$i');
+      await service.setValueForNote(laps, i, noteId: note.id);
+    }
+    await service.flush();
+    bloc.add(CounterPerNoteOpened(counterId: laps));
+    await pumpEventQueue();
+    List<String> order() => [
+      for (final e in (bloc.state as CounterPerNoteLoaded).entries) e.note.id,
+    ];
+    bloc.add(CounterPerNoteTogglePin(noteId: order()[2]));
+    await pumpEventQueue();
+    final [pinned, first, last] = order();
+
+    bloc.add(const CounterPerNoteReorder(oldIndex: 2, newIndex: 0));
+    await pumpEventQueue();
+
+    expect(order(), [pinned, last, first]);
+    final stored = await service.getOrderedNoteValuesForCounter(laps);
+    expect(stored.map((r) => r.noteId), [pinned, last, first]);
+  });
+
+  test('a pinned note dropped below the unpinned ones lands last among the '
+      'pinned, on the page and in the stored order (review C10)', () async {
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    for (var i = 0; i < 3; i++) {
+      final note = await db.noteDao.createNote(folderId: 'f1', title: 'N$i');
+      await service.setValueForNote(laps, i, noteId: note.id);
+    }
+    await service.flush();
+    bloc.add(CounterPerNoteOpened(counterId: laps));
+    await pumpEventQueue();
+    List<String> order() => [
+      for (final e in (bloc.state as CounterPerNoteLoaded).entries) e.note.id,
+    ];
+    bloc.add(CounterPerNoteTogglePin(noteId: order()[1]));
+    await pumpEventQueue();
+    bloc.add(CounterPerNoteTogglePin(noteId: order()[2]));
+    await pumpEventQueue();
+    final [top, second, unpinned] = order();
+
+    bloc.add(const CounterPerNoteReorder(oldIndex: 0, newIndex: 2));
+    await pumpEventQueue();
+
+    expect(order(), [second, top, unpinned]);
+    final stored = await service.getOrderedNoteValuesForCounter(laps);
+    expect(stored.map((r) => r.noteId), [second, top, unpinned]);
+  });
+
   test('a tap made while a pin is written stays on the page', () async {
     final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
     final laps = await service.addCounter(

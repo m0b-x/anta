@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/row_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../models/app_user.dart';
 import 'user_avatar.dart';
 
@@ -346,9 +347,16 @@ Future<void> showRowActionSheet(
             ),
             const Divider(),
             if (headerBuilder != null) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: headerBuilder(sheetContext),
+              // A container that keeps each swatch a node of its own, so a
+              // flow can wait for the band before it taps one.
+              Semantics(
+                container: true,
+                explicitChildNodes: true,
+                identifier: SemanticsIds.rowActionLabels,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: headerBuilder(sheetContext),
+                ),
               ),
               const Divider(),
             ],

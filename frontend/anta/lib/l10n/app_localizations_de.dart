@@ -3818,6 +3818,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get step => 'Schritt';
 
   @override
+  String get counterNumberInvalid => 'Ganze Zahl eingeben';
+
+  @override
+  String get counterStepZero => 'Schritt darf nicht 0 sein';
+
+  @override
   String get counterScope => 'Zählerbereich';
 
   @override
@@ -3924,6 +3930,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get counterNotFound => 'Diesen Zähler gibt es nicht mehr';
+
+  @override
+  String get counterPickerNotCounted => 'Nicht gezählt — nichts eingefügt';
 
   @override
   String get counterRetry => 'Erneut versuchen';

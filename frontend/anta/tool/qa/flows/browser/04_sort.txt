@@ -1,0 +1,55 @@
+# The sort sheets through the ⋮ menu's Sort by and its chooser: the root's
+# folders by name Z-A, then Week 1's notes by title A-Z and Z-A, each
+# order read back with `expect --ordered`.
+# - The root offers only the folders' sheet; a folder page offers both.
+# - Training holds no note of its own (Week 1 does), so the notes are
+#   sorted in Week 1. Each note's preview names the other, so a title
+#   matches both rows: a row is told by a word only its own preview holds
+#   — Squat is Session 1's, Deadlift Session 2's.
+# - Week 1 opens on last updated: Session 2 (edited a minute later)
+#   first. A-Z puts Session 1 first, Z-A Session 2 again.
+# - The chooser's two ids (browser-sort-open-folders, -notes) are
+#   temporary: they retire with the chooser in Slice 2 of the browser's
+#   sheets rework.
+wait "Training"
+expect --ordered "Inbox" "Money" "Training"
+tap id:folder-more
+wait id:folder-menu-sort
+tap id:folder-menu-sort
+wait id:browser-sort-open-folders
+expect --absent id:browser-sort-open-notes
+tap id:browser-sort-open-folders
+wait id:browser-sort-folder-name-desc
+expect id:browser-sort-folder-name-asc id:browser-sort-folder-created-desc id:browser-sort-folder-created-asc id:browser-sort-folder-label
+tap id:browser-sort-folder-name-desc
+wait id:browser-sort-folder-name-desc --gone
+expect --ordered "Training" "Money" "Inbox"
+look 04_root_name_desc
+tap "Training"
+wait id:create-note
+wait "Week 1"
+tap "Week 1"
+expect "Squat" "Deadlift" --timeout 10
+expect --ordered "Deadlift" "Squat"
+tap id:folder-more
+wait id:folder-menu-sort
+tap id:folder-menu-sort
+wait id:browser-sort-open-notes
+expect id:browser-sort-open-folders
+tap id:browser-sort-open-notes
+wait id:browser-sort-note-title-asc
+expect id:browser-sort-note-title-desc id:browser-sort-note-updated-desc id:browser-sort-note-updated-asc id:browser-sort-note-created-desc id:browser-sort-note-created-asc id:browser-sort-note-label
+tap id:browser-sort-note-title-asc
+wait id:browser-sort-note-title-asc --gone
+expect --ordered "Squat" "Deadlift"
+tap id:folder-more
+wait id:folder-menu-sort
+tap id:folder-menu-sort
+wait id:browser-sort-open-notes
+tap id:browser-sort-open-notes
+wait id:browser-sort-note-title-desc
+tap id:browser-sort-note-title-desc
+wait id:browser-sort-note-title-desc --gone
+expect --ordered "Deadlift" "Squat"
+look 04_notes_title_desc
+errors

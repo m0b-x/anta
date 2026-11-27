@@ -3851,6 +3851,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get step => 'Pas';
 
   @override
+  String get counterNumberInvalid => 'Introdu un număr întreg';
+
+  @override
+  String get counterStepZero => 'Pasul nu poate fi 0';
+
+  @override
   String get counterScope => 'Domeniu Contor';
 
   @override
@@ -3960,7 +3966,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get counterNotFound => 'Acest contor nu mai există';
 
   @override
-  String get counterRetry => 'Încercă din nou';
+  String get counterPickerNotCounted => 'Nu s-a numărat — nu s-a inserat nimic';
+
+  @override
+  String get counterRetry => 'Încearcă din nou';
 
   @override
   String get counterPerNoteValues => 'Valori per notiță';

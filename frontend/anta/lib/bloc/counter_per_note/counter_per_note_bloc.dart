@@ -304,6 +304,9 @@ class CounterPerNoteBloc
     }
   }
 
+  /// A drop outside the dragged note's pin group lands at that group's edge,
+  /// as `CounterService.reorderCounters` does: the rows are read back pinned
+  /// first, so it would jump back at the next refresh (review C10).
   Future<void> _onReorder(
     CounterPerNoteReorder event,
     Emitter<CounterPerNoteState> emit,
@@ -313,7 +316,13 @@ class CounterPerNoteBloc
     try {
       final entries = List<NoteValueEntry>.from(current.entries);
       final item = entries.removeAt(event.oldIndex);
-      entries.insert(event.newIndex, item);
+      final pinnedOthers = entries.where((e) => e.isPinned).length;
+      entries.insert(
+        item.isPinned
+            ? event.newIndex.clamp(0, pinnedOthers)
+            : event.newIndex.clamp(pinnedOthers, entries.length),
+        item,
+      );
       emit(current.copyWith(entries: entries));
       final positions = <String, int>{};
       for (var i = 0; i < entries.length; i++) {

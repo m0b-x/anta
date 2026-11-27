@@ -6460,6 +6460,18 @@ abstract class AppLocalizations {
   /// **'Step'**
   String get step;
 
+  /// Error under the counter form's start value or step field while it does not hold a whole number; Save is held meanwhile
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a whole number'**
+  String get counterNumberInvalid;
+
+  /// Error under the counter form's step field when it holds 0, a step no tap would move; Save is held meanwhile
+  ///
+  /// In en, this message translates to:
+  /// **'Step can\'t be 0'**
+  String get counterStepZero;
+
   /// Label for counter scope selection
   ///
   /// In en, this message translates to:
@@ -6657,6 +6669,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This counter no longer exists'**
   String get counterNotFound;
+
+  /// Snackbar in the note editor when the counter picker's choice could not be counted (the counters not loaded, the counter gone, a write that failed), so no number was written into the note
+  ///
+  /// In en, this message translates to:
+  /// **'Not counted — nothing inserted'**
+  String get counterPickerNotCounted;
 
   /// Button label to retry loading counters
   ///

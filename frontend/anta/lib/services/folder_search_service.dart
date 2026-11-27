@@ -170,13 +170,24 @@ String titleProjection(String title) => ' ${searchTokens(title).join(' ')} ';
 /// `" #"` and a space, or by a prefix after `" #"` — three characters even
 /// for a one-letter prefix, which a trigram needs — and never inside a
 /// longer tag.
-String tagProjection(String body) {
-  final tags = {
-    for (final tag in extractTags(body, cache: false)) normalizeForSearch(tag),
-  };
-  return tags.isEmpty
-      ? ' '
-      : ' ${[for (final tag in tags) '#$tag'].join(' ')} ';
+String tagProjection(String body) => tagColumns(body).projection;
+
+/// Both strings the drain stores for [body]'s `#tags`, from one
+/// [extractTags] pass: [tagProjection]'s, and the ledger's — each tag once
+/// per folded form, spelled as it is first written, without `#`, one space
+/// between — which the tag catalog counts.
+({String projection, String spelled}) tagColumns(String body) {
+  final folded = <String>{};
+  final spelled = <String>[];
+  for (final tag in extractTags(body, cache: false)) {
+    if (folded.add(normalizeForSearch(tag))) spelled.add(tag);
+  }
+  return (
+    projection: folded.isEmpty
+        ? ' '
+        : ' ${[for (final tag in folded) '#$tag'].join(' ')} ',
+    spelled: spelled.join(' '),
+  );
 }
 
 /// The FTS5 clauses requiring every tag in [tags] (folded, without `#`) in
@@ -471,9 +482,10 @@ class FolderSearchService {
   }
 
   /// Completes once the active database's body index has caught up — the
-  /// moment a search that came back incomplete is worth running again.
+  /// moment a search that came back incomplete is worth running again, which
+  /// a backfill of tags alone never delays.
   Future<void> whenIndexed() async =>
-      (await _indexerForActiveDatabase()).whenIdle();
+      (await _indexerForActiveDatabase()).whenIndexed();
 
   /// Every write — an editor save, a restore, an import, a sync pull —
   /// reaches the index as a flag on the active indexer and nothing more; the

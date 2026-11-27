@@ -56,8 +56,57 @@ abstract final class SemanticsIds {
   static const String rowActionSendCopy = 'row-action-send-copy';
   static const String rowActionDelete = 'row-action-delete';
 
+  /// The band under a row sheet's title that holds the colour strip, in the
+  /// browser's row sheets and in the sync guide's demo sheet. On a
+  /// partner's row the band holds the read-only line and no strip, so the id
+  /// alone does not prove the strip is there.
+  static const String rowActionLabels = 'row-action-labels';
+
   /// The folder page's ⋮ button — the browser's twin of [editorMore].
   static const String folderMore = 'folder-more';
+
+  /// The ⋮ menu's Sort by and Move history entries.
+  static const String folderMenuSort = 'folder-menu-sort';
+  static const String folderMenuMoveHistory = 'folder-menu-move-history';
+
+  /// The sort chooser's two rows, each opening its kind's sort sheet; the
+  /// notes row exists only below the root. Temporary: both retire with the
+  /// chooser in Slice 2 of the browser's sheets rework.
+  static const String browserSortOpenFolders = 'browser-sort-open-folders';
+  static const String browserSortOpenNotes = 'browser-sort-open-notes';
+
+  /// One row per order of the folders' and the notes' sort sheets, named
+  /// for the order rather than its translated words.
+  static const String browserSortFolderNameAsc = 'browser-sort-folder-name-asc';
+  static const String browserSortFolderNameDesc =
+      'browser-sort-folder-name-desc';
+  static const String browserSortFolderCreatedDesc =
+      'browser-sort-folder-created-desc';
+  static const String browserSortFolderCreatedAsc =
+      'browser-sort-folder-created-asc';
+  static const String browserSortFolderLabel = 'browser-sort-folder-label';
+  static const String browserSortNoteTitleAsc = 'browser-sort-note-title-asc';
+  static const String browserSortNoteTitleDesc = 'browser-sort-note-title-desc';
+  static const String browserSortNoteUpdatedDesc =
+      'browser-sort-note-updated-desc';
+  static const String browserSortNoteUpdatedAsc =
+      'browser-sort-note-updated-asc';
+  static const String browserSortNoteCreatedDesc =
+      'browser-sort-note-created-desc';
+  static const String browserSortNoteCreatedAsc =
+      'browser-sort-note-created-asc';
+  static const String browserSortNoteLabel = 'browser-sort-note-label';
+
+  /// The move history sheet, its Clear, and each entry's undo keyed by the
+  /// entry's place in the list, newest first: a moved item's id is minted
+  /// by the seed's import, so a flow can only spell the position.
+  static const String moveHistorySheet = 'move-history-sheet';
+  static const String moveHistoryClear = 'move-history-clear';
+  static String moveHistoryUndo(int index) => 'move-history-undo-$index';
+
+  /// The selection bar's Label, the way into the label picker for a
+  /// selection.
+  static const String selectionLabel = 'selection-label';
 
   /// The folder picker of a move, a copy or a share: its search field, its
   /// one confirm button whatever the pick is for, its Cancel, the address
@@ -1077,6 +1126,10 @@ abstract final class SemanticsIds {
 
   /// The colour-label swatch strip, in whichever sheet raised it.
   static const String labelPicker = 'label-picker';
+
+  /// One swatch of the colour-label strip, by the label's storage name —
+  /// `none` first, then the palette — wherever the strip is drawn.
+  static String labelSwatch(String label) => 'label-swatch-$label';
 
   /// The alarm page's four actions. Tagged because a device pass has to stop a
   /// ring in whatever language the phone is in, and because the page has no

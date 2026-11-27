@@ -40,10 +40,14 @@ final class AddCounter extends CounterEvent {
 final class UpdateCounter extends CounterEvent {
   final Counter counter;
 
-  const UpdateCounter({required this.counter});
+  /// The counter as the form opened on it: only what differs from it is
+  /// written — see `CounterService.updateCounter`.
+  final Counter? previous;
+
+  const UpdateCounter({required this.counter, this.previous});
 
   @override
-  List<Object?> get props => [counter];
+  List<Object?> get props => [counter, previous];
 }
 
 /// [done] completes with true once the counter is deleted, with false when

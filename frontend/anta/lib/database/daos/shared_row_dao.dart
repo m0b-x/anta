@@ -809,6 +809,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     final ids = [for (final row in said) row.read<String>('id')];
     if (ids.isNotEmpty) {
       await NoteSearchDao(db).forgetNotes(ids);
+      NoteSearchDao.ledgerChanged();
       await db.contentChunkDao.deleteChunksForNotes(ids);
     }
     for (final (table, emptied, words) in const [
@@ -943,6 +944,9 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
           // names a note of the person's own must not cost it its text.
           final ids = [for (final row in theirs) row.read<String>('id')];
           await NoteSearchDao(db).forgetNotes(ids);
+          // The drain would find no orphan of theirs to announce: the tag
+          // catalog reads again once this transaction ends.
+          if (ids.isNotEmpty) NoteSearchDao.ledgerChanged();
           await db.contentChunkDao.deleteChunksForNotes(ids);
         }
       }

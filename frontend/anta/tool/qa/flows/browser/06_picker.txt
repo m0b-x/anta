@@ -1,0 +1,59 @@
+# The move picker: a search result that moves at once, then on the next
+# note a recent chip, a search that finds nothing, Up, and Cancel, and
+# last the chip moving the note in one tap.
+# - Session 2 goes to Inbox by a search result: that move makes Inbox
+#   the picker's one recent destination. The field gets a stem of the
+#   name; the whole name would match the field's own text exactly.
+# - The picker opens inside the note's own folder, Week 1; Up goes to
+#   Training. Cancel moves nothing.
+# - Each note's preview names the other, so a title matches both rows of
+#   Week 1 while both are there: Session 2 sorts first (last updated).
+#   A row is told by a word only its own preview holds (Squat, Deadlift).
+wait "Training"
+tap "Training"
+wait id:create-note
+wait "Week 1"
+tap "Week 1"
+expect "Squat" "Deadlift" --timeout 10
+longpress "Session 2" --nth 0
+wait id:row-action-move
+tap id:row-action-move --settle 1000
+wait id:folder-picker-search
+tap id:folder-picker-search
+type "Inb"
+expect "Inbox" --absent "SUBFOLDERS OF" --timeout 10
+tap "Inbox"
+wait id:folder-picker-confirm --gone
+expect "Squat" --absent "Deadlift" --timeout 10
+longpress "Session 1" --nth=-1
+wait id:row-action-move
+tap id:row-action-move --settle 1000
+wait id:folder-picker-search
+expect "Recent" "SUBFOLDERS OF WEEK 1" --timeout 5
+tap id:folder-picker-search
+type "zzqx"
+expect "No folders found" --absent "SUBFOLDERS OF" --timeout 10
+clear
+expect "SUBFOLDERS OF WEEK 1" --absent "No folders found" --timeout 10
+tap id:folder-picker-up
+expect "SUBFOLDERS OF TRAINING" --timeout 5
+look 06_picker_up
+tap id:folder-picker-cancel
+wait id:folder-picker-confirm --gone
+expect "Squat" --timeout 5
+longpress "Session 1" --nth=-1
+wait id:row-action-move
+tap id:row-action-move --settle 1000
+wait id:folder-picker-search
+expect "Recent" --timeout 5
+tap "Inbox"
+wait id:folder-picker-confirm --gone
+expect --absent "Squat" --timeout 10
+key back
+wait id:create-note
+key back
+wait id:create-folder
+wait "Money"
+tap "Inbox"
+expect "Squat" "Deadlift" --timeout 10
+errors

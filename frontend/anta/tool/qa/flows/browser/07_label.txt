@@ -1,0 +1,23 @@
+# A colour label given through selection: Inbox (no label) selected from
+# its sheet, the selection bar's Label, the red swatch; the picker closes,
+# selection ends, and Inbox's row says "Red label".
+# - The sheet's Select selects the row it was raised on, so the bar's
+#   actions are on.
+# - The row speaks its label after its name ("Training / Blue label / 2"):
+#   no row at the root is red before the pick.
+wait "Inbox"
+expect --absent "Red label"
+longpress "Inbox"
+wait id:row-action-select
+tap id:row-action-select
+wait id:selection-label
+wait id:row-action-select --gone
+tap id:selection-label
+wait id:label-swatch-red
+expect id:label-picker id:label-swatch-none id:label-swatch-pink
+tap id:label-swatch-red
+wait id:label-swatch-red --gone
+wait id:create-folder
+expect "Red label" --timeout 10
+look 07_labelled
+errors

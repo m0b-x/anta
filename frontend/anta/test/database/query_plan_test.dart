@@ -864,6 +864,31 @@ void main() {
         ),
       );
     });
+
+    // The cascade walks through tombstones (review B8), which the partial
+    // position index does not hold: a tombstone step inside the recursion
+    // searched every folder tombstone once per folder it reached.
+    test('the folder cascade seeks its live subfolders through the folder '
+        'position index and reads the tombstones in one pass of folders, '
+        'looked up among the reached rows', () async {
+      final folder = await db.folderDao.createFolder(name: 'Log');
+      final plan = await planOf(
+        () => db.folderDao.softDeleteFolderWithDescendants(folder.id),
+        containing: 'WITH RECURSIVE',
+      );
+      expect(
+        plan,
+        contains(
+          contains('SEARCH f USING INDEX idx_folders_position (parent_id=?)'),
+        ),
+      );
+      expect(plan.where((line) => line.startsWith('SCAN f')), hasLength(1));
+      expect(
+        plan,
+        contains(allOf(startsWith('SEARCH d USING'), endsWith('(id=?)'))),
+      );
+      expect(plan, isNot(contains(startsWith('SEARCH f USING AUTOMATIC'))));
+    });
   });
 
   group('sync outbox', () {

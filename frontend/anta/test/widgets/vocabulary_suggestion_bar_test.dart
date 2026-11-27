@@ -5,8 +5,10 @@ import 'package:re_editor/re_editor.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/markdown_bar_metrics.dart';
+import 'package:anta/constants/tag_catalog.dart';
 import 'package:anta/controllers/vocabulary_suggestion_controller.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/catalog_tag.dart';
 import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/models/utility_button_config.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
@@ -240,6 +242,62 @@ void main() {
       });
     }
   }
+
+  group('a tag session', () {
+    VocabularySuggestionSession tagSession() {
+      TagCatalog.updateCache(const [
+        CatalogTag(tag: 'legday', folded: 'legday', noteCount: 3),
+        CatalogTag(tag: 'Legpress', folded: 'legpress', noteCount: 1),
+      ]);
+      addTearDown(TagCatalog.resetCache);
+      return VocabularySuggestionSession(
+        lineIndex: 0,
+        start: 0,
+        end: 3,
+        suggestions: TagCatalog.candidates,
+        atLineStart: true,
+      );
+    }
+
+    testWidgets('draws one-line pills with no scope label, as tall as an '
+        'unscoped session\'s', (tester) async {
+      await pumpBare(tester, unscopedSession);
+      final vocabularyPill = tester.getSize(pillBody('Bench press')).height;
+
+      await pumpBare(tester, tagSession());
+
+      expect(find.text('#legday'), findsOneWidget);
+      expect(find.text('#Legpress'), findsOneWidget);
+      expect(find.byIcon(Icons.format_list_bulleted_rounded), findsNothing);
+      // The second line would name the source, which a tag never has.
+      expect(
+        find.descendant(
+          of: find.byType(VocabularySuggestionBar),
+          matching: find.text(''),
+        ),
+        findsNothing,
+      );
+      expect(tester.getSize(pillBody('#legday')).height, vocabularyPill);
+    });
+
+    for (final textScale in [1.0, 1.3, 2.0]) {
+      testWidgets('opening and closing it never moves the editor at '
+          '${textScale}x', (tester) async {
+        final suggestions = await pumpBar(tester, textScale: textScale);
+        final normal = barHeight(tester);
+
+        suggestions.value = tagSession();
+        await tester.pump();
+        expect(find.byType(VocabularySuggestionBar), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        expect(barHeight(tester), normal);
+
+        suggestions.value = null;
+        await tester.pump();
+        expect(barHeight(tester), normal);
+      });
+    }
+  });
 
   testWidgets('only a single-list scope leads the strip, so the label never '
       'comes and goes while typing', (tester) async {

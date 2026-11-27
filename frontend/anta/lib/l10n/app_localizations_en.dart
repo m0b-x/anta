@@ -3787,6 +3787,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get step => 'Step';
 
   @override
+  String get counterNumberInvalid => 'Enter a whole number';
+
+  @override
+  String get counterStepZero => 'Step can\'t be 0';
+
+  @override
   String get counterScope => 'Counter Scope';
 
   @override
@@ -3891,6 +3897,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get counterNotFound => 'This counter no longer exists';
+
+  @override
+  String get counterPickerNotCounted => 'Not counted — nothing inserted';
 
   @override
   String get counterRetry => 'Retry';

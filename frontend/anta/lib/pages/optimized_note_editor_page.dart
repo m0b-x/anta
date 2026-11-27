@@ -87,6 +87,7 @@ import '../utils/share_leave_voice.dart';
 import '../widgets/content_rows.dart';
 import '../widgets/overlay_snackbar.dart';
 import '../services/vocabulary_service.dart';
+import '../services/tag_catalog_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
 import '../constants/font_constants.dart';
@@ -198,9 +199,14 @@ class _OptimizedNoteEditorPageState extends _NoteEditorState
       isFenceLine: _render.lineInFence,
     );
     _render.bind(_contentController);
+    // Every write the page makes from code runs under the tracker's guard.
+    // Read through a local, so a notification before the tracker is built
+    // answers "not from code" instead of throwing on the late field.
+    EditorEditTracker? edits;
     _vocabularySuggestions = VocabularySuggestionController(
       controller: _contentController,
       onInsert: _applyVocabularyInsertion,
+      isProgrammaticEdit: () => edits?.isProcessing ?? false,
     );
     _historyObserver = TextHistoryObserver(_contentController);
     _contentFocusNode = FocusNode()..addListener(_onContentFocusChanged);
@@ -223,7 +229,7 @@ class _OptimizedNoteEditorPageState extends _NoteEditorState
       ),
       isShown: () => _editorSettings.value.showStatsBar,
     );
-    _edits = EditorEditTracker(
+    _edits = edits = EditorEditTracker(
       controller: _contentController,
       autoBreakLongLines: () => _editorSettings.value.autoBreakLongLines,
       pasteContext: _pasteReformatContext,

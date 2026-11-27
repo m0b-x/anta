@@ -288,6 +288,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v56CategorySharedPair,
       migrate: _migrateV55ToV56,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v56CategorySharedPair,
+      toVersion: DatabaseSchema.v57LedgerTags,
+      migrate: _migrateV56ToV57,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -2279,8 +2284,9 @@ class DatabaseMigrations {
   /// step reads no body. Local-only: `syncSchemaVersion` stays at 45.
   ///
   /// The newest step defining the FTS table, so it shares
-  /// [DatabaseIndexes.createBodySearchTables] with fresh installs, which
-  /// swallows a SQLite without the trigram tokenizer as the v48 step does.
+  /// [DatabaseIndexes.createBodyFtsTable] with fresh installs, which
+  /// swallows a SQLite without the trigram tokenizer as the v48 step does;
+  /// the ledger it spells as it stood here, since v57 widened it.
   /// Idempotent: a table that already has the `tags` column is left alone
   /// with its ledger, and the drop is guarded.
   Future<void> _migrateV49ToV50(Migrator m, GeneratedDatabase db) async {
@@ -2298,7 +2304,12 @@ class DatabaseMigrations {
     } catch (e) {
       debugPrint('[DatabaseMigrations] v50 body index not dropped: $e');
     }
-    await DatabaseIndexes(_db).createBodySearchTables();
+    await _db.customStatement(
+      'CREATE TABLE IF NOT EXISTS note_search_ledger ('
+      'note_rowid INTEGER PRIMARY KEY, note_id TEXT NOT NULL, '
+      'indexed_hlc TEXT NOT NULL, fingerprint TEXT NOT NULL)',
+    );
+    await DatabaseIndexes(_db).createBodyFtsTable();
     await _db.customStatement('DELETE FROM note_search_ledger');
   }
 
@@ -2419,5 +2430,34 @@ class DatabaseMigrations {
     }
     await DatabaseIndexes(_db).createCategoryShareMarkIndex();
     await _recreateSharedRowFences();
+  }
+
+  /// v56→v57: `note_search_ledger.tags`, each note's `#tags` as written —
+  /// what the tag catalog counts — on the row every path that forgets a
+  /// note's words already deletes. NULL on every row the step finds: not
+  /// read yet, which the drain fills from the bodies after launch without
+  /// touching the FTS table, so the step neither reads a body nor makes a
+  /// note stale — re-projecting a whole library over a full FTS table grew
+  /// a 300-note database by about 45 %, for nothing the FTS rows lacked.
+  /// Local-only: `syncSchemaVersion` stays at 48.
+  ///
+  /// A database with no ledger at all gets the table as it stands here:
+  /// an `ALTER` there would fail the step at every launch. Frozen at this
+  /// version: its own DDL, never [DatabaseIndexes.createBodySearchTables].
+  /// Idempotent: guarded by the column list.
+  Future<void> _migrateV56ToV57(Migrator m, GeneratedDatabase db) async {
+    final columns = await _columnsOf('note_search_ledger');
+    if (columns.isEmpty) {
+      await _db.customStatement(
+        'CREATE TABLE IF NOT EXISTS note_search_ledger ('
+        'note_rowid INTEGER PRIMARY KEY, note_id TEXT NOT NULL, '
+        'indexed_hlc TEXT NOT NULL, fingerprint TEXT NOT NULL, tags TEXT)',
+      );
+      return;
+    }
+    if (columns.contains('tags')) return;
+    await _db.customStatement(
+      'ALTER TABLE note_search_ledger ADD COLUMN tags TEXT',
+    );
   }
 }

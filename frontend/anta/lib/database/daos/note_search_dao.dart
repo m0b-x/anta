@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
@@ -52,6 +54,13 @@ class BodyProjection {
   /// `tagProjection` of the body: the `tags` column.
   final String tags;
 
+  /// The body's tags as written (`tagColumns`), for the ledger's `tags`
+  /// column, which the tag catalog reads; empty for an unreadable body, and
+  /// never NULL, which is a row whose tags were not read yet. Written by the
+  /// statement that claims the ledger row, so a projection that loses its
+  /// compare-and-set stores no tags either.
+  final String ledgerTags;
+
   /// The note's chunks could not be decoded, so [text] holds its title
   /// alone. Its ledger is settled with a mark no fingerprint equals, so the
   /// next stamp the note carries — a repair is a write or a merge — has it
@@ -65,6 +74,7 @@ class BodyProjection {
     required this.text,
     required this.title,
     required this.tags,
+    required this.ledgerTags,
     this.bodyUnreadable = false,
   });
 }
@@ -84,10 +94,11 @@ enum BodyIndexCapability {
 }
 
 /// Owns the device-local body index (**v48**, `docs/scalability-roadmap.md`
-/// §5.5 S11; its title and tags columns **v50**, S12): `note_body_fts`, a
-/// contentless FTS5 trigram table holding one projection per note under the
-/// note's rowid, and `note_search_ledger`, which says which stamp each
-/// projection was made at.
+/// §5.5 S11; its title and tags columns **v50**, S12; the ledger's tags
+/// **v57**): `note_body_fts`, a contentless FTS5 trigram table holding one
+/// projection per note under the note's rowid, and `note_search_ledger`,
+/// which says which stamp each projection was made at, and which tags the
+/// note carried then.
 ///
 /// Raw SQL over two tables Drift does not model: both are derived from the
 /// notes and their chunks, never synced, never backed up as data, and
@@ -202,6 +213,10 @@ class NoteSearchDao {
 
   /// Whether any live note moved since it was indexed, or any indexed note
   /// is gone — the one statement a search pays when nothing changed.
+  ///
+  /// About the search index alone: tags v57 left unread change no search's
+  /// answer, so no search waits on them, and the drain asks after them
+  /// itself ([untaggedNotes]) once its projections are current.
   Future<bool> hasPendingWork() async {
     final row = await _db
         .customSelect(
@@ -211,6 +226,21 @@ class NoteSearchDao {
         .getSingle();
     return row.read<int>('pending') != 0;
   }
+
+  /// Shared by every DAO and indexer instance, so a subscription outlives
+  /// the database a switch replaces.
+  static final StreamController<void> _ledgerChanges =
+      StreamController<void>.broadcast();
+
+  /// Fires whenever ledger rows were written or removed — by the drain, a
+  /// page at a time, or by a path that forgets notes itself — so what is read
+  /// from the ledger (the tag catalog) reads again.
+  static Stream<void> get ledgerChanges => _ledgerChanges.stream;
+
+  /// Says that ledger rows were written or removed. Called inside the
+  /// caller's transaction is fine: a listener's read runs outside it, and
+  /// Drift holds every statement outside a transaction until it ends.
+  static void ledgerChanged() => _ledgerChanges.add(null);
 
   /// Drops the projections of the [_orphans]. Returns how many it dropped.
   Future<int> removeOrphans() {
@@ -336,13 +366,14 @@ class NoteSearchDao {
       for (final projection in projections) {
         final claimed = await _db.customUpdate(
           'INSERT OR REPLACE INTO note_search_ledger '
-          '(note_rowid, note_id, indexed_hlc, fingerprint) '
+          '(note_rowid, note_id, indexed_hlc, fingerprint, tags) '
           'SELECT n.rowid, n.id, n.hlc_timestamp, '
-          '${projection.bodyUnreadable ? _unreadableMark : _fingerprint} '
+          '${projection.bodyUnreadable ? _unreadableMark : _fingerprint}, ? '
           'FROM notes n '
           'WHERE n.rowid = ? AND n.id = ? AND n.hlc_timestamp = ? '
           'AND n.is_deleted = 0',
           variables: [
+            Variable<String>(projection.ledgerTags),
             Variable<int>(projection.rowid),
             Variable<String>(projection.id),
             Variable<String>(projection.hlc),
@@ -422,6 +453,84 @@ class NoteSearchDao {
         (note: _db.notes.map(row.data), score: row.read<double>('quick_score')),
     ];
   }
+
+  /// The live notes whose ledger row is current but whose tags were never
+  /// read — every indexed note after the v57 step — newest edit first, as
+  /// [staleNotes] orders. A row that is stale as well is [staleNotes]'s: its
+  /// projection writes the tags with the rest.
+  Future<List<StaleBodyNote>> untaggedNotes() async {
+    final rows = await _db
+        .customSelect(
+          'SELECT n.rowid AS rid, n.id, n.title, n.hlc_timestamp, '
+          'n.content_length FROM note_search_ledger l '
+          'JOIN notes n ON n.rowid = l.note_rowid AND n.id = l.note_id '
+          'WHERE l.tags IS NULL AND n.is_deleted = 0 '
+          'AND l.indexed_hlc = n.hlc_timestamp '
+          'ORDER BY n.updated_at DESC, n.id',
+        )
+        .get();
+    return [
+      for (final row in rows)
+        StaleBodyNote(
+          rowid: row.read<int>('rid'),
+          id: row.read<String>('id'),
+          title: row.read<String>('title'),
+          hlc: row.read<String>('hlc_timestamp'),
+          contentLength: row.read<int>('content_length'),
+        ),
+    ];
+  }
+
+  /// Stores the tags [untaggedNotes] read, in one transaction and one
+  /// statement per note, never touching the FTS table. Each lands only while
+  /// the row is still unread and both it and its note still carry the stamp
+  /// the body was read at — the ledger alone keeps its stamp when the note
+  /// is edited — so a note edited meanwhile keeps NULL and gets its tags from
+  /// its projection. Returns how many were stored.
+  Future<int> writeTags(
+    List<({int rowid, String id, String hlc, String tags})> notes,
+  ) {
+    if (notes.isEmpty) return Future.value(0);
+    return _db.transaction(() async {
+      var written = 0;
+      for (final note in notes) {
+        written += await _db.customUpdate(
+          'UPDATE note_search_ledger SET tags = ? '
+          'WHERE note_rowid = ? AND note_id = ? AND indexed_hlc = ? '
+          'AND tags IS NULL AND EXISTS (SELECT 1 FROM notes n '
+          'WHERE n.rowid = note_search_ledger.note_rowid '
+          'AND n.id = note_search_ledger.note_id '
+          'AND n.hlc_timestamp = note_search_ledger.indexed_hlc '
+          'AND n.is_deleted = 0)',
+          variables: [
+            Variable<String>(note.tags),
+            Variable<int>(note.rowid),
+            Variable<String>(note.id),
+            Variable<String>(note.hlc),
+          ],
+        );
+      }
+      return written;
+    });
+  }
+
+  /// The ledger's `tags` of every live note that carries any — what the tag
+  /// catalog counts — read from the ledger rows that hold tags, each probing
+  /// its note by rowid (`CROSS JOIN` keeps that order rather than a scan of
+  /// every note), and joined as [quickMatching] joins, by rowid and id, so
+  /// neither a row whose rowid a `VACUUM` gave to another note nor a
+  /// tombstone the drain has not swept yet is counted. NULL (not read yet)
+  /// and `''` (none) are skipped alike. One statement, no body read.
+  Future<List<String>> catalogTags() async {
+    final rows = await _db.customSelect(catalogTagsSql).get();
+    return [for (final row in rows) row.read<String>('tags')];
+  }
+
+  /// [catalogTags]' statement, which the query-plan pin explains.
+  static const String catalogTagsSql =
+      'SELECT l.tags FROM note_search_ledger l '
+      'CROSS JOIN notes n ON n.rowid = l.note_rowid '
+      "WHERE l.tags != '' AND n.id = l.note_id AND n.is_deleted = 0";
 
   /// Every live note under the same filters as [matching] — the candidate
   /// set when this database has no FTS table to narrow it.
